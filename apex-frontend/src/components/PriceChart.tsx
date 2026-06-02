@@ -72,8 +72,8 @@ export default function PriceChart({ currentPrice, symbol }: Props) {
   useEffect(() => {
     if (!currentPrice || !seriesRef.current) return;
 
-    const now = Math.floor(Date.now() / 1000) as Time;
-    const minute = Math.floor(now / 60) * 60;
+    const nowSec = Math.floor(Date.now() / 1000);
+    const minute = (Math.floor(nowSec / 60) * 60) as Time;
 
     if (lastBarRef.current && lastBarRef.current.time === minute) {
       const bar = lastBarRef.current;
@@ -83,7 +83,7 @@ export default function PriceChart({ currentPrice, symbol }: Props) {
       seriesRef.current.update(bar);
     } else {
       const newBar: CandlestickData = {
-        time: minute as Time,
+        time: minute,
         open: currentPrice,
         high: currentPrice,
         low: currentPrice,

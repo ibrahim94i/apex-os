@@ -9,6 +9,7 @@ function deriveWebSocketBase(apiUrl: string): string {
 import type {
   AccountMode,
   BacktestResults,
+  DashboardState,
   JournalAnalysis,
   JournalEntry,
   JournalEntryCreate,
@@ -43,6 +44,12 @@ export async function setAccountMode(mode: "demo" | "real"): Promise<AccountMode
   });
   if (!res.ok) throw new Error("فشل تبديل الحساب");
   storeAccountMode(mode);
+  return res.json();
+}
+
+export async function fetchDashboard(symbol = "BTCUSDT"): Promise<DashboardState> {
+  const res = await fetch(`${API_URL}/api/v1/dashboard?symbol=${symbol}`, { cache: "no-store" });
+  if (!res.ok) throw new Error("Failed to fetch dashboard");
   return res.json();
 }
 
