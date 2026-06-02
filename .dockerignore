@@ -1,0 +1,16 @@
+.git
+.env
+.env.*
+!.env.example
+**/__pycache__
+**/.pytest_cache
+**/.venv
+**/node_modules
+**/.next
+apex-frontend/
+deploy/
+scripts/
+*.bat
+*.log
+README.md
+push-github.bat
