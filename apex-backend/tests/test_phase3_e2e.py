@@ -23,7 +23,8 @@ def test_multi_asset_config() -> None:
     assert ASSETS["XAUUSD"].feed_type == "twelvedata"
     assert ASSETS["EURUSD"].feed_type == "twelvedata"
     assert ASSETS["EURUSD"].market_schedule == "forex_24_5"
-    assert ASSETS["BTCUSDT"].feed_type == "binance"
+    assert ASSETS["BTCUSDT"].feed_type == "twelvedata"
+    assert ASSETS["BTCUSDT"].twelvedata_symbol == "BTC/USD"
 
 
 def test_time_of_day_buckets() -> None:

@@ -27,9 +27,9 @@ ASSETS: dict[str, AssetConfig] = {
     "BTCUSDT": AssetConfig(
         symbol="BTCUSDT",
         display_name_ar="بيتكوين",
-        feed_type="binance",
+        feed_type="twelvedata",
         market_schedule="24_7",
-        binance_ws_url="wss://stream.binance.com:9443/ws/btcusdt@kline_1h",
+        twelvedata_symbol="BTC/USD",
         candle_interval="1h",
         poll_interval=300,
     ),
