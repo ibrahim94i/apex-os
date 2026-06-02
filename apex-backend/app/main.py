@@ -24,26 +24,36 @@ from app.logging_config import configure_logging, logger
 _bg_tasks: list = []
 
 
+async def _startup_warmup() -> None:
+    """Heavy startup — runs in background so Railway healthchecks pass quickly."""
+    try:
+        feed_manager.start_all()
+        await bootstrap_all_assets()
+        await publish_hourly_report()
+
+        from app.services.feed_health_service import run_recovery_cycle
+
+        await run_recovery_cycle()
+
+        if telegram_notifier.enabled:
+            ok = await telegram_notifier.send_test_message()
+            logger.info("telegram_startup_test", sent=ok)
+        else:
+            logger.warning("telegram_not_configured")
+
+        logger.info("apex_warmup_complete")
+    except Exception as exc:
+        logger.error("apex_warmup_failed", error=str(exc))
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     global _bg_tasks
     configure_logging()
     logger.info("apex_starting", environment=settings.environment)
 
-    feed_manager.start_all()
-    await bootstrap_all_assets()
-    await publish_hourly_report()
     _bg_tasks = start_background_tasks()
-
-    from app.services.feed_health_service import run_recovery_cycle
-
-    asyncio.create_task(run_recovery_cycle(), name="feed_startup_recovery")
-
-    if telegram_notifier.enabled:
-        ok = await telegram_notifier.send_test_message()
-        logger.info("telegram_startup_test", sent=ok)
-    else:
-        logger.warning("telegram_not_configured")
+    asyncio.create_task(_startup_warmup(), name="apex_warmup")
 
     yield
 

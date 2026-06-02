@@ -34,6 +34,12 @@ from app.schemas import (
 router = APIRouter()
 
 
+@router.get("/health/live")
+async def health_live() -> dict[str, str]:
+    """Lightweight liveness probe — no DB/Redis required (for Railway healthcheck)."""
+    return {"status": "alive"}
+
+
 @router.get("/health", response_model=HealthResponse)
 async def health_check(session: AsyncSession = Depends(get_db)) -> HealthResponse:
     db_status = "ok"
