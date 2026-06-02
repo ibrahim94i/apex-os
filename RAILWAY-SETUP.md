@@ -38,13 +38,30 @@ apex-os/                 ← جذر GitHub
 
 ---
 
-## Frontend (خدمة منفصلة)
+## Frontend (خدمة `friendly-imagination`)
+
+### الطريقة A — من جذر المستودع (موصى بها إذا Root Directory فارغ)
+
+| الإعداد | القيمة |
+|---------|--------|
+| **Root Directory** | `/` (فارغ) |
+| **Config-as-code** | `railway.frontend.json` |
+| **Dockerfile** | `Dockerfile.frontend` |
+
+### الطريقة B — من مجلد فرعي
 
 | الإعداد | القيمة |
 |---------|--------|
 | **Root Directory** | `apex-frontend` |
 | **Config-as-code** | `railway.json` |
-| **Variables** | `NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_WS_URL` |
+
+> ⚠️ **خطأ شائع:** Root Directory فارغ + `railway.json` (Backend) → Frontend يبني Python backend ويفشل Healthcheck!
+
+**Variables (build time):**
+```env
+NEXT_PUBLIC_API_URL=https://apex-os-production-9adc.up.railway.app
+NEXT_PUBLIC_WS_URL=wss://apex-os-production-9adc.up.railway.app
+```
 
 ---
 
