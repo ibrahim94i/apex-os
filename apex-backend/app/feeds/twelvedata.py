@@ -1,0 +1,208 @@
+"""TwelveData REST polling feed with error backoff and auto-recovery."""
+
+from __future__ import annotations
+
+import asyncio
+from datetime import datetime, timezone
+from typing import Any, Awaitable, Callable
+
+import httpx
+
+from app.config import settings
+from app.core.cache import set_feed_last_update, set_latest_price
+from app.logging_config import logger
+from app.services.feed_status import FeedConnectionState, set_feed_status
+
+BarCallback = Callable[[dict[str, Any]], Awaitable[None]]
+
+
+class TwelveDataFeed:
+    BASE_URL = "https://api.twelvedata.com/time_series"
+
+    def __init__(
+        self,
+        api_key: str | None = None,
+        symbol: str | None = None,
+        apex_symbol: str | None = None,
+        interval: str = "1h",
+        poll_interval: int = 300,
+        on_bar: BarCallback | None = None,
+        stagger_seconds: int = 0,
+    ) -> None:
+        self.api_key = api_key or settings.twelvedata_api_key
+        self.symbol = symbol or settings.twelvedata_symbol
+        self.apex_symbol = apex_symbol or self.symbol.replace("/", "")
+        self.interval = interval
+        self.poll_interval = poll_interval
+        self.on_bar = on_bar
+        self._stagger_seconds = stagger_seconds
+        self._running = False
+        self._task: asyncio.Task[None] | None = None
+        self._last_success_at: datetime | None = None
+        self._error_count = 0
+        self._reconnect_count = 0
+
+    @property
+    def is_running(self) -> bool:
+        return self._running and self._task is not None and not self._task.done()
+
+    def status(self) -> dict[str, Any]:
+        return {
+            "symbol": self.apex_symbol,
+            "feed_type": "twelvedata",
+            "td_symbol": self.symbol,
+            "running": self._running,
+            "task_alive": self._task is not None and not self._task.done(),
+            "last_success_at": self._last_success_at.isoformat() if self._last_success_at else None,
+            "error_count": self._error_count,
+            "reconnect_count": self._reconnect_count,
+        }
+
+    async def _fetch_latest_bar(self) -> dict[str, Any] | None:
+        if not self.api_key or self.api_key == "your_key_here":
+            logger.warning("twelvedata_api_key_not_configured", symbol=self.apex_symbol)
+            return None
+
+        params = {
+            "symbol": self.symbol,
+            "interval": self.interval,
+            "outputsize": 1,
+            "apikey": self.api_key,
+        }
+
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            from app.feeds.twelvedata_limiter import throttled_get
+
+            response = await throttled_get(client, self.BASE_URL, params=params)
+            response.raise_for_status()
+            data = response.json()
+
+        if data.get("status") == "error":
+            raise RuntimeError(data.get("message", "twelvedata error"))
+
+        if "values" not in data or not data["values"]:
+            logger.warning("twelvedata_no_data", symbol=self.apex_symbol, response=data)
+            return None
+
+        row = data["values"][0]
+        ts = datetime.strptime(row["datetime"], "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
+
+        return {
+            "symbol": self.apex_symbol,
+            "timestamp": ts.isoformat(),
+            "open": float(row["open"]),
+            "high": float(row["high"]),
+            "low": float(row["low"]),
+            "close": float(row["close"]),
+            "volume": float(row.get("volume", 0)),
+            "source": "twelvedata",
+            "is_closed": True,
+        }
+
+    async def _poll_loop(self) -> None:
+        from app.services.market_hours import is_market_open
+
+        error_backoff = 5
+
+        if self._stagger_seconds > 0:
+            await asyncio.sleep(self._stagger_seconds)
+
+        while self._running:
+            try:
+                if not is_market_open(self.apex_symbol):
+                    logger.debug("twelvedata_market_closed", symbol=self.apex_symbol)
+                    await asyncio.sleep(min(self.poll_interval, 60))
+                    continue
+
+                bar = await self._fetch_latest_bar()
+                if bar:
+                    self._last_success_at = datetime.now(timezone.utc)
+                    self._error_count = 0
+                    error_backoff = 5
+                    await set_latest_price(bar["symbol"], bar["close"], bar["timestamp"])
+                    await set_feed_last_update(bar["symbol"], bar["timestamp"])
+                    await set_feed_status(
+                        self.apex_symbol,
+                        FeedConnectionState.CONNECTED,
+                        last_update=self._last_success_at,
+                    )
+                    if self.on_bar:
+                        await self.on_bar(bar)
+                    await asyncio.sleep(self.poll_interval)
+                else:
+                    await asyncio.sleep(min(error_backoff, 60))
+
+            except asyncio.CancelledError:
+                raise
+            except httpx.HTTPStatusError as exc:
+                self._error_count += 1
+                self._reconnect_count += 1
+                await set_feed_status(
+                    self.apex_symbol,
+                    FeedConnectionState.RECONNECTING,
+                    consecutive_failures=self._error_count,
+                )
+                if exc.response.status_code == 429:
+                    error_backoff = max(error_backoff, 90)
+                logger.error(
+                    "twelvedata_poll_error",
+                    symbol=self.apex_symbol,
+                    status=exc.response.status_code,
+                    error=str(exc),
+                    backoff=error_backoff,
+                )
+                await asyncio.sleep(error_backoff)
+                error_backoff = min(error_backoff * 2, 180)
+            except Exception as exc:
+                self._error_count += 1
+                self._reconnect_count += 1
+                await set_feed_status(
+                    self.apex_symbol,
+                    FeedConnectionState.DISCONNECTED,
+                    consecutive_failures=self._error_count,
+                    detail=str(exc)[:120],
+                )
+                logger.error(
+                    "twelvedata_poll_error",
+                    symbol=self.apex_symbol,
+                    error=str(exc),
+                    backoff=error_backoff,
+                )
+                await asyncio.sleep(error_backoff)
+                error_backoff = min(error_backoff * 2, 120)
+
+    def start(self) -> None:
+        if self.is_running:
+            return
+        self._running = True
+        self._task = asyncio.create_task(
+            self._poll_loop(),
+            name=f"feed_twelvedata_{self.apex_symbol}",
+        )
+
+    async def stop(self) -> None:
+        self._running = False
+        if self._task:
+            self._task.cancel()
+            try:
+                await self._task
+            except asyncio.CancelledError:
+                pass
+            self._task = None
+
+    async def fetch_now(self) -> bool:
+        """Immediate poll — used during recovery."""
+        try:
+            bar = await self._fetch_latest_bar()
+            if not bar:
+                return False
+            self._last_success_at = datetime.now(timezone.utc)
+            await set_latest_price(bar["symbol"], bar["close"], bar["timestamp"])
+            await set_feed_last_update(bar["symbol"], bar["timestamp"])
+            await set_feed_status(self.apex_symbol, FeedConnectionState.CONNECTED)
+            if self.on_bar:
+                await self.on_bar(bar)
+            return True
+        except Exception as exc:
+            logger.error("twelvedata_fetch_now_error", symbol=self.apex_symbol, error=str(exc))
+            return False

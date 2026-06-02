@@ -1,0 +1,8 @@
+{
+  "$schema": "https://railway.com/railway.schema.json",
+  "name": "postgresql",
+  "description": "Managed PostgreSQL plugin for APEX OS. Add via Railway Dashboard: New > Database > PostgreSQL. Railway injects DATABASE_URL automatically — link it to backend and celery-worker services.",
+  "deploy": {
+    "restartPolicyType": "ON_FAILURE"
+  }
+}

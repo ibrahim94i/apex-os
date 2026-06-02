@@ -1,0 +1,293 @@
+"""Pipeline orchestrator — processes incoming bars through the full engine stack."""
+
+from datetime import datetime, timezone
+from typing import Any
+
+from sqlalchemy.dialects.postgresql import insert
+
+from app.agents.orchestrator import agent_orchestrator
+from app.core.cache import (
+    set_agent_consensus,
+    set_dashboard_state,
+    set_latest_indicators,
+    set_latest_regime,
+    set_latest_signal,
+)
+from app.database import AsyncSessionLocal
+from app.engines.indicator_engine import OHLCVBar
+from app.engines.kill_switch import kill_switch
+from app.engines.signal_generator import SignalGenerator
+from app.logging_config import logger
+from app.models import IndicatorSnapshot, PriceBar, RegimeSnapshot, TradingSignal
+from app.schemas import (
+    AgentConsensus,
+    RegimeSnapshotSchema,
+    SignalDirection,
+    KillSwitchStatusSchema,
+    TradingSignalSchema,
+)
+from app.services.alert_service import alert_service
+from app.services.dashboard_builder import build_asset_dashboard_state
+from app.services.market_hours import is_market_open
+from app.services.market_snapshot import build_market_snapshot
+from app.services.market_status_service import build_market_status
+from app.services.signal_filters import apply_high_selectivity_filters
+from app.services.signal_gate import should_emit_new_signal
+from app.services.telegram_notifier import telegram_notifier
+from app.websocket.manager import broadcaster
+
+_bar_buffer: dict[str, list[OHLCVBar]] = {}
+MAX_BUFFER = 250
+signal_generator = SignalGenerator()
+
+
+def _parse_bar(raw: dict[str, Any]) -> OHLCVBar:
+    ts = raw["timestamp"]
+    if isinstance(ts, str):
+        ts = datetime.fromisoformat(ts)
+    if ts.tzinfo is None:
+        ts = ts.replace(tzinfo=timezone.utc)
+    return OHLCVBar(
+        timestamp=ts,
+        open=raw["open"],
+        high=raw["high"],
+        low=raw["low"],
+        close=raw["close"],
+        volume=raw.get("volume", 0.0),
+    )
+
+
+async def _persist_bar(session: Any, bar: dict[str, Any]) -> None:
+    ts = bar["timestamp"]
+    if isinstance(ts, str):
+        ts = datetime.fromisoformat(ts)
+
+    stmt = insert(PriceBar).values(
+        symbol=bar["symbol"],
+        source=bar["source"],
+        timestamp=ts,
+        open=bar["open"],
+        high=bar["high"],
+        low=bar["low"],
+        close=bar["close"],
+        volume=bar.get("volume", 0.0),
+    ).on_conflict_do_nothing(index_elements=["symbol", "timestamp"])
+    await session.execute(stmt)
+
+
+def seed_bars_to_buffer(raw_bars: list[dict[str, Any]]) -> None:
+    """Pre-fill bar buffer from historical data (no pipeline side effects)."""
+    if not raw_bars:
+        return
+    symbol = raw_bars[0]["symbol"]
+    if symbol not in _bar_buffer:
+        _bar_buffer[symbol] = []
+    for raw in raw_bars:
+        _bar_buffer[symbol].append(_parse_bar(raw))
+    if len(_bar_buffer[symbol]) > MAX_BUFFER:
+        _bar_buffer[symbol] = _bar_buffer[symbol][-MAX_BUFFER:]
+
+
+async def process_bar(raw_bar: dict[str, Any]) -> None:
+    symbol = raw_bar["symbol"]
+
+    if not is_market_open(symbol):
+        logger.debug("market_closed_skip", symbol=symbol)
+        status = await build_market_status(symbol)
+        dashboard = await build_asset_dashboard_state(symbol)
+        dash_data = dashboard.model_dump(mode="json")
+        await set_dashboard_state(symbol, dash_data)
+        await broadcaster.broadcast_dashboard_update(dash_data)
+        await broadcaster.broadcast_market_status({symbol: status.model_dump(mode="json")})
+        return
+
+    ohlcv = _parse_bar(raw_bar)
+
+    if symbol not in _bar_buffer:
+        _bar_buffer[symbol] = []
+    _bar_buffer[symbol].append(ohlcv)
+    if len(_bar_buffer[symbol]) > MAX_BUFFER:
+        _bar_buffer[symbol] = _bar_buffer[symbol][-MAX_BUFFER:]
+
+    await broadcaster.broadcast_price({"symbol": symbol, "price": raw_bar["close"], "timestamp": raw_bar["timestamp"]})
+
+    if not raw_bar.get("is_closed", True):
+        return
+
+    async with AsyncSessionLocal() as session:
+        try:
+            await _persist_bar(session, raw_bar)
+            await kill_switch.load_from_cache()
+            ks_status = await kill_switch.evaluate(session)
+
+            from app.services.backtester import backtester
+
+            await backtester.evaluate_pending_signals(session, symbol)
+
+            indicators, regime = signal_generator.analyze(_bar_buffer[symbol], symbol)
+
+            agent_consensus = None
+            if indicators and regime:
+                snapshot = await build_market_snapshot(
+                    symbol=symbol,
+                    price=raw_bar["close"],
+                    indicators=indicators,
+                    regime=regime,
+                    kill_switch=ks_status,
+                )
+                agent_consensus = await agent_orchestrator.run(snapshot, session=session)
+                consensus_data = agent_consensus.model_dump(mode="json")
+                await set_agent_consensus(symbol, consensus_data)
+                await broadcaster.broadcast_agent_consensus(consensus_data)
+
+            signal = None
+            if (
+                indicators
+                and regime
+                and agent_consensus
+                and agent_consensus.final_direction != SignalDirection.NEUTRAL
+            ):
+                from app.services.account_service import account_service
+
+                balance = await account_service.get_balance()
+                signal = signal_generator.build_trading_signal(
+                    _bar_buffer[symbol],
+                    symbol,
+                    agent_consensus.final_direction,
+                    agent_consensus.final_confidence,
+                    indicators,
+                    regime,
+                    kill_switch_active=kill_switch.is_active,
+                    require_min_confidence=True,
+                    account_balance=balance,
+                )
+                if signal:
+                    allowed, reason = await apply_high_selectivity_filters(
+                        symbol,
+                        agent_consensus.final_direction,
+                        signal.confidence,
+                        indicators,
+                        regime,
+                        _bar_buffer[symbol],
+                        agent_consensus,
+                    )
+                    if not allowed:
+                        logger.info(
+                            "selectivity_wait",
+                            symbol=symbol,
+                            reason=reason,
+                            confidence=signal.confidence,
+                        )
+                        signal = None
+
+                if signal:
+                    allowed, reason = await should_emit_new_signal(symbol, signal.entry_price)
+                    if not allowed:
+                        logger.info(
+                            "signal_suppressed",
+                            symbol=symbol,
+                            reason=reason,
+                            confidence=signal.confidence,
+                        )
+                        signal = None
+
+            if indicators:
+                ind_data = indicators.model_dump(mode="json")
+                await set_latest_indicators(symbol, ind_data)
+                session.add(IndicatorSnapshot(
+                    symbol=symbol,
+                    timestamp=indicators.timestamp,
+                    rsi=indicators.rsi,
+                    macd=indicators.macd,
+                    macd_signal=indicators.macd_signal,
+                    macd_histogram=indicators.macd_histogram,
+                    ema_9=indicators.ema_9,
+                    ema_21=indicators.ema_21,
+                    ema_50=indicators.ema_50,
+                    ema_200=indicators.ema_200,
+                    atr=indicators.atr,
+                    atr_avg_20=indicators.atr_avg_20,
+                    bb_upper=indicators.bb_upper,
+                    bb_middle=indicators.bb_middle,
+                    bb_lower=indicators.bb_lower,
+                    adx=indicators.adx,
+                ))
+
+            if regime:
+                reg_data = regime.model_dump(mode="json")
+                await set_latest_regime(symbol, reg_data)
+                await broadcaster.broadcast_regime(reg_data)
+                session.add(RegimeSnapshot(
+                    symbol=symbol,
+                    timestamp=regime.timestamp,
+                    regime=regime.regime.value,
+                    confidence=regime.confidence,
+                    adx_value=regime.adx_value,
+                    volatility_pct=regime.volatility_pct,
+                    trend_strength=regime.trend_strength,
+                ))
+
+            if signal:
+                sig_data = signal.model_dump(mode="json")
+                await set_latest_signal(symbol, sig_data)
+                await broadcaster.broadcast_signal(sig_data)
+                session.add(TradingSignal(
+                    symbol=symbol,
+                    timestamp=signal.timestamp,
+                    direction=signal.direction.value,
+                    confidence=signal.confidence,
+                    entry_price=signal.entry_price,
+                    stop_loss=signal.stop_loss,
+                    take_profit=signal.take_profit,
+                    position_size=signal.position_size,
+                    regime=signal.regime.value,
+                    degraded=signal.degraded,
+                    degradation_reason=signal.degradation_reason,
+                    kill_switch_active=signal.kill_switch_active,
+                ))
+
+            await broadcaster.broadcast_kill_switch(ks_status.model_dump(mode="json"))
+            await alert_service.check_kill_switch(
+                ks_status.status.value == "ACTIVE", ks_status.reason
+            )
+            if ks_status.consecutive_losses:
+                await alert_service.check_consecutive_losses(ks_status.consecutive_losses)
+
+            if signal:
+                await alert_service.notify_new_signal(
+                    symbol, signal.direction.value, signal.confidence
+                )
+                await alert_service.check_high_confidence(
+                    symbol, signal.direction.value, signal.confidence
+                )
+                market_status = await build_market_status(symbol)
+                await telegram_notifier.send_signal_alert(
+                    signal,
+                    market_status_ar=market_status.schedule_ar if market_status.is_open else "مغلق",
+                )
+
+            from app.core.cache import get_signal_history, get_agent_consensus
+
+            history = await get_signal_history(symbol, 20)
+            cached_consensus = await get_agent_consensus(symbol)
+            market_status = await build_market_status(symbol)
+            dashboard = await build_asset_dashboard_state(symbol)
+            dashboard = dashboard.model_copy(
+                update={
+                    "regime": RegimeSnapshotSchema(**regime.model_dump()) if regime else None,
+                    "latest_signal": TradingSignalSchema(**signal.model_dump()) if signal else dashboard.latest_signal,
+                    "kill_switch": KillSwitchStatusSchema(**ks_status.model_dump()),
+                    "signal_history": [TradingSignalSchema(**s) for s in history],
+                    "current_price": raw_bar["close"],
+                    "agent_consensus": AgentConsensus(**cached_consensus) if cached_consensus else agent_consensus,
+                    "market_status": market_status,
+                }
+            )
+            dash_data = dashboard.model_dump(mode="json")
+            await set_dashboard_state(symbol, dash_data)
+            await broadcaster.broadcast_dashboard_update(dash_data)
+
+            await session.commit()
+        except Exception as exc:
+            await session.rollback()
+            logger.error("pipeline_error", error=str(exc), symbol=symbol)

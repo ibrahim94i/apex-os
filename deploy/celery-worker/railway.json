@@ -1,0 +1,13 @@
+{
+  "$schema": "https://railway.com/railway.schema.json",
+  "name": "celery-worker",
+  "description": "Celery worker + beat for APEX OS. Deploy as a separate Railway service with Root Directory=apex-backend and config file=apex-backend/railway.celery.json",
+  "build": {
+    "builder": "DOCKERFILE",
+    "dockerfilePath": "../../apex-backend/Dockerfile.celery"
+  },
+  "deploy": {
+    "restartPolicyType": "ON_FAILURE",
+    "restartPolicyMaxRetries": 10
+  }
+}

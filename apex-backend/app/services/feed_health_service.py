@@ -1,0 +1,228 @@
+"""Feed health monitoring, auto-recovery, and missed-data backfill."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from datetime import datetime, timedelta, timezone
+
+from app.config import settings
+from app.config.assets import ACTIVE_SYMBOLS, get_asset
+from app.core.cache import get_feed_last_update, get_latest_regime
+from app.feeds.manager import feed_manager
+from app.logging_config import logger
+from app.services.feed_status import FeedConnectionState, get_all_feed_statuses, set_feed_status
+from app.services.market_hours import is_market_open
+
+_recovery_trackers: dict[str, "_RecoveryTracker"] = {}
+
+
+@dataclass
+class _RecoveryTracker:
+    consecutive_failures: int = 0
+    cooldown_until: datetime | None = None
+
+
+@dataclass
+class FeedHealthStatus:
+    symbol: str
+    feed_type: str
+    market_open: bool
+    feed_running: bool
+    connection_status: str
+    connection_status_ar: str
+    last_update: datetime | None = None
+    stale: bool = False
+    age_seconds: int | None = None
+    consecutive_failures: int = 0
+    recovered: bool = False
+    in_cooldown: bool = False
+
+
+@dataclass
+class FeedHealthReport:
+    checked_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    feeds: list[FeedHealthStatus] = field(default_factory=list)
+    actions: list[str] = field(default_factory=list)
+
+
+def _parse_ts(raw: str) -> datetime:
+    ts = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+    if ts.tzinfo is None:
+        ts = ts.replace(tzinfo=timezone.utc)
+    return ts
+
+
+def _tracker(symbol: str) -> _RecoveryTracker:
+    if symbol not in _recovery_trackers:
+        _recovery_trackers[symbol] = _RecoveryTracker()
+    return _recovery_trackers[symbol]
+
+
+async def check_feed_health(symbol: str) -> FeedHealthStatus:
+    asset = get_asset(symbol)
+    feed_type = asset.feed_type if asset else "unknown"
+    open_now = is_market_open(symbol)
+    running = feed_manager.is_running(symbol)
+    tracker = _tracker(symbol)
+
+    last_raw = await get_feed_last_update(symbol)
+    last_dt: datetime | None = None
+    age: int | None = None
+    stale = False
+
+    if last_raw and last_raw.get("timestamp"):
+        last_dt = _parse_ts(last_raw["timestamp"])
+        age = int((datetime.now(timezone.utc) - last_dt).total_seconds())
+        if open_now and age > settings.feed_disconnect_threshold_seconds:
+            stale = True
+    elif open_now:
+        stale = True
+
+    if not running and open_now:
+        stale = True
+
+    in_cooldown = bool(
+        tracker.cooldown_until and datetime.now(timezone.utc) < tracker.cooldown_until
+    )
+
+    if stale and open_now and not in_cooldown:
+        conn = FeedConnectionState.DISCONNECTED
+    elif in_cooldown:
+        conn = FeedConnectionState.RECONNECTING
+    elif running and not stale:
+        conn = FeedConnectionState.CONNECTED
+    elif not open_now:
+        conn = FeedConnectionState.CONNECTED if running else FeedConnectionState.DISCONNECTED
+    else:
+        conn = FeedConnectionState.RECONNECTING
+
+    from app.services.feed_status import STATUS_AR
+
+    return FeedHealthStatus(
+        symbol=symbol,
+        feed_type=feed_type,
+        market_open=open_now,
+        feed_running=running,
+        connection_status=conn.value,
+        connection_status_ar=STATUS_AR[conn.value],
+        last_update=last_dt,
+        stale=stale,
+        age_seconds=age,
+        consecutive_failures=tracker.consecutive_failures,
+        in_cooldown=in_cooldown,
+    )
+
+
+async def recover_feed(symbol: str, reason: str) -> bool:
+    """Restart feed, backfill missed bars, reset on success."""
+    tracker = _tracker(symbol)
+    now = datetime.now(timezone.utc)
+
+    if tracker.cooldown_until and now < tracker.cooldown_until:
+        logger.info("feed_recovery_skipped_cooldown", symbol=symbol)
+        return False
+
+    await set_feed_status(
+        symbol,
+        FeedConnectionState.RECONNECTING,
+        consecutive_failures=tracker.consecutive_failures,
+        detail=reason,
+    )
+    logger.warning("feed_recovery_start", symbol=symbol, reason=reason)
+
+    try:
+        await feed_manager.restart_feed(symbol)
+        feed = feed_manager.get_feed(symbol)
+        if feed and hasattr(feed, "fetch_now"):
+            await feed.fetch_now()
+
+        from app.feeds.history_bootstrap import bootstrap_asset
+
+        ok = await bootstrap_asset(symbol)
+        if ok:
+            tracker.consecutive_failures = 0
+            tracker.cooldown_until = None
+            await set_feed_status(symbol, FeedConnectionState.CONNECTED, consecutive_failures=0)
+            logger.info("feed_recovery_complete", symbol=symbol)
+            return True
+
+        raise RuntimeError("bootstrap_failed")
+
+    except Exception as exc:
+        tracker.consecutive_failures += 1
+        logger.error(
+            "feed_recovery_failed",
+            symbol=symbol,
+            error=str(exc),
+            failures=tracker.consecutive_failures,
+        )
+        if tracker.consecutive_failures >= settings.feed_max_consecutive_failures:
+            tracker.cooldown_until = now + timedelta(
+                seconds=settings.feed_recovery_cooldown_seconds
+            )
+            logger.warning(
+                "feed_recovery_cooldown",
+                symbol=symbol,
+                seconds=settings.feed_recovery_cooldown_seconds,
+            )
+        await set_feed_status(
+            symbol,
+            FeedConnectionState.DISCONNECTED,
+            consecutive_failures=tracker.consecutive_failures,
+            detail=str(exc),
+        )
+        return False
+
+
+async def run_recovery_cycle(*, force: bool = False) -> FeedHealthReport:
+    """Check all feeds; auto-reconnect if disconnected > threshold."""
+    report = FeedHealthReport()
+
+    for symbol in ACTIVE_SYMBOLS:
+        status = await check_feed_health(symbol)
+        needs_recovery = False
+        reason = ""
+
+        if not status.feed_running and status.market_open:
+            needs_recovery = True
+            reason = "feed_task_not_running"
+        elif status.stale and status.market_open and not status.in_cooldown:
+            needs_recovery = True
+            reason = "disconnected_over_60s"
+        elif force and status.market_open and not status.in_cooldown:
+            regime = await get_latest_regime(symbol)
+            if status.stale or regime is None:
+                needs_recovery = True
+                reason = "forced_recovery"
+
+        if needs_recovery and status.market_open and not status.in_cooldown:
+            recovered = await recover_feed(symbol, reason)
+            status.recovered = recovered
+            status = await check_feed_health(symbol)
+            report.actions.append(f"{symbol}:{reason}:{'ok' if recovered else 'fail'}")
+        elif needs_recovery and status.in_cooldown:
+            report.actions.append(f"{symbol}:cooldown_wait")
+        elif not status.market_open:
+            await set_feed_status(
+                symbol,
+                FeedConnectionState.CONNECTED if status.feed_running else FeedConnectionState.DISCONNECTED,
+                age_seconds=status.age_seconds,
+            )
+        elif status.feed_running and not status.stale:
+            await set_feed_status(
+                symbol,
+                FeedConnectionState.CONNECTED,
+                last_update=status.last_update,
+                age_seconds=status.age_seconds,
+            )
+
+        report.feeds.append(status)
+
+    if report.actions:
+        logger.info("feed_health_cycle", actions=report.actions)
+
+    return report
+
+
+async def build_feed_status_payload() -> dict[str, dict]:
+    return await get_all_feed_statuses(ACTIVE_SYMBOLS)

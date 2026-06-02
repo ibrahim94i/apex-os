@@ -1,0 +1,8 @@
+{
+  "$schema": "https://railway.com/railway.schema.json",
+  "name": "redis",
+  "description": "Managed Redis plugin for APEX OS. Add via Railway Dashboard: New > Database > Redis. Link REDIS_URL to backend and celery-worker. Use the same URL for CELERY_BROKER_URL and CELERY_RESULT_BACKEND on Railway.",
+  "deploy": {
+    "restartPolicyType": "ON_FAILURE"
+  }
+}

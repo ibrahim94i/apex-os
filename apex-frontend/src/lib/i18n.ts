@@ -1,0 +1,132 @@
+import type { KillSwitchStatus, RegimeType, SignalDirection } from "@/types";
+
+export const t = {
+  marketRegime: "حالة السوق",
+  confidence: "نسبة الثقة",
+  latestSignal: "آخر إشارة",
+  signalHistory: "سجل الإشارات",
+  signalHistoryLast20: "سجل الإشارات (آخر 20)",
+  safetyStatus: "حالة الأمان",
+  live: "مباشر",
+  reconnecting: "إعادة الاتصال...",
+  degraded: "منخفض الثقة",
+  livePriceChart: "رسم السعر المباشر",
+  livePrice: "السعر المباشر",
+  price: "السعر",
+  volatility: "التذبذب",
+  drawdown: "الهبوط",
+  dailyLoss: "الخسارة اليومية",
+  consecutiveLosses: "الخسائر المتتالية",
+  awaitingData: "بانتظار البيانات...",
+  noActiveSignal: "لا توجد إشارة نشطة",
+  noSignalsYet: "لا توجد إشارات بعد",
+  time: "الوقت",
+  direction: "الاتجاه",
+  entry: "سعر الدخول",
+  stopLoss: "وقف الخسارة",
+  takeProfit: "هدف الربح",
+  wsError: "خطأ في اتصال WebSocket",
+  reasoningPanel: "لوحة التحليل",
+  collectiveDecision: "القرار الجماعي",
+  agentReasoning: "أسباب التحليل",
+  noAgentData: "بانتظار تحليل الوكلاء...",
+  voteWeight: "الوزن",
+  llmPowered: "ذكاء اصطناعي",
+  ruleBased: "قواعد",
+  tradingTab: "التداول",
+  backtestResults: "نتائج الاختبار",
+  bestPatterns: "أفضل الأنماط",
+  noPatternsYet: "لا توجد أنماط محفوظة بعد",
+  overallWinRate: "نسبة الفوز",
+  avgRR: "متوسط RR",
+  evaluatedSignals: "الإشارات المُقيّمة",
+  bestRegime: "أفضل نظام سوق",
+  bestTimeOfDay: "أفضل وقت للتداول",
+  topPatterns: "أفضل 5 أنماط",
+  sampleCount: "عدد العينات",
+  runBacktest: "تشغيل الاختبار",
+  highConfidenceAlert: "إشارة عالية الثقة",
+  marketOpen: "السوق مفتوح",
+  marketClosed: "السوق مغلق",
+  marketClosedHint: "لا تُعرض قراءات التداول أثناء إغلاق السوق",
+  opensIn: "يفتح خلال",
+  nextSignalIn: "الإشارة القادمة خلال",
+  hourlyReport: "التقرير الساعي",
+  journalTab: "سجل التداول",
+  registerTrade: "تسجيل صفقة يدوية",
+  asset: "الأصل",
+  exitPrice: "سعر الخروج",
+  tradeSource: "مصدر الصفقة",
+  entryEmotion: "الشعور وقت الدخول",
+  tradeResult: "النتيجة",
+  notes: "ملاحظات",
+  saveTrade: "حفظ الصفقة",
+  saving: "جاري الحفظ...",
+  journalAnalysis: "تحليل سجل التداول",
+  personalWinRate: "نسبة الفوز الشخصية",
+  systemVsPersonal: "أين تخسر أكثر",
+  emotionImpact: "تأثير الشعور",
+  tradeHistory: "سجل الصفقات",
+  noJournalEntries: "لا توجد صفقات مسجّلة بعد",
+  positionManager: "مدير المراكز",
+  accountBalance: "رأس المال",
+  dailyRiskRemaining: "المخاطرة اليومية المتبقية",
+  riskPerTrade: "مخاطرة الصفقة",
+  tradesAllowedToday: "صفقات مسموحة اليوم",
+  losingTradesToday: "خسائر اليوم",
+  accountMode: "نوع الحساب",
+  demoAccount: "تجريبي",
+  realAccount: "حقيقي",
+  demoHint: "للاختبار — 10,000$",
+  realHint: "حقيقي — 100$",
+  performanceTab: "أداء النظام",
+  dailyWinRate: "نسبة الفوز اليومية",
+  profitFactor: "عامل الربح",
+  maxDrawdown: "أقصى هبوط",
+  expectancyPerTrade: "التوقع لكل صفقة",
+  bestMarketCondition: "أفضل حالة سوق",
+  worstMarketCondition: "أسوأ حالة سوق",
+  confidenceVsAccuracy: "الثقة مقابل الدقة",
+  accuracy: "الدقة",
+  regimePerformance: "أداء حسب حالة السوق",
+  refreshPerformance: "تحديث",
+  feedStatusTitle: "حالة مصادر البيانات",
+  feedConnected: "متصل",
+  feedDisconnected: "منقطع",
+  feedReconnecting: "يعيد الاتصال",
+  lastUpdate: "آخر تحديث",
+  recoveryAttempts: "محاولات فاشلة",
+  secondsShort: "ث",
+  minutesShort: "د",
+} as const;
+
+export const REGIME_LABELS: Record<RegimeType, string> = {
+  TRENDING_UP: "اتجاه صاعد",
+  TRENDING_DOWN: "اتجاه هابط",
+  RANGING: "سوق جانبي",
+  VOLATILE: "تذبذب عالي",
+  UNKNOWN: "غير معروف",
+};
+
+export const DIRECTION_LABELS: Record<SignalDirection, string> = {
+  LONG: "شراء",
+  SHORT: "بيع",
+  NEUTRAL: "محايد",
+};
+
+export const KILL_SWITCH_LABELS: Record<KillSwitchStatus, string> = {
+  ACTIVE: "نشط",
+  INACTIVE: "غير نشط",
+};
+
+export function translateDirection(direction: SignalDirection): string {
+  return DIRECTION_LABELS[direction] ?? direction;
+}
+
+export function translateRegime(regime: RegimeType | string): string {
+  return REGIME_LABELS[regime as RegimeType] ?? regime;
+}
+
+export function translateKillSwitch(status: KillSwitchStatus): string {
+  return KILL_SWITCH_LABELS[status] ?? status;
+}
