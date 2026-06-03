@@ -143,6 +143,36 @@ async def fetch_twelvedata_history(
     return bars
 
 
+async def fetch_alphavantage_history(
+    asset: AssetConfig,
+    limit: int = 250,
+) -> list[dict[str, Any]]:
+    if not asset.alphavantage_from_symbol or not asset.alphavantage_to_symbol:
+        return []
+
+    from app.feeds.alphavantage_client import fetch_fx_intraday_bars
+
+    bars = await fetch_fx_intraday_bars(
+        from_symbol=asset.alphavantage_from_symbol,
+        to_symbol=asset.alphavantage_to_symbol,
+        apex_symbol=asset.symbol,
+        interval=asset.candle_interval,
+        outputsize="full",
+    )
+    if len(bars) < limit:
+        from app.services.market_data_store import fetch_bars_from_db
+
+        db_bars = await fetch_bars_from_db(asset.symbol, limit)
+        seen = {b["timestamp"] for b in bars}
+        merged = list(bars)
+        for bar in db_bars:
+            if bar["timestamp"] not in seen:
+                merged.append(bar)
+        merged.sort(key=lambda b: b["timestamp"])
+        bars = merged[-limit:]
+    return bars
+
+
 async def fetch_history_for_asset(asset: AssetConfig, limit: int = 100) -> list[dict[str, Any]]:
     if asset.feed_type == "binance":
         return await fetch_binance_history(asset.symbol, limit, asset.candle_interval)
@@ -153,6 +183,8 @@ async def fetch_history_for_asset(asset: AssetConfig, limit: int = 100) -> list[
             limit,
             asset.candle_interval,
         )
+    if asset.feed_type == "alphavantage":
+        return await fetch_alphavantage_history(asset, limit)
     return []
 
 
@@ -214,6 +246,8 @@ async def bootstrap_all_assets(limit: int = 250) -> None:
             failed.append(symbol)
         if asset.feed_type == "twelvedata":
             await asyncio.sleep(15)
+        elif asset.feed_type == "alphavantage":
+            await asyncio.sleep(2)
 
     for attempt in range(1, 4):
         if not failed:
@@ -241,6 +275,8 @@ async def bootstrap_all_assets(limit: int = 250) -> None:
             still_failed.append(symbol)
             if asset.feed_type == "twelvedata":
                 await asyncio.sleep(15)
+            elif asset.feed_type == "alphavantage":
+                await asyncio.sleep(2)
         failed = still_failed
 
     if failed:

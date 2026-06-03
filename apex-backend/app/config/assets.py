@@ -12,10 +12,12 @@ MarketSchedule = Literal["24_7", "xauusd", "forex_24_5"]
 class AssetConfig:
     symbol: str
     display_name_ar: str
-    feed_type: Literal["binance", "twelvedata"]
+    feed_type: Literal["binance", "twelvedata", "alphavantage"]
     market_schedule: MarketSchedule = "24_7"
     binance_ws_url: str | None = None
     twelvedata_symbol: str | None = None
+    alphavantage_from_symbol: str | None = None
+    alphavantage_to_symbol: str | None = None
     candle_interval: str = SIGNAL_TIMEFRAME
     poll_interval: int = 300
     min_price_move: float | None = None
@@ -47,11 +49,12 @@ ASSETS: dict[str, AssetConfig] = {
     "EURUSD": AssetConfig(
         symbol="EURUSD",
         display_name_ar="يورو/دولار",
-        feed_type="twelvedata",
+        feed_type="alphavantage",
         market_schedule="forex_24_5",
-        twelvedata_symbol="EUR/USD",
+        alphavantage_from_symbol="EUR",
+        alphavantage_to_symbol="USD",
         candle_interval="1h",
-        poll_interval=300,
+        poll_interval=3600,
         min_price_move=0.00050,
         default_spread=0.00015,
         price_decimals=5,

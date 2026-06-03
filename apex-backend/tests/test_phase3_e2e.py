@@ -21,7 +21,8 @@ def test_multi_asset_config() -> None:
     assert "EURUSD" in ASSETS
     assert len(ACTIVE_SYMBOLS) == 3
     assert ASSETS["XAUUSD"].feed_type == "twelvedata"
-    assert ASSETS["EURUSD"].feed_type == "twelvedata"
+    assert ASSETS["EURUSD"].feed_type == "alphavantage"
+    assert ASSETS["EURUSD"].alphavantage_from_symbol == "EUR"
     assert ASSETS["EURUSD"].market_schedule == "forex_24_5"
     assert ASSETS["BTCUSDT"].feed_type == "twelvedata"
     assert ASSETS["BTCUSDT"].twelvedata_symbol == "BTC/USD"

@@ -6,6 +6,7 @@ from typing import Any
 
 from app.config.assets import ASSETS, AssetConfig, get_asset
 from app.config import settings
+from app.feeds.alphavantage import AlphaVantageFeed
 from app.feeds.binance_ws import BinanceWebSocketFeed
 from app.feeds.twelvedata import TwelveDataFeed
 from app.logging_config import logger
@@ -14,7 +15,7 @@ from app.services.pipeline import process_bar
 
 class FeedManager:
     def __init__(self) -> None:
-        self._feeds: dict[str, BinanceWebSocketFeed | TwelveDataFeed] = {}
+        self._feeds: dict[str, BinanceWebSocketFeed | TwelveDataFeed | AlphaVantageFeed] = {}
 
     def start_all(self) -> None:
         for symbol in ASSETS:
@@ -57,7 +58,7 @@ class FeedManager:
                 restarted.append(symbol)
         return restarted
 
-    def get_feed(self, symbol: str) -> BinanceWebSocketFeed | TwelveDataFeed | None:
+    def get_feed(self, symbol: str) -> BinanceWebSocketFeed | TwelveDataFeed | AlphaVantageFeed | None:
         return self._feeds.get(symbol)
 
     def is_running(self, symbol: str) -> bool:
@@ -81,7 +82,7 @@ class FeedManager:
 
     def _create_feed(
         self, asset: AssetConfig
-    ) -> BinanceWebSocketFeed | TwelveDataFeed | None:
+    ) -> BinanceWebSocketFeed | TwelveDataFeed | AlphaVantageFeed | None:
         if asset.feed_type == "binance" and asset.binance_ws_url:
             return BinanceWebSocketFeed(
                 ws_url=asset.binance_ws_url,
@@ -89,7 +90,7 @@ class FeedManager:
                 apex_symbol=asset.symbol,
             )
         if asset.feed_type == "twelvedata" and asset.twelvedata_symbol:
-            stagger_map = {"BTCUSDT": 0, "XAUUSD": 20, "EURUSD": 40}
+            stagger_map = {"BTCUSDT": 0, "XAUUSD": 20}
             stagger = stagger_map.get(asset.symbol, 0)
             return TwelveDataFeed(
                 api_key=settings.twelvedata_api_key,
@@ -99,6 +100,21 @@ class FeedManager:
                 poll_interval=asset.poll_interval,
                 on_bar=process_bar,
                 stagger_seconds=stagger,
+            )
+        if (
+            asset.feed_type == "alphavantage"
+            and asset.alphavantage_from_symbol
+            and asset.alphavantage_to_symbol
+        ):
+            return AlphaVantageFeed(
+                api_key=settings.alphavantage_api_key,
+                from_symbol=asset.alphavantage_from_symbol,
+                to_symbol=asset.alphavantage_to_symbol,
+                apex_symbol=asset.symbol,
+                interval=asset.candle_interval,
+                poll_interval=asset.poll_interval,
+                on_bar=process_bar,
+                stagger_seconds=5,
             )
         return None
 

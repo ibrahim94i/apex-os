@@ -56,6 +56,10 @@ def _unwrap_payload(raw: dict[str, Any], symbol: str | None) -> dict[str, Any]:
         if asset and asset.twelvedata_symbol:
             keys.add(asset.twelvedata_symbol)
             keys.add(asset.twelvedata_symbol.replace("/", ""))
+        if asset and asset.alphavantage_from_symbol and asset.alphavantage_to_symbol:
+            pair = f"{asset.alphavantage_from_symbol}/{asset.alphavantage_to_symbol}"
+            keys.add(pair)
+            keys.add(pair.replace("/", ""))
 
         for key in keys:
             inner = raw.get(key)

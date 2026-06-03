@@ -71,6 +71,9 @@ class Settings(BaseSettings):
     twelvedata_stale_retry_count: int = 2
     twelvedata_stale_retry_delay_seconds: float = 5.0
     twelvedata_min_gap_seconds: float = 12.0
+    alphavantage_api_key: str = ""
+    alphavantage_poll_interval_seconds: int = 3600
+    alphavantage_min_gap_seconds: float = 12.0
     gemini_api_key: str = ""
     gemini_model: str = "gemini-2.0-flash"
     llm_primary_provider: str = "gemini"
