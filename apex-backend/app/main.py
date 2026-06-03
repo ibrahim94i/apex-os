@@ -17,7 +17,7 @@ from app.core.redis_client import close_redis, redis_health_check
 from app.services.background_tasks import start_background_tasks
 from app.services.hourly_report_service import publish_hourly_report
 from app.services.telegram_notifier import telegram_notifier
-from app.feeds.history_bootstrap import bootstrap_all_assets
+from app.feeds.history_bootstrap import bootstrap_all_assets, refresh_dashboard_cache
 from app.feeds.manager import feed_manager
 from app.logging_config import configure_logging, logger
 
@@ -28,6 +28,7 @@ async def _startup_warmup() -> None:
     """Heavy startup — runs in background so Railway healthchecks pass quickly."""
     try:
         await bootstrap_all_assets()
+        await refresh_dashboard_cache()
         feed_manager.start_all()
         await publish_hourly_report()
 

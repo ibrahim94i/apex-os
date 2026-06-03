@@ -138,15 +138,41 @@ export function useMultiDashboard() {
 
           if (single?.symbol) {
 
-            setState((prev) =>
+            setState((prev) => {
 
-              prev
+              if (!prev) return prev;
 
-                ? { ...prev, assets: { ...prev.assets, [single.symbol]: single } }
+              const existing = prev.assets[single.symbol];
 
-                : prev
+              const merged = existing
 
-            );
+                ? {
+
+                    ...existing,
+
+                    ...single,
+
+                    regime: single.regime ?? existing.regime,
+
+                    current_price: single.current_price ?? existing.current_price,
+
+                    agent_consensus: single.agent_consensus ?? existing.agent_consensus,
+
+                    market_status: single.market_status ?? existing.market_status,
+
+                  }
+
+                : single;
+
+              return {
+
+                ...prev,
+
+                assets: { ...prev.assets, [single.symbol]: merged },
+
+              };
+
+            });
 
           }
 

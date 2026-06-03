@@ -83,19 +83,36 @@ async def fetch_twelvedata_history(
         "outputsize": limit,
         "apikey": api_key,
     }
+    data: dict[str, Any] | None = None
     async with httpx.AsyncClient(timeout=30.0) as client:
         from app.feeds.twelvedata_limiter import throttled_get
 
-        response = await throttled_get(
-            client,
-            "https://api.twelvedata.com/time_series",
-            params=params,
-        )
-        response.raise_for_status()
-        data = response.json()
+        for attempt in range(1, 5):
+            response = await throttled_get(
+                client,
+                "https://api.twelvedata.com/time_series",
+                params=params,
+            )
+            if response.status_code == 429:
+                wait = 30.0 * attempt
+                logger.warning(
+                    "twelvedata_bootstrap_rate_limited",
+                    symbol=apex_symbol,
+                    attempt=attempt,
+                    wait_seconds=wait,
+                )
+                await asyncio.sleep(wait)
+                continue
+            response.raise_for_status()
+            data = response.json()
+            break
+
+    if data is None:
+        logger.error("twelvedata_bootstrap_rate_limited_exhausted", symbol=apex_symbol)
+        return []
 
     if "values" not in data or not data["values"]:
-        logger.warning("twelvedata_bootstrap_no_data", response=data)
+        logger.warning("twelvedata_bootstrap_no_data", symbol=apex_symbol, response=data)
         return []
 
     bars: list[dict[str, Any]] = []
@@ -131,6 +148,22 @@ async def fetch_history_for_asset(asset: AssetConfig, limit: int = 100) -> list[
     return []
 
 
+async def _mark_feed_warmed(symbol: str, bar: dict[str, Any]) -> None:
+    from app.core.cache import set_feed_last_update, set_latest_price
+
+    await set_latest_price(symbol, bar["close"], bar["timestamp"])
+    await set_feed_last_update(symbol, bar["timestamp"])
+
+
+async def refresh_dashboard_cache() -> None:
+    from app.core.cache import set_dashboard_state
+    from app.services.dashboard_builder import build_asset_dashboard_state
+
+    for symbol in ASSETS:
+        dashboard = await build_asset_dashboard_state(symbol)
+        await set_dashboard_state(symbol, dashboard.model_dump(mode="json"))
+
+
 async def bootstrap_asset(symbol: str, limit: int = 250) -> bool:
     """Fetch H1 history and warm pipeline for one symbol. Returns True on success."""
     from app.services.market_hours import is_market_open
@@ -148,7 +181,9 @@ async def bootstrap_asset(symbol: str, limit: int = 250) -> bool:
             logger.warning("history_bootstrap_empty", symbol=symbol)
             return False
         seed_bars_to_buffer(bars)
-        await process_bar(bars[-1], skip_agents=True)
+        last_bar = bars[-1]
+        await process_bar(last_bar, skip_agents=True)
+        await _mark_feed_warmed(symbol, last_bar)
         logger.info("history_bootstrap_complete", symbol=symbol, bars=len(bars))
         return True
     except Exception as exc:
@@ -157,7 +192,28 @@ async def bootstrap_asset(symbol: str, limit: int = 250) -> bool:
 
 
 async def bootstrap_all_assets(limit: int = 250) -> None:
+    failed: list[str] = []
+
     for symbol, asset in ASSETS.items():
-        await bootstrap_asset(symbol, limit)
+        ok = await bootstrap_asset(symbol, limit)
+        if not ok:
+            failed.append(symbol)
         if asset.feed_type == "twelvedata":
-            await asyncio.sleep(10)
+            await asyncio.sleep(15)
+
+    for attempt in range(1, 4):
+        if not failed:
+            break
+        logger.warning("history_bootstrap_retry_batch", symbols=failed, attempt=attempt)
+        await asyncio.sleep(45 * attempt)
+        still_failed: list[str] = []
+        for symbol in failed:
+            if await bootstrap_asset(symbol, limit):
+                continue
+            still_failed.append(symbol)
+            await asyncio.sleep(15)
+        failed = still_failed
+
+    if failed:
+        logger.error("history_bootstrap_symbols_failed", symbols=failed)
+    await refresh_dashboard_cache()

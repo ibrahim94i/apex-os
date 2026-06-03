@@ -7,7 +7,7 @@ from datetime import datetime, timedelta, timezone
 
 from app.config import settings
 from app.config.assets import ACTIVE_SYMBOLS, get_asset
-from app.core.cache import get_feed_last_update, get_latest_regime
+from app.core.cache import get_feed_last_update, get_latest_price, get_latest_regime
 from app.feeds.manager import feed_manager
 from app.logging_config import logger
 from app.services.feed_status import FeedConnectionState, get_all_feed_statuses, set_feed_status
@@ -79,13 +79,16 @@ async def check_feed_health(symbol: str) -> FeedHealthStatus:
 
     startup_age = int((datetime.now(timezone.utc) - _app_started_at).total_seconds())
     in_startup_grace = startup_age < settings.feed_startup_grace_seconds
+    price_data = await get_latest_price(symbol)
+    regime_data = await get_latest_regime(symbol)
+    has_warm_data = price_data is not None and regime_data is not None
 
     if last_raw and last_raw.get("timestamp"):
         last_dt = _parse_ts(last_raw["timestamp"])
         age = int((datetime.now(timezone.utc) - last_dt).total_seconds())
         if open_now and age > settings.feed_disconnect_threshold_seconds:
             stale = True
-    elif open_now and not in_startup_grace:
+    elif open_now and not in_startup_grace and not has_warm_data:
         stale = True
 
     if not running and open_now:
@@ -148,7 +151,12 @@ async def recover_feed(symbol: str, reason: str) -> bool:
 
         from app.feeds.history_bootstrap import bootstrap_asset
 
-        ok = await bootstrap_asset(symbol)
+        existing_regime = await get_latest_regime(symbol)
+        if existing_regime:
+            ok = True
+            logger.info("feed_recovery_skip_bootstrap", symbol=symbol, reason="warm_data_present")
+        else:
+            ok = await bootstrap_asset(symbol)
         if ok:
             tracker.consecutive_failures = 0
             tracker.cooldown_until = None
