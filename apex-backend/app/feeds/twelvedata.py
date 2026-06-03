@@ -58,6 +58,17 @@ class TwelveDataFeed:
             "reconnect_count": self._reconnect_count,
         }
 
+    def _bar_age_seconds(self, bar: dict[str, Any]) -> float:
+        ts = bar["timestamp"]
+        if isinstance(ts, str):
+            ts = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+        if ts.tzinfo is None:
+            ts = ts.replace(tzinfo=timezone.utc)
+        return max(0.0, (datetime.now(timezone.utc) - ts).total_seconds())
+
+    def _is_bar_stale(self, bar: dict[str, Any]) -> bool:
+        return self._bar_age_seconds(bar) > settings.feed_staleness_limit_seconds
+
     async def _fetch_latest_bar(self) -> dict[str, Any] | None:
         if not self.api_key or self.api_key == "your_key_here":
             logger.warning("twelvedata_api_key_not_configured", symbol=self.apex_symbol)
@@ -99,6 +110,48 @@ class TwelveDataFeed:
             "is_closed": True,
         }
 
+    async def _fetch_latest_bar_with_retry(self) -> dict[str, Any] | None:
+        """Fetch latest bar; retry automatically when TwelveData returns stale data."""
+        max_retries = settings.twelvedata_stale_retry_count
+        delay = settings.twelvedata_stale_retry_delay_seconds
+        last_bar: dict[str, Any] | None = None
+
+        for attempt in range(1, max_retries + 2):
+            bar = await self._fetch_latest_bar()
+            if bar is None:
+                if attempt <= max_retries:
+                    logger.info(
+                        "twelvedata_empty_retry",
+                        symbol=self.apex_symbol,
+                        attempt=attempt,
+                        delay=delay,
+                    )
+                    await asyncio.sleep(delay)
+                    continue
+                return None
+
+            last_bar = bar
+            if not self._is_bar_stale(bar):
+                if attempt > 1:
+                    logger.info(
+                        "twelvedata_stale_retry_success",
+                        symbol=self.apex_symbol,
+                        attempt=attempt,
+                    )
+                return bar
+
+            logger.warning(
+                "twelvedata_stale_data_retry",
+                symbol=self.apex_symbol,
+                bar_age_seconds=round(self._bar_age_seconds(bar), 1),
+                attempt=attempt,
+                max_retries=max_retries,
+            )
+            if attempt <= max_retries:
+                await asyncio.sleep(delay)
+
+        return last_bar
+
     async def _poll_loop(self) -> None:
         from app.services.market_hours import is_market_open
 
@@ -114,7 +167,7 @@ class TwelveDataFeed:
                     await asyncio.sleep(min(self.poll_interval, 60))
                     continue
 
-                bar = await self._fetch_latest_bar()
+                bar = await self._fetch_latest_bar_with_retry()
                 if bar:
                     self._last_success_at = datetime.now(timezone.utc)
                     self._error_count = 0
@@ -193,7 +246,7 @@ class TwelveDataFeed:
     async def fetch_now(self) -> bool:
         """Immediate poll — used during recovery."""
         try:
-            bar = await self._fetch_latest_bar()
+            bar = await self._fetch_latest_bar_with_retry()
             if not bar:
                 return False
             self._last_success_at = datetime.now(timezone.utc)

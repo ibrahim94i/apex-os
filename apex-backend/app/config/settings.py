@@ -66,7 +66,9 @@ class Settings(BaseSettings):
     agent_timeout_seconds: int = 10
     agent_max_retries: int = 2
     agent_circuit_breaker_threshold: int = 3
-    agent_data_max_age_seconds: int = 60
+    agent_data_max_age_seconds: int = 300
+    twelvedata_stale_retry_count: int = 2
+    twelvedata_stale_retry_delay_seconds: float = 5.0
     gemini_api_key: str = ""
     gemini_model: str = "gemini-1.5-flash"
     llm_primary_provider: str = "gemini"

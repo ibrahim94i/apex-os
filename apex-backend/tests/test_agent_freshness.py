@@ -58,7 +58,7 @@ def test_reject_when_feed_stale() -> None:
 
 
 def test_reject_when_snapshot_too_old() -> None:
-    old_ts = datetime.now(timezone.utc) - timedelta(seconds=120)
+    old_ts = datetime.now(timezone.utc) - timedelta(seconds=350)
     snap = _snapshot(timestamp=old_ts)
     ok, reason = validate_agent_data_freshness(snap, [_verdict()])
     assert ok is False

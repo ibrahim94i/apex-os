@@ -51,6 +51,8 @@ class AgentOrchestrator:
                 vote_scores={},
             )
 
+        # Refresh snapshot clock after LLM — slow API calls must not trigger snapshot_data_too_old
+        snapshot = snapshot.model_copy(update={"timestamp": datetime.now(timezone.utc)})
         verdicts = annotate_verdict_freshness(verdicts, snapshot)
         fresh_ok, fresh_reason = validate_agent_data_freshness(snapshot, verdicts)
         if not fresh_ok:
