@@ -40,16 +40,11 @@ RUN addgroup --system --gid 1001 nodejs \
 COPY --from=builder /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
-COPY --from=builder /app/docker-entrypoint.sh /app/docker-entrypoint.sh
-
-RUN chmod +x /app/docker-entrypoint.sh
-
 USER nextjs
 
-# Railway injects PORT at runtime (often 8080) — do not hardcode 3000
 EXPOSE 8080
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=45s --retries=3 \
     CMD sh -c 'curl -fsS "http://127.0.0.1:${PORT:-8080}/" || exit 1'
 
-ENTRYPOINT ["sh", "/app/docker-entrypoint.sh"]
+CMD ["sh", "-c", "echo \"Starting Next.js on ${HOSTNAME:-0.0.0.0}:${PORT:-8080}\" && exec node server.js"]

@@ -1016,9 +1016,38 @@ body {
 }
 
 .account-balance-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
   font-size: 0.85rem;
   color: var(--gold);
   padding: 0.25rem 0.5rem;
   border: 1px solid var(--border);
   border-radius: 4px;
 }
+
+.account-balance-edit-btn {
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 0.85rem;
+  padding: 0 0.25rem;
+}
+
+.account-balance-edit {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.account-balance-input {
+  width: 5.5rem;
+  padding: 0.2rem 0.4rem;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+}
+
+/* end account balance edit */

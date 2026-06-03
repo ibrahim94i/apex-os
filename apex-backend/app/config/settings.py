@@ -66,6 +66,12 @@ class Settings(BaseSettings):
     agent_timeout_seconds: int = 10
     agent_max_retries: int = 2
     agent_circuit_breaker_threshold: int = 3
+    agent_data_max_age_seconds: int = 60
+    gemini_api_key: str = ""
+    gemini_model: str = "gemini-1.5-flash"
+    llm_primary_provider: str = "gemini"
+    emergency_signal_confidence_threshold: float = 0.75
+    signal_emission_interval_hours: float = 1.0
 
     @field_validator("database_url", mode="before")
     @classmethod

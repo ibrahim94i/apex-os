@@ -426,6 +426,16 @@ export function useMultiDashboard() {
     }
   }, []);
 
+  const updateAccountBalance = useCallback(async (account: import("@/types").AccountMode) => {
+    setState((prev) => (prev ? { ...prev, account } : prev));
+    try {
+      const dash = await fetchMultiDashboard();
+      setState(dash);
+    } catch {
+      /* keep optimistic update */
+    }
+  }, []);
+
 
 
   const dismissAlert = (id: string) => {
@@ -482,7 +492,7 @@ export function useMultiDashboard() {
     refreshDashboard,
 
     switchAccountMode,
-
+    updateAccountBalance,
     accountLoading,
 
   };

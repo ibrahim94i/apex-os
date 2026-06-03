@@ -1,4 +1,4 @@
-"""Professional signal emission rules — cooldown and minimum price movement."""
+"""Professional signal emission — hourly continuous signals without cooldown blocking."""
 
 from __future__ import annotations
 
@@ -10,7 +10,13 @@ from app.core.cache import get_latest_signal
 
 
 async def should_emit_new_signal(symbol: str, entry_price: float) -> tuple[bool, str | None]:
-    """Return (allowed, rejection_reason)."""
+    """
+    Return (allowed, rejection_reason).
+
+    Continuous signal mode: new closed-bar signals may emit every hour.
+    Previous active signals do NOT block new emissions.
+    Only blocks duplicate signals within the same hour bucket or insufficient price move.
+    """
     last = await get_latest_signal(symbol)
     if not last:
         return True, None
@@ -21,9 +27,9 @@ async def should_emit_new_signal(symbol: str, entry_price: float) -> tuple[bool,
     if ts.tzinfo is None:
         ts = ts.replace(tzinfo=timezone.utc)
 
-    cooldown = timedelta(hours=settings.signal_cooldown_hours)
-    if datetime.now(timezone.utc) - ts < cooldown:
-        return False, "signal_cooldown"
+    interval = timedelta(hours=settings.signal_emission_interval_hours)
+    if datetime.now(timezone.utc) - ts < interval:
+        return False, "hourly_interval_not_elapsed"
 
     asset = get_asset(symbol)
     min_move = asset.min_price_move if asset else None

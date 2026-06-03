@@ -33,6 +33,7 @@ export default function Dashboard() {
     refreshPerformance,
     performance,
     switchAccountMode,
+    updateAccountBalance,
     accountLoading,
   } = useMultiDashboard();
 
@@ -77,6 +78,7 @@ export default function Dashboard() {
         <AccountModeToggle
           account={state?.account ?? null}
           onSwitch={switchAccountMode}
+          onBalanceUpdated={updateAccountBalance}
           loading={accountLoading}
         />
         <div className="connection-status">

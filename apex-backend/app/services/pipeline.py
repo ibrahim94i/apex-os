@@ -33,6 +33,9 @@ from app.services.market_snapshot import build_market_snapshot
 from app.services.market_status_service import build_market_status
 from app.services.signal_filters import apply_high_selectivity_filters
 from app.services.signal_gate import should_emit_new_signal
+from app.services.safety_gate import check_mandatory_safety_gate
+from app.services.position_service import detect_position_signal_conflict, get_open_positions
+from app.config import settings
 from app.services.telegram_notifier import telegram_notifier
 from app.websocket.manager import broadcaster
 
@@ -162,6 +165,21 @@ async def process_bar(raw_bar: dict[str, Any]) -> None:
                     account_balance=balance,
                 )
                 if signal:
+                    safe, safety_reason = check_mandatory_safety_gate(
+                        agent_consensus.final_direction,
+                        regime,
+                        indicators,
+                        raw_bar["close"],
+                    )
+                    if not safe:
+                        logger.info(
+                            "safety_gate_blocked",
+                            symbol=symbol,
+                            reason=safety_reason,
+                        )
+                        signal = None
+
+                if signal:
                     allowed, reason = await apply_high_selectivity_filters(
                         symbol,
                         agent_consensus.final_direction,
@@ -254,6 +272,23 @@ async def process_bar(raw_bar: dict[str, Any]) -> None:
                 await alert_service.check_consecutive_losses(ks_status.consecutive_losses)
 
             if signal:
+                open_positions = await get_open_positions(session, symbol)
+                conflict, alert_type = detect_position_signal_conflict(
+                    open_positions,
+                    signal.direction.value,
+                    signal.confidence,
+                    threshold=settings.emergency_signal_confidence_threshold,
+                )
+                if conflict and alert_type:
+                    open_dir = open_positions[0].direction if open_positions else ""
+                    await telegram_notifier.send_emergency_position_warning(
+                        symbol,
+                        alert_type,
+                        signal.confidence,
+                        open_dir,
+                        signal.direction.value,
+                    )
+
                 await alert_service.notify_new_signal(
                     symbol, signal.direction.value, signal.confidence
                 )
@@ -264,6 +299,7 @@ async def process_bar(raw_bar: dict[str, Any]) -> None:
                 await telegram_notifier.send_signal_alert(
                     signal,
                     market_status_ar=market_status.schedule_ar if market_status.is_open else "مغلق",
+                    consensus=agent_consensus,
                 )
 
             from app.core.cache import get_signal_history, get_agent_consensus

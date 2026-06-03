@@ -36,14 +36,26 @@ export async function fetchAccountMode(): Promise<AccountMode> {
   return res.json();
 }
 
-export async function setAccountMode(mode: "demo" | "real"): Promise<AccountMode> {
+export async function setAccountMode(mode: "demo" | "real", balance?: number): Promise<AccountMode> {
+  const body: { mode: string; balance?: number } = { mode };
+  if (balance !== undefined) body.balance = balance;
   const res = await fetch(`${API_URL}/api/v1/account/mode`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ mode }),
+    body: JSON.stringify(body),
   });
   if (!res.ok) throw new Error("فشل تبديل الحساب");
   storeAccountMode(mode);
+  return res.json();
+}
+
+export async function setAccountBalance(balance: number): Promise<AccountMode> {
+  const res = await fetch(`${API_URL}/api/v1/account/balance`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ balance }),
+  });
+  if (!res.ok) throw new Error("فشل تحديث الرصيد");
   return res.json();
 }
 

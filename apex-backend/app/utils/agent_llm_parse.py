@@ -205,3 +205,40 @@ def parse_combined_agent_llm_json(content: str, symbol: str | None = None):
         risk=AgentLLMOutput.model_validate(_parse_agent("risk", ("risk_agent",))),
         news=AgentLLMOutput.model_validate(_parse_agent("news", ("news_agent",))),
     )
+
+
+def _parse_round_opinion(block: Any, symbol: str | None) -> dict[str, Any]:
+    if isinstance(block, dict):
+        return normalize_agent_llm_payload(block, symbol=symbol)
+    return normalize_agent_llm_payload({}, symbol=symbol)
+
+
+def parse_team_discussion_json(content: str, symbol: str | None = None):
+    """Parse three-round team discussion LLM JSON."""
+    from app.schemas.agent import TeamDiscussionLLMOutput, TeamRoundOpinion
+
+    raw = json.loads(content)
+    if not isinstance(raw, dict):
+        raise ValueError("Expected JSON object")
+
+    def _round(section_key: str) -> dict[str, TeamRoundOpinion]:
+        section = raw.get(section_key, {})
+        if not isinstance(section, dict):
+            section = {}
+        out: dict[str, TeamRoundOpinion] = {}
+        for key in ("market_analyst", "risk", "news"):
+            if key in section:
+                out[key] = TeamRoundOpinion.model_validate(_parse_round_opinion(section[key], symbol))
+        return out
+
+    final_raw = raw.get("round3_final") or raw.get("final") or {}
+    final = TeamRoundOpinion.model_validate(_parse_round_opinion(final_raw, symbol))
+
+    return TeamDiscussionLLMOutput(
+        round1_initial=_round("round1_initial"),
+        round2_responses=_round("round2_responses"),
+        round3_final=final,
+        agreements=_coerce_reasoning(raw.get("agreements") or []),
+        disagreements=_coerce_reasoning(raw.get("disagreements") or []),
+        discussion_summary=_coerce_reasoning(raw.get("discussion_summary") or []),
+    )

@@ -1,4 +1,4 @@
-"""Telegram alert notifications for trading signals."""
+"""Telegram alert notifications for trading signals and emergency warnings."""
 
 from __future__ import annotations
 
@@ -10,6 +10,7 @@ import httpx
 from app.config import settings
 from app.logging_config import logger
 from app.schemas import RegimeType, SignalDirection, TradingSignalSchema
+from app.schemas.agent import AgentConsensus, TeamDiscussionLLMOutput
 
 BAGHDAD = ZoneInfo("Asia/Baghdad")
 
@@ -21,6 +22,11 @@ REGIME_AR = {
     RegimeType.RANGING: "نطاق جانبي",
     RegimeType.VOLATILE: "تذبذب عالي",
     RegimeType.UNKNOWN: "غير محدد",
+}
+
+EMERGENCY_MESSAGES = {
+    "market_turned_bullish": "⚠️ <b>تحذير طارئ</b>\nالسوق تحول للصعود — راجع صفقتك",
+    "market_turned_bearish": "⚠️ <b>تحذير طارئ</b>\nالسوق تحول للهبوط — راجع صفقتك",
 }
 
 
@@ -64,10 +70,51 @@ class TelegramNotifier:
         )
         return await self._send(text)
 
+    async def send_emergency_position_warning(
+        self,
+        symbol: str,
+        alert_type: str,
+        confidence: float,
+        open_direction: str,
+        new_direction: str,
+    ) -> bool:
+        base = EMERGENCY_MESSAGES.get(alert_type)
+        if not base:
+            return False
+        asset = ASSET_AR.get(symbol, symbol)
+        dir_open = "بيع" if open_direction == "SHORT" else "شراء"
+        dir_new = DIRECTION_AR.get(SignalDirection(new_direction), new_direction)
+        text = (
+            f"{base}\n\n"
+            f"📌 الأصل: <b>{asset}</b>\n"
+            f"📂 صفقة مفتوحة: <b>{dir_open}</b>\n"
+            f"🔄 إشارة جديدة: <b>{dir_new}</b> — ثقة <b>{confidence * 100:.1f}%</b>\n"
+            f"⏰ {datetime.now(BAGHDAD).strftime('%Y-%m-%d %H:%M')} (العراق)"
+        )
+        return await self._send(text)
+
+    def _format_team_discussion(self, discussion: TeamDiscussionLLMOutput) -> str:
+        lines = ["\n<b>📋 ملخص نقاش الفريق</b>"]
+        if discussion.discussion_summary:
+            lines.append("\n".join(f"• {s}" for s in discussion.discussion_summary[:5]))
+        if discussion.agreements:
+            lines.append("\n<b>✅ نقاط الاتفاق:</b>")
+            lines.append("\n".join(f"• {a}" for a in discussion.agreements[:4]))
+        if discussion.disagreements:
+            lines.append("\n<b>⚡ نقاط الخلاف:</b>")
+            lines.append("\n".join(f"• {d}" for d in discussion.disagreements[:4]))
+        final = discussion.round3_final
+        dir_ar = DIRECTION_AR.get(final.direction, final.direction.value)
+        lines.append(f"\n<b>🏁 القرار النهائي:</b> {dir_ar} — ثقة {final.confidence * 100:.1f}%")
+        if final.reasoning:
+            lines.append("\n".join(f"• {r}" for r in final.reasoning[:3]))
+        return "\n".join(lines)
+
     async def send_signal_alert(
         self,
         signal: TradingSignalSchema,
         market_status_ar: str | None = None,
+        consensus: AgentConsensus | None = None,
     ) -> bool:
         if signal.confidence < 0.70:
             return False
@@ -88,7 +135,15 @@ class TelegramNotifier:
         )
         if market_status_ar:
             text += f"🕐 الجلسة: {market_status_ar}\n"
-        text += f"⏰ وقت الإشارة: {ts} (العراق)"
+        if consensus and consensus.team_discussion:
+            text += self._format_team_discussion(consensus.team_discussion)
+        elif consensus and consensus.discussion_summary_ar:
+            text += "\n<b>📋 ملخص:</b>\n" + "\n".join(
+                f"• {s}" for s in consensus.discussion_summary_ar[:5]
+            )
+        if consensus and consensus.llm_provider:
+            text += f"\n🤖 النموذج: {consensus.llm_provider}"
+        text += f"\n⏰ وقت الإشارة: {ts} (العراق)"
 
         return await self._send(text)
 

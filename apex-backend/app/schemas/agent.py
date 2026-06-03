@@ -65,6 +65,28 @@ class AgentVerdict(BaseModel):
     latency_ms: float | None = None
     used_llm: bool = False
     error: str | None = None
+    analyzed_at: datetime | None = None
+    is_stale: bool = False
+    data_age_seconds: float | None = None
+
+
+class TeamRoundOpinion(BaseModel):
+    """Single agent opinion in a discussion round."""
+
+    direction: SignalDirection
+    confidence: float = Field(ge=0.0, le=1.0)
+    reasoning: list[str] = Field(min_length=1, max_length=10)
+
+
+class TeamDiscussionLLMOutput(BaseModel):
+    """Three-round team discussion — single LLM JSON response."""
+
+    round1_initial: dict[str, TeamRoundOpinion]
+    round2_responses: dict[str, TeamRoundOpinion]
+    round3_final: TeamRoundOpinion
+    agreements: list[str] = Field(default_factory=list, max_length=10)
+    disagreements: list[str] = Field(default_factory=list, max_length=10)
+    discussion_summary: list[str] = Field(default_factory=list, max_length=15)
 
 
 class AgentConsensus(BaseModel):
@@ -77,3 +99,6 @@ class AgentConsensus(BaseModel):
     verdicts: list[AgentVerdict]
     vote_scores: dict[str, float]
     reasoning_summary: list[str] = Field(default_factory=list, max_length=15)
+    team_discussion: TeamDiscussionLLMOutput | None = None
+    discussion_summary_ar: list[str] = Field(default_factory=list, max_length=20)
+    llm_provider: str | None = None

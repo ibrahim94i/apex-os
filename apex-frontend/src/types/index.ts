@@ -114,6 +114,7 @@ export interface AccountMode {
   mode: "demo" | "real";
   balance: number;
   label_ar: string;
+  balance_editable?: boolean;
 }
 
 export interface FeedStatus {

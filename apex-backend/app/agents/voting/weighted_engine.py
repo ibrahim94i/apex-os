@@ -80,8 +80,18 @@ class AdaptiveWeightedEngine:
         verdicts: list[AgentVerdict],
         regime: str = "UNKNOWN",
         session: AsyncSession | None = None,
+        snapshot: Any | None = None,
     ) -> AgentConsensus:
         await self.compute_weights(session, symbol, regime, verdicts)
+
+        if snapshot is not None:
+            from app.services.agent_freshness import apply_dynamic_weight_adjustments
+
+            verdicts, weight_reasons = apply_dynamic_weight_adjustments(
+                verdicts, snapshot.indicators, snapshot
+            )
+        else:
+            weight_reasons = []
 
         vote_scores: dict[str, float] = {}
         weighted_sum = 0.0
@@ -105,6 +115,8 @@ class AdaptiveWeightedEngine:
             final_direction = SignalDirection.NEUTRAL
 
         reasoning_summary = self._build_summary(verdicts, final_direction)
+        if weight_reasons:
+            reasoning_summary.extend(weight_reasons[:3])
 
         return AgentConsensus(
             symbol=symbol,
