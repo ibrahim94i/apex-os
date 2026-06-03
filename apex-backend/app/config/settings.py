@@ -52,6 +52,7 @@ class Settings(BaseSettings):
     max_consecutive_losses: int = 3
     feed_staleness_limit_seconds: int = 300
     feed_disconnect_threshold_seconds: int = 60
+    feed_startup_grace_seconds: int = 180
     feed_max_consecutive_failures: int = 3
     feed_recovery_cooldown_seconds: int = 120
     feed_health_interval_seconds: int = 30
@@ -71,7 +72,7 @@ class Settings(BaseSettings):
     twelvedata_stale_retry_delay_seconds: float = 5.0
     twelvedata_min_gap_seconds: float = 8.0
     gemini_api_key: str = ""
-    gemini_model: str = "gemini-1.5-flash"
+    gemini_model: str = "gemini-2.0-flash"
     llm_primary_provider: str = "gemini"
     emergency_signal_confidence_threshold: float = 0.75
     signal_emission_interval_hours: float = 1.0

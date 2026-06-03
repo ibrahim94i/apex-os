@@ -27,13 +27,9 @@ _bg_tasks: list = []
 async def _startup_warmup() -> None:
     """Heavy startup — runs in background so Railway healthchecks pass quickly."""
     try:
-        feed_manager.start_all()
         await bootstrap_all_assets()
+        feed_manager.start_all()
         await publish_hourly_report()
-
-        from app.services.feed_health_service import run_recovery_cycle
-
-        await run_recovery_cycle()
 
         if telegram_notifier.enabled:
             ok = await telegram_notifier.send_test_message()
@@ -52,6 +48,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     configure_logging()
     logger.info("apex_starting", environment=settings.environment)
 
+    from app.services.feed_health_service import mark_app_started
+
+    mark_app_started()
     _bg_tasks = start_background_tasks()
     asyncio.create_task(_startup_warmup(), name="apex_warmup")
 

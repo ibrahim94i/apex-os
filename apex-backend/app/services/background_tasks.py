@@ -37,7 +37,7 @@ async def _feed_health_watch_loop() -> None:
     """Detect dead/stale feeds and restart them without full system reboot."""
     from app.services.feed_health_service import build_feed_status_payload, run_recovery_cycle
 
-    await asyncio.sleep(15)
+    await asyncio.sleep(settings.feed_startup_grace_seconds)
     while True:
         try:
             report = await run_recovery_cycle()

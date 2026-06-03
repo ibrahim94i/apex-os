@@ -148,7 +148,7 @@ async def bootstrap_asset(symbol: str, limit: int = 250) -> bool:
             logger.warning("history_bootstrap_empty", symbol=symbol)
             return False
         seed_bars_to_buffer(bars)
-        await process_bar(bars[-1])
+        await process_bar(bars[-1], skip_agents=True)
         logger.info("history_bootstrap_complete", symbol=symbol, bars=len(bars))
         return True
     except Exception as exc:

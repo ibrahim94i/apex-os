@@ -91,7 +91,7 @@ def seed_bars_to_buffer(raw_bars: list[dict[str, Any]]) -> None:
         _bar_buffer[symbol] = _bar_buffer[symbol][-MAX_BUFFER:]
 
 
-async def process_bar(raw_bar: dict[str, Any]) -> None:
+async def process_bar(raw_bar: dict[str, Any], *, skip_agents: bool = False) -> None:
     symbol = raw_bar["symbol"]
 
     if not is_market_open(symbol):
@@ -130,7 +130,7 @@ async def process_bar(raw_bar: dict[str, Any]) -> None:
             indicators, regime = signal_generator.analyze(_bar_buffer[symbol], symbol)
 
             agent_consensus = None
-            if indicators and regime:
+            if indicators and regime and not skip_agents:
                 snapshot = await build_market_snapshot(
                     symbol=symbol,
                     price=raw_bar["close"],

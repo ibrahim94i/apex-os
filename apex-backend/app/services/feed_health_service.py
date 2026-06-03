@@ -14,6 +14,13 @@ from app.services.feed_status import FeedConnectionState, get_all_feed_statuses,
 from app.services.market_hours import is_market_open
 
 _recovery_trackers: dict[str, "_RecoveryTracker"] = {}
+_app_started_at: datetime = datetime.now(timezone.utc)
+
+
+def mark_app_started() -> None:
+    """Reset startup clock (called from lifespan)."""
+    global _app_started_at
+    _app_started_at = datetime.now(timezone.utc)
 
 
 @dataclass
@@ -70,12 +77,15 @@ async def check_feed_health(symbol: str) -> FeedHealthStatus:
     age: int | None = None
     stale = False
 
+    startup_age = int((datetime.now(timezone.utc) - _app_started_at).total_seconds())
+    in_startup_grace = startup_age < settings.feed_startup_grace_seconds
+
     if last_raw and last_raw.get("timestamp"):
         last_dt = _parse_ts(last_raw["timestamp"])
         age = int((datetime.now(timezone.utc) - last_dt).total_seconds())
         if open_now and age > settings.feed_disconnect_threshold_seconds:
             stale = True
-    elif open_now:
+    elif open_now and not in_startup_grace:
         stale = True
 
     if not running and open_now:
