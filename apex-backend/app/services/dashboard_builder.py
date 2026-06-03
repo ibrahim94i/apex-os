@@ -17,6 +17,7 @@ from app.schemas import (
     TradingSignalSchema,
 )
 from app.services.market_status_service import build_market_status
+from app.services.market_data_store import get_latest_price_from_db, get_latest_regime_from_db
 
 
 async def build_asset_dashboard_state(symbol: str) -> DashboardStateSchema:
@@ -41,9 +42,14 @@ async def build_asset_dashboard_state(symbol: str) -> DashboardStateSchema:
         )
 
     regime_data = await get_latest_regime(symbol)
+    if not regime_data:
+        regime_data = await get_latest_regime_from_db(symbol)
+
     signal_data = await get_latest_signal(symbol)
     history = await get_signal_history(symbol, 20)
     price_data = await get_latest_price(symbol)
+    if not price_data:
+        price_data = await get_latest_price_from_db(symbol)
     consensus_data = await get_agent_consensus(symbol)
 
     return DashboardStateSchema(

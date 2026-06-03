@@ -94,6 +94,14 @@ async def fetch_twelvedata_history(
                 params=params,
             )
             if response.status_code == 429:
+                body: dict[str, Any] = {}
+                try:
+                    body = response.json()
+                except Exception:
+                    pass
+                if "run out of api credits" in str(body.get("message", "")).lower():
+                    logger.warning("twelvedata_credits_exhausted", symbol=apex_symbol)
+                    return []
                 wait = 30.0 * attempt
                 logger.warning(
                     "twelvedata_bootstrap_rate_limited",
@@ -178,6 +186,12 @@ async def bootstrap_asset(symbol: str, limit: int = 250) -> bool:
     try:
         bars = await fetch_history_for_asset(asset, limit)
         if not bars:
+            from app.services.market_data_store import fetch_bars_from_db
+
+            bars = await fetch_bars_from_db(symbol, limit)
+            if bars:
+                logger.info("history_bootstrap_db_fallback", symbol=symbol, bars=len(bars))
+        if not bars:
             logger.warning("history_bootstrap_empty", symbol=symbol)
             return False
         seed_bars_to_buffer(bars)
@@ -208,10 +222,25 @@ async def bootstrap_all_assets(limit: int = 250) -> None:
         await asyncio.sleep(45 * attempt)
         still_failed: list[str] = []
         for symbol in failed:
-            if await bootstrap_asset(symbol, limit):
+            asset = ASSETS[symbol]
+            ok = await bootstrap_asset(symbol, limit)
+            if ok:
+                continue
+            from app.services.market_data_store import fetch_bars_from_db
+
+            db_bars = await fetch_bars_from_db(symbol, min(limit, 50))
+            if db_bars:
+                from app.services.pipeline import process_bar, seed_bars_to_buffer
+
+                seed_bars_to_buffer(db_bars)
+                last_bar = db_bars[-1]
+                await process_bar(last_bar, skip_agents=True)
+                await _mark_feed_warmed(symbol, last_bar)
+                logger.info("history_bootstrap_db_retry_success", symbol=symbol, bars=len(db_bars))
                 continue
             still_failed.append(symbol)
-            await asyncio.sleep(15)
+            if asset.feed_type == "twelvedata":
+                await asyncio.sleep(15)
         failed = still_failed
 
     if failed:
