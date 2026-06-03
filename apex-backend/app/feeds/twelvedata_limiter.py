@@ -7,9 +7,10 @@ import time
 
 import httpx
 
+from app.config import settings
+
 _lock = asyncio.Lock()
 _last_request_at: float = 0.0
-MIN_GAP_SECONDS = 3.0
 
 
 async def throttled_get(
@@ -19,9 +20,10 @@ async def throttled_get(
     params: dict,
 ) -> httpx.Response:
     global _last_request_at
+    min_gap = settings.twelvedata_min_gap_seconds
     async with _lock:
         now = time.monotonic()
-        wait = MIN_GAP_SECONDS - (now - _last_request_at)
+        wait = min_gap - (now - _last_request_at)
         if wait > 0:
             await asyncio.sleep(wait)
         response = await client.get(url, params=params)

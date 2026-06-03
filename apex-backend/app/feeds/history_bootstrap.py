@@ -160,4 +160,4 @@ async def bootstrap_all_assets(limit: int = 250) -> None:
     for symbol, asset in ASSETS.items():
         await bootstrap_asset(symbol, limit)
         if asset.feed_type == "twelvedata":
-            await asyncio.sleep(4)
+            await asyncio.sleep(10)

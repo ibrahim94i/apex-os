@@ -69,6 +69,7 @@ class Settings(BaseSettings):
     agent_data_max_age_seconds: int = 300
     twelvedata_stale_retry_count: int = 2
     twelvedata_stale_retry_delay_seconds: float = 5.0
+    twelvedata_min_gap_seconds: float = 8.0
     gemini_api_key: str = ""
     gemini_model: str = "gemini-1.5-flash"
     llm_primary_provider: str = "gemini"

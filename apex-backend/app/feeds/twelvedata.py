@@ -15,6 +15,15 @@ from app.services.feed_status import FeedConnectionState, set_feed_status
 
 BarCallback = Callable[[dict[str, Any]], Awaitable[None]]
 
+# Max age for latest bar before considered stale (interval-aware)
+_INTERVAL_MAX_BAR_AGE: dict[str, float] = {
+    "1h": 3900.0,    # current H1 bar can be up to ~60 min old
+    "30min": 2100.0,
+    "15min": 1200.0,
+    "5min": 600.0,
+    "1min": 180.0,
+}
+
 
 class TwelveDataFeed:
     BASE_URL = "https://api.twelvedata.com/time_series"
@@ -66,8 +75,14 @@ class TwelveDataFeed:
             ts = ts.replace(tzinfo=timezone.utc)
         return max(0.0, (datetime.now(timezone.utc) - ts).total_seconds())
 
+    def _max_bar_age_seconds(self) -> float:
+        return _INTERVAL_MAX_BAR_AGE.get(
+            self.interval, float(settings.feed_staleness_limit_seconds)
+        )
+
     def _is_bar_stale(self, bar: dict[str, Any]) -> bool:
-        return self._bar_age_seconds(bar) > settings.feed_staleness_limit_seconds
+        # Hourly candles are NOT stale just because the bar opened <1h ago
+        return self._bar_age_seconds(bar) > self._max_bar_age_seconds()
 
     async def _fetch_latest_bar(self) -> dict[str, Any] | None:
         if not self.api_key or self.api_key == "your_key_here":
@@ -117,7 +132,17 @@ class TwelveDataFeed:
         last_bar: dict[str, Any] | None = None
 
         for attempt in range(1, max_retries + 2):
-            bar = await self._fetch_latest_bar()
+            try:
+                bar = await self._fetch_latest_bar()
+            except httpx.HTTPStatusError as exc:
+                if exc.response.status_code == 429:
+                    logger.warning(
+                        "twelvedata_rate_limited_skip_retry",
+                        symbol=self.apex_symbol,
+                        attempt=attempt,
+                    )
+                    return None
+                raise
             if bar is None:
                 if attempt <= max_retries:
                     logger.info(
