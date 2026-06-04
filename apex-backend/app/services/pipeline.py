@@ -31,7 +31,7 @@ from app.services.signal_rejection_i18n import rejection_reason_ar
 from app.services.alert_service import alert_service
 from app.services.dashboard_builder import build_asset_dashboard_state
 from app.services.market_hours import is_market_open
-from app.services.market_snapshot import build_market_snapshot
+from app.services.market_snapshot import bind_indicator_regime_to_symbol, build_market_snapshot
 from app.services.market_status_service import build_market_status
 from app.services.signal_filters import apply_high_selectivity_filters
 from app.services.signal_gate import should_emit_new_signal
@@ -133,6 +133,7 @@ async def process_bar(raw_bar: dict[str, Any], *, skip_agents: bool = False) -> 
 
             agent_consensus = None
             if indicators and regime and not skip_agents:
+                indicators, regime = bind_indicator_regime_to_symbol(symbol, indicators, regime)
                 snapshot = await build_market_snapshot(
                     symbol=symbol,
                     price=raw_bar["close"],

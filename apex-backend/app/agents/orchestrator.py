@@ -25,7 +25,7 @@ class AgentOrchestrator:
     ) -> AgentConsensus:
         cached = await get_cached_consensus(snapshot)
         if cached:
-            return cached
+            return cached.model_copy(update={"symbol": snapshot.symbol})
 
         verdicts, used_llm, error, team_discussion, llm_provider = await self.team_service.analyze(
             snapshot

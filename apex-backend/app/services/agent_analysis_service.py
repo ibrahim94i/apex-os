@@ -33,7 +33,11 @@ from app.services.market_data_store import (
     get_latest_price_from_db,
     get_latest_regime_from_db,
 )
-from app.services.market_snapshot import build_market_snapshot
+from app.services.market_snapshot import (
+    bind_indicator_regime_to_symbol,
+    build_market_snapshot,
+    redis_snapshot_matches_symbol,
+)
 from app.services.pipeline import seed_bars_to_buffer
 from app.services.signal_rejection_i18n import rejection_reason_ar
 from app.websocket.manager import broadcaster
@@ -94,6 +98,22 @@ async def _load_market_context(
         regime_data = await get_latest_regime_from_db(symbol)
 
     ind_data = await get_latest_indicators(symbol)
+    if ind_data and not redis_snapshot_matches_symbol(symbol, ind_data):
+        logger.warning(
+            "agent_analysis_indicators_symbol_mismatch",
+            symbol=symbol,
+            stored=ind_data.get("symbol"),
+        )
+        ind_data = None
+
+    if regime_data and not redis_snapshot_matches_symbol(symbol, regime_data):
+        logger.warning(
+            "agent_analysis_regime_symbol_mismatch",
+            symbol=symbol,
+            stored=regime_data.get("symbol"),
+        )
+        regime_data = None
+
     if not ind_data or not regime_data:
         recomputed_ind, recomputed_reg = await _recompute_market_metrics(symbol)
         if not ind_data:
@@ -138,8 +158,9 @@ async def run_agent_analysis(symbol: str, *, force: bool = False) -> AgentConsen
                 return None
 
             price_data, ind_data, regime_data = context
-            indicators = IndicatorSnapshotSchema(**ind_data)
-            regime = RegimeSnapshotSchema(**regime_data)
+            indicators = IndicatorSnapshotSchema(**{**ind_data, "symbol": symbol})
+            regime = RegimeSnapshotSchema(**{**regime_data, "symbol": symbol})
+            indicators, regime = bind_indicator_regime_to_symbol(symbol, indicators, regime)
 
             async with AsyncSessionLocal() as session:
                 try:

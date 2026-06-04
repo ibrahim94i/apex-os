@@ -21,6 +21,9 @@ async def _cache_key(snapshot: MarketSnapshot) -> str:
         "regime": snapshot.regime.regime.value,
         "rsi": round(ind.rsi or 0, 2),
         "macd": round(ind.macd or 0, 6),
+        "ema_50": round(ind.ema_50 or 0, 5),
+        "atr": round(ind.atr or 0, 6),
+        "adx": round(ind.adx or 0, 2),
         "account_mode": mode,
         "account_balance": round(snapshot.account_balance, 2),
     }
@@ -40,16 +43,20 @@ async def get_cached_consensus(snapshot: MarketSnapshot) -> AgentConsensus | Non
     if not raw:
         return None
     try:
-        return AgentConsensus(**raw)
+        cached = AgentConsensus(**raw)
     except Exception:
         return None
+    if cached.symbol != snapshot.symbol:
+        return None
+    return cached
 
 
 async def set_cached_consensus(snapshot: MarketSnapshot, consensus: AgentConsensus) -> None:
     try:
+        bound = consensus.model_copy(update={"symbol": snapshot.symbol})
         await cache_set(
             await _cache_key(snapshot),
-            consensus.model_dump(mode="json"),
+            bound.model_dump(mode="json"),
             ttl=settings.agent_cache_ttl_seconds,
         )
     except Exception:

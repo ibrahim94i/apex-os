@@ -1,14 +1,48 @@
 """Builds MarketSnapshot from live pipeline context."""
 
 from datetime import datetime, timezone
+from typing import Any
 
 from app.config import settings
 from app.core.cache import get_feed_last_update
+from app.logging_config import logger
 from app.schemas import IndicatorSnapshotSchema, KillSwitchStatusSchema, RegimeSnapshotSchema
 from app.schemas.agent import MarketSnapshot
 from app.services.account_service import account_service
 from app.services.memory_engine import memory_engine
 from app.utils.time_utils import compute_age_seconds, parse_utc_timestamp
+
+
+def redis_snapshot_matches_symbol(symbol: str, data: dict[str, Any] | None) -> bool:
+    """True when cached Redis payload belongs to this symbol (or has no symbol field)."""
+    if not data:
+        return False
+    stored = data.get("symbol")
+    return not stored or stored == symbol
+
+
+def bind_indicator_regime_to_symbol(
+    symbol: str,
+    indicators: IndicatorSnapshotSchema,
+    regime: RegimeSnapshotSchema,
+) -> tuple[IndicatorSnapshotSchema, RegimeSnapshotSchema]:
+    """Ensure nested snapshots cannot leak data from another asset."""
+    if indicators.symbol != symbol:
+        logger.warning(
+            "snapshot_indicators_symbol_mismatch",
+            requested=symbol,
+            stored=indicators.symbol,
+        )
+    if regime.symbol != symbol:
+        logger.warning(
+            "snapshot_regime_symbol_mismatch",
+            requested=symbol,
+            stored=regime.symbol,
+        )
+    return (
+        indicators.model_copy(update={"symbol": symbol}),
+        regime.model_copy(update={"symbol": symbol}),
+    )
 
 
 async def build_market_snapshot(
@@ -18,6 +52,7 @@ async def build_market_snapshot(
     regime: RegimeSnapshotSchema,
     kill_switch: KillSwitchStatusSchema,
 ) -> MarketSnapshot:
+    indicators, regime = bind_indicator_regime_to_symbol(symbol, indicators, regime)
     feed_stale = await _is_feed_stale(symbol)
     patterns = await memory_engine.get_top_patterns(symbol)
 
