@@ -35,6 +35,19 @@ class CandlestickPatternSchema(BaseModel):
     source: str = Field(default="pandas", description="pandas or TA-Lib")
 
 
+class EconomicEventSchema(BaseModel):
+    """High-impact economic calendar event (Finnhub)."""
+
+    event: str
+    country: str = ""
+    impact: str = "high"
+    event_time: datetime
+    estimate: float | None = None
+    previous: float | None = None
+    actual: float | None = None
+    unit: str = ""
+
+
 class NewsHeadline(BaseModel):
     """Finnhub (or other) headline fed to the news agent."""
 
@@ -80,6 +93,7 @@ class MarketSnapshot(BaseModel):
     memory_patterns: list[dict[str, object]] = Field(default_factory=list)
     candlestick_patterns: list[CandlestickPatternSchema] = Field(default_factory=list)
     news_headlines: list[NewsHeadline] = Field(default_factory=list)
+    upcoming_events: list[EconomicEventSchema] = Field(default_factory=list)
 
 
 class AgentVerdict(BaseModel):

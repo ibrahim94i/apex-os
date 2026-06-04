@@ -7,8 +7,9 @@ from app.config import settings
 from app.core.cache import get_feed_last_update
 from app.logging_config import logger
 from app.schemas import IndicatorSnapshotSchema, KillSwitchStatusSchema, RegimeSnapshotSchema
-from app.schemas.agent import CandlestickPatternSchema, MarketSnapshot
+from app.schemas.agent import CandlestickPatternSchema, EconomicEventSchema, MarketSnapshot
 from app.services.account_service import account_service
+from app.services.finnhub_calendar import fetch_upcoming_high_impact_events
 from app.services.finnhub_news import fetch_news_for_symbol
 from app.services.memory_engine import memory_engine
 from app.utils.time_utils import compute_age_seconds, parse_utc_timestamp
@@ -53,6 +54,7 @@ async def build_market_snapshot(
     regime: RegimeSnapshotSchema,
     kill_switch: KillSwitchStatusSchema,
     candlestick_patterns: list[CandlestickPatternSchema] | None = None,
+    upcoming_events: list[EconomicEventSchema] | None = None,
 ) -> MarketSnapshot:
     indicators, regime = bind_indicator_regime_to_symbol(symbol, indicators, regime)
     feed_stale = await _is_feed_stale(symbol)
@@ -67,6 +69,8 @@ async def build_market_snapshot(
 
     balance = await account_service.get_balance()
     news_headlines = await fetch_news_for_symbol(symbol)
+    if upcoming_events is None:
+        upcoming_events = await fetch_upcoming_high_impact_events()
 
     return MarketSnapshot(
         symbol=symbol,
@@ -84,6 +88,7 @@ async def build_market_snapshot(
         memory_patterns=patterns,
         candlestick_patterns=candlestick_patterns,
         news_headlines=news_headlines,
+        upcoming_events=upcoming_events,
     )
 
 

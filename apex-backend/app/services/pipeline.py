@@ -36,6 +36,8 @@ from app.services.market_snapshot import bind_indicator_regime_to_symbol, build_
 from app.services.market_status_service import build_market_status
 from app.services.signal_filters import apply_high_selectivity_filters
 from app.services.signal_gate import should_emit_new_signal
+from app.services.economic_calendar_gate import check_economic_calendar_gate
+from app.services.finnhub_calendar import _load_high_impact_events
 from app.services.safety_gate import check_mandatory_safety_gate
 from app.services.position_service import detect_position_signal_conflict, get_open_positions
 from app.config import settings
@@ -206,6 +208,22 @@ async def process_bar(raw_bar: dict[str, Any], *, skip_agents: bool = False) -> 
                             )
                             signal_decision = "blocked"
                             rejection_reason = safety_reason
+                            signal = None
+
+                    if signal:
+                        calendar_pool = await _load_high_impact_events()
+                        cal_safe, cal_reason = check_economic_calendar_gate(
+                            calendar_pool,
+                            snapshot.timestamp,
+                        )
+                        if not cal_safe:
+                            logger.info(
+                                "economic_calendar_gate_blocked",
+                                symbol=symbol,
+                                reason=cal_reason,
+                            )
+                            signal_decision = "blocked"
+                            rejection_reason = cal_reason
                             signal = None
 
                     if signal:

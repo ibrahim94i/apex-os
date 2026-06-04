@@ -1,5 +1,6 @@
 """Prompts for News Agent."""
 
+from app.agents.news.calendar_format import format_economic_calendar_block
 from app.agents.prompt_utils import AGENT_JSON_RULES, AGENT_JSON_SCHEMA, asset_header
 from app.schemas.agent import MarketSnapshot
 
@@ -7,7 +8,8 @@ SYSTEM_PROMPT = f"""أنت وكيل أخبار macro متخصص في تقييم 
 حلل السياق لأي أصل (BTCUSDT, XAUUSD, EURUSD, USDJPY, GBPUSD) وأعد JSON فقط:
 {AGENT_JSON_SCHEMA}
 {AGENT_JSON_RULES}
-استخدم عناوين Finnhub المرفقة في الطلب — اربط كل خبر بتأثيره على الأصل.
+استخدم عناوين Finnhub والتقويم الاقتصادي المرفق — اربط كل خبر/حدث بتأثيره على الأصل.
+إن وُجد حدث high impact خلال 60 دقيقة: اذكر تحذيراً صريحاً في reasoning ويُفضّل NEUTRAL.
 إذا كانت البيانات قديمة أو التذبذب عالياً، كن حذراً."""
 
 
@@ -30,6 +32,7 @@ def format_finnhub_news_block(snapshot: MarketSnapshot) -> str:
 def build_user_prompt(snapshot: MarketSnapshot) -> str:
     return f"""{asset_header(snapshot)}
 {format_finnhub_news_block(snapshot)}
+{format_economic_calendar_block(snapshot)}
 
 السعر: {snapshot.price}
 حالة السوق: {snapshot.regime.regime.value}

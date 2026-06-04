@@ -62,6 +62,11 @@ class Settings(BaseSettings):
     news_block_window_minutes: int = 30
     finnhub_api_key: str = ""
     finnhub_news_limit: int = 5
+    finnhub_calendar_cache_ttl_seconds: int = 300
+    economic_calendar_pre_event_minutes: int = 30
+    economic_calendar_post_event_minutes: int = 15
+    economic_calendar_news_warn_minutes: int = 60
+    economic_calendar_hours_ahead: int = 24
     frontend_url: str = "http://localhost:3000"
     cors_origins: str = ""
     openai_api_key: str = ""

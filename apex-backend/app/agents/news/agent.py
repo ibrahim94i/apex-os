@@ -3,8 +3,10 @@
 import time
 
 from app.agents.news.prompt import SYSTEM_PROMPT, build_user_prompt
+from app.config import settings
 from app.schemas.agent import AgentLLMOutput, AgentRole, AgentVerdict, MarketSnapshot
 from app.schemas import SignalDirection
+from app.services.finnhub_calendar import find_imminent_event, minutes_until_event
 from app.utils.llm_client import LLMClient, LLMClientError, llm_client
 
 
@@ -38,6 +40,27 @@ def _rule_based(snapshot: MarketSnapshot) -> AgentLLMOutput:
         reasoning.append(f"أحدث عنوان: {snapshot.news_headlines[0].headline[:120]}")
     else:
         reasoning.append("لا توجد عناوين Finnhub — الاعتماد على السياق العام فقط")
+
+    if snapshot.upcoming_events:
+        reasoning.append(
+            f"التقويم: {len(snapshot.upcoming_events)} حدث high impact خلال 24 ساعة"
+        )
+        imminent = find_imminent_event(
+            snapshot.upcoming_events,
+            snapshot.timestamp,
+            within_minutes=settings.economic_calendar_news_warn_minutes,
+        )
+        if imminent:
+            mins = minutes_until_event(imminent.event_time, snapshot.timestamp)
+            reasoning.append(
+                f"⚠️ تحذير: {imminent.event} ({imminent.country}) خلال {mins:.0f} دقيقة — حذر"
+            )
+            return AgentLLMOutput(
+                direction=SignalDirection.NEUTRAL,
+                confidence=0.72,
+                reasoning=reasoning,
+            )
+
     reasoning.append(f"السوق في حالة {regime}")
 
     if regime == "TRENDING_UP":

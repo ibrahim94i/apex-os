@@ -13,6 +13,8 @@ REJECTION_AR: dict[str, str] = {
     "selectivity_wait": "انتظار — فلاتر انتقائية (ثقة أو RSI أو ATR)",
     "signal_suppressed": "انتظار — فترة بين الإشارات أو تغيير السعر غير كافٍ",
     "ranging_market_wait": "السوق جانبي — انتظر",
+    "economic_calendar_pre_event": "رفض Safety Gate: حدث اقتصادي عالي التأثير خلال 30 دقيقة",
+    "economic_calendar_post_event": "رفض Safety Gate: انتظار 15 دقيقة بعد صدور حدث اقتصادي",
 }
 
 
