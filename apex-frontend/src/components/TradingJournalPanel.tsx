@@ -224,7 +224,7 @@ export default function TradingJournalPanel({ accountMode = "demo" }: Props) {
                   </span>
                   {entry.signal_confidence != null && (
                     <span className="mono">
-                      {t.confidence} {(entry.signal_confidence * 100).toFixed(0)}%
+                      {t.signalConfidenceLabel} {(entry.signal_confidence * 100).toFixed(0)}%
                     </span>
                   )}
                 </div>

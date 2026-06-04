@@ -83,7 +83,7 @@ export const t = {
   followIgnored: "تجاهلت",
   closePrice: "سعر الإغلاق",
   tradeOutcome: "نتيجة الصفقة",
-  confidence: "الثقة",
+  signalConfidenceLabel: "الثقة",
   manualTradeOptional: "تسجيل صفقة يدوية (اختياري)",
   positionManager: "مدير المراكز",
   accountBalance: "رأس المال",
