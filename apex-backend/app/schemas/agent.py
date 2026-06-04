@@ -108,6 +108,10 @@ class AgentConsensus(BaseModel):
     proposed_confidence: float | None = None
     llm_provider: str | None = None
 
-    def is_groq_powered(self) -> bool:
-        """True when all verdicts used Groq (not rule-based fallback)."""
+    def is_llm_powered(self) -> bool:
+        """True when all verdicts used the LLM (not rule-based fallback)."""
         return bool(self.verdicts) and all(v.used_llm for v in self.verdicts)
+
+    def is_groq_powered(self) -> bool:
+        """Backward-compatible alias for is_llm_powered."""
+        return self.is_llm_powered()

@@ -1,4 +1,4 @@
-"""Groq LLM client with rate limiting, 429 backoff, and circuit breaker."""
+"""OpenAI LLM client with rate limiting, 429 backoff, and circuit breaker."""
 
 from __future__ import annotations
 
@@ -64,7 +64,7 @@ class LLMResponse:
     model: str
     latency_ms: float
     usage: dict[str, int] = field(default_factory=dict)
-    provider: str = "groq"
+    provider: str = "openai"
 
 
 class LLMClientError(Exception):
@@ -79,14 +79,14 @@ async def _enforce_rate_limit() -> None:
     global _last_request_at
     async with _rate_lock:
         now = time.monotonic()
-        gap = settings.groq_min_request_interval_seconds - (now - _last_request_at)
+        gap = settings.llm_min_request_interval_seconds - (now - _last_request_at)
         if gap > 0:
             await asyncio.sleep(gap)
         _last_request_at = time.monotonic()
 
 
 class LLMClient:
-    GROQ_CHAT_URL = "https://api.groq.com/openai/v1/chat/completions"
+    OPENAI_CHAT_URL = "https://api.openai.com/v1/chat/completions"
 
     def __init__(
         self,
@@ -96,8 +96,8 @@ class LLMClient:
         max_retries: int | None = None,
         circuit_threshold: int | None = None,
     ) -> None:
-        self.api_key = api_key or settings.groq_api_key
-        self.model = model or settings.groq_model
+        self.api_key = api_key or settings.openai_api_key
+        self.model = model or settings.openai_model
         self.timeout = timeout or float(settings.agent_timeout_seconds)
         self.max_retries = max_retries or settings.agent_max_retries
         self.circuit_breaker = CircuitBreaker(
@@ -110,7 +110,9 @@ class LLMClient:
 
     @property
     def primary_provider(self) -> str:
-        return "groq" if self.is_configured else "none"
+        if settings.llm_primary_provider == "openai" and self.is_configured:
+            return "openai"
+        return "none"
 
     async def chat_completion(
         self,
@@ -118,16 +120,18 @@ class LLMClient:
         user_prompt: str,
         temperature: float = 0.2,
     ) -> LLMResponse:
-        return await self._groq_chat_completion(system_prompt, user_prompt, temperature)
+        if settings.llm_primary_provider != "openai":
+            raise LLMClientError(f"Unsupported LLM provider: {settings.llm_primary_provider}")
+        return await self._openai_chat_completion(system_prompt, user_prompt, temperature)
 
-    async def _groq_chat_completion(
+    async def _openai_chat_completion(
         self,
         system_prompt: str,
         user_prompt: str,
         temperature: float = 0.2,
     ) -> LLMResponse:
         if not self.is_configured:
-            raise LLMClientError("Groq API key not configured")
+            raise LLMClientError("OpenAI API key not configured")
 
         if not self.circuit_breaker.can_execute():
             raise LLMCircuitOpenError("LLM circuit breaker is open")
@@ -156,12 +160,12 @@ class LLMClient:
                 timeout = httpx.Timeout(self.timeout, connect=5.0)
                 async with httpx.AsyncClient(timeout=timeout) as client:
                     response = await client.post(
-                        self.GROQ_CHAT_URL,
+                        self.OPENAI_CHAT_URL,
                         headers=headers,
                         json=payload,
                     )
                     if response.status_code == 429:
-                        wait = settings.groq_429_backoff_seconds * (2 ** (attempt - 1))
+                        wait = settings.llm_429_backoff_seconds * (2 ** (attempt - 1))
                         logger.warning(
                             "llm_rate_limited",
                             attempt=attempt,
@@ -190,7 +194,7 @@ class LLMClient:
                         "prompt_tokens": usage.get("prompt_tokens", 0),
                         "completion_tokens": usage.get("completion_tokens", 0),
                     },
-                    provider="groq",
+                    provider="openai",
                 )
             except httpx.HTTPStatusError as exc:
                 last_error = exc

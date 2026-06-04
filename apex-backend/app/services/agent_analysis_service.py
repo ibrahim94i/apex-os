@@ -46,9 +46,9 @@ _last_agent_run_finished_at: float = 0.0
 
 
 async def _wait_agent_run_slot() -> None:
-    """Gap between serialized agent runs to respect Groq rate limits."""
+    """Gap between serialized agent runs to respect LLM rate limits."""
     global _last_agent_run_finished_at
-    gap = settings.groq_min_request_interval_seconds
+    gap = settings.llm_min_request_interval_seconds
     wait = gap - (time.monotonic() - _last_agent_run_finished_at)
     if wait > 0:
         await asyncio.sleep(wait)
@@ -124,7 +124,7 @@ async def run_agent_analysis(symbol: str, *, force: bool = False) -> AgentConsen
         if existing:
             try:
                 cached = AgentConsensus(**existing)
-                if cached.verdicts and cached.is_groq_powered():
+                if cached.verdicts and cached.is_llm_powered():
                     return cached
             except Exception:
                 pass
@@ -156,9 +156,9 @@ async def run_agent_analysis(symbol: str, *, force: bool = False) -> AgentConsen
                     if not consensus.verdicts:
                         logger.warning("agent_analysis_empty_verdicts", symbol=symbol)
                         return None
-                    if not consensus.is_groq_powered():
+                    if not consensus.is_llm_powered():
                         logger.warning(
-                            "agent_analysis_groq_fallback",
+                            "agent_analysis_llm_fallback",
                             symbol=symbol,
                             error=consensus.verdicts[0].error,
                         )
@@ -207,7 +207,7 @@ async def ensure_agent_consensus_for_active_symbols(*, force: bool = False) -> N
         if existing:
             try:
                 cached = AgentConsensus(**existing)
-                if cached.verdicts and cached.is_groq_powered():
+                if cached.verdicts and cached.is_llm_powered():
                     continue
             except Exception:
                 pass

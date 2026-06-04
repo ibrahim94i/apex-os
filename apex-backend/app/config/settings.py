@@ -56,14 +56,14 @@ class Settings(BaseSettings):
     feed_max_consecutive_failures: int = 3
     feed_recovery_cooldown_seconds: int = 120
     feed_health_interval_seconds: int = 30
-    groq_min_request_interval_seconds: float = 10.0
-    groq_429_backoff_seconds: float = 30.0
+    llm_min_request_interval_seconds: float = 10.0
+    llm_429_backoff_seconds: float = 30.0
     agent_cache_ttl_seconds: int = 300
     news_block_window_minutes: int = 30
     frontend_url: str = "http://localhost:3000"
     cors_origins: str = ""
-    groq_api_key: str = ""
-    groq_model: str = "llama-3.1-8b-instant"
+    openai_api_key: str = ""
+    openai_model: str = "gpt-4o-mini"
     agent_timeout_seconds: int = 30
     agent_max_retries: int = 2
     agent_circuit_breaker_threshold: int = 3
@@ -75,7 +75,7 @@ class Settings(BaseSettings):
     alphavantage_poll_interval_seconds: int = 3600
     alphavantage_min_gap_seconds: float = 12.0
     frankfurter_poll_interval_seconds: int = 180
-    llm_primary_provider: str = "groq"
+    llm_primary_provider: str = "openai"
     emergency_signal_confidence_threshold: float = 0.75
     signal_emission_interval_hours: float = 1.0
 

@@ -251,7 +251,7 @@ async def test_run_agent_analysis_does_not_cache_rule_based_fallback() -> None:
             ]
         }
     )
-    assert not rule_consensus.is_groq_powered()
+    assert not rule_consensus.is_llm_powered()
 
     llm_consensus = _sample_consensus()
-    assert llm_consensus.is_groq_powered()
+    assert llm_consensus.is_llm_powered()
