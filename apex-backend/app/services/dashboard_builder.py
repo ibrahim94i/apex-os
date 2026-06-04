@@ -18,6 +18,8 @@ from app.schemas import (
 )
 from app.services.market_status_service import build_market_status
 from app.services.market_data_store import get_latest_price_from_db, get_latest_regime_from_db
+from app.services.account_service import account_service
+from app.services.consensus_display import patch_consensus_account_balance
 
 
 async def build_asset_dashboard_state(symbol: str) -> DashboardStateSchema:
@@ -52,6 +54,11 @@ async def build_asset_dashboard_state(symbol: str) -> DashboardStateSchema:
         price_data = await get_latest_price_from_db(symbol)
     consensus_data = await get_agent_consensus(symbol)
 
+    consensus = AgentConsensus(**consensus_data) if consensus_data else None
+    if consensus:
+        live_balance = await account_service.get_balance()
+        consensus = patch_consensus_account_balance(consensus, live_balance)
+
     return DashboardStateSchema(
         regime=RegimeSnapshotSchema(**regime_data) if regime_data else None,
         latest_signal=TradingSignalSchema(**signal_data) if signal_data else None,
@@ -59,6 +66,6 @@ async def build_asset_dashboard_state(symbol: str) -> DashboardStateSchema:
         signal_history=[TradingSignalSchema(**s) for s in history],
         current_price=price_data["price"] if price_data else None,
         symbol=symbol,
-        agent_consensus=AgentConsensus(**consensus_data) if consensus_data else None,
+        agent_consensus=consensus,
         market_status=market_status,
     )

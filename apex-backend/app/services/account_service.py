@@ -35,12 +35,19 @@ class AccountService:
         await cache_set(REDIS_ACCOUNT_MODE_KEY, {"mode": mode})
         if mode == "real" and balance is not None:
             await self.set_real_balance(balance)
+        else:
+            from app.services.agent_cache import invalidate_agent_llm_cache
+
+            await invalidate_agent_llm_cache()
         return await self.get_status(mode)
 
     async def set_real_balance(self, balance: float) -> dict[str, str | float | bool]:
         if balance <= 0:
             balance = get_default_real_balance()
         await cache_set(REDIS_REAL_BALANCE_KEY, {"balance": round(balance, 2)})
+        from app.services.agent_cache import invalidate_agent_llm_cache
+
+        await invalidate_agent_llm_cache()
         return await self.get_status("real")
 
     async def get_balance(self) -> float:

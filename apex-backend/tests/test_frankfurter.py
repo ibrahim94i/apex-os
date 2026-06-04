@@ -1,7 +1,6 @@
-"""Tests for Frankfurter EURUSD feed and active symbols."""
+"""Tests for active symbols and EURUSD TwelveData feed config."""
 
 from app.config.assets import ACTIVE_SYMBOLS, ASSETS
-from app.feeds.frankfurter_client import build_hourly_bar
 from app.services.signal_rejection_i18n import rejection_reason_ar
 
 
@@ -11,18 +10,17 @@ def test_btcusdt_not_in_active_symbols() -> None:
     assert "BTCUSDT" in ASSETS
 
 
-def test_eurusd_uses_frankfurter_feed() -> None:
+def test_eurusd_uses_twelvedata_feed() -> None:
     asset = ASSETS["EURUSD"]
-    assert asset.feed_type == "frankfurter"
-    assert asset.frankfurter_from_symbol == "EUR"
-    assert asset.frankfurter_to_symbol == "USD"
+    assert asset.feed_type == "twelvedata"
+    assert asset.twelvedata_symbol == "EUR/USD"
+    assert asset.poll_interval == 180
 
 
-def test_build_hourly_bar() -> None:
-    bar = build_hourly_bar(apex_symbol="EURUSD", price=1.085)
-    assert bar["symbol"] == "EURUSD"
-    assert bar["close"] == 1.085
-    assert bar["source"] == "frankfurter"
+def test_xauusd_uses_twelvedata_feed() -> None:
+    asset = ASSETS["XAUUSD"]
+    assert asset.feed_type == "twelvedata"
+    assert asset.twelvedata_symbol == "XAU/USD"
 
 
 def test_rejection_reason_ar() -> None:

@@ -26,7 +26,8 @@ REDIS_REAL_BALANCE_KEY = "apex:real_balance"
 
 
 def get_demo_balance() -> float:
-    return float(settings.demo_account_balance)
+    # Demo capital is fixed at $10,000 — never overridden by env or Redis.
+    return float(ACCOUNT_CONFIG["demo"]["balance"])
 
 
 def get_default_real_balance() -> float:

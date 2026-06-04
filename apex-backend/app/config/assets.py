@@ -21,7 +21,7 @@ class AssetConfig:
     frankfurter_from_symbol: str | None = None
     frankfurter_to_symbol: str | None = None
     candle_interval: str = SIGNAL_TIMEFRAME
-    poll_interval: int = 300
+    poll_interval: int = 180
     min_price_move: float | None = None
     default_spread: float | None = None
     price_decimals: int = 2
@@ -45,19 +45,18 @@ ASSETS: dict[str, AssetConfig] = {
         market_schedule="xauusd",
         twelvedata_symbol="XAU/USD",
         candle_interval="1h",
-        poll_interval=300,
+        poll_interval=180,
         min_price_move=0.50,
         default_spread=0.30,
     ),
     "EURUSD": AssetConfig(
         symbol="EURUSD",
         display_name_ar="يورو/دولار",
-        feed_type="frankfurter",
+        feed_type="twelvedata",
         market_schedule="forex_24_5",
-        frankfurter_from_symbol="EUR",
-        frankfurter_to_symbol="USD",
+        twelvedata_symbol="EUR/USD",
         candle_interval="1h",
-        poll_interval=900,
+        poll_interval=180,
         min_price_move=0.00050,
         default_spread=0.00015,
         price_decimals=5,

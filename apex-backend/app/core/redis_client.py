@@ -71,6 +71,15 @@ async def cache_delete(key: str) -> None:
     await client.delete(key)
 
 
+async def cache_delete_pattern(pattern: str) -> int:
+    client = await get_redis()
+    deleted = 0
+    async for key in client.scan_iter(match=pattern):
+        await client.delete(key)
+        deleted += 1
+    return deleted
+
+
 async def cache_push_list(key: str, value: Any, max_len: int = 20) -> None:
     client = await get_redis()
     serialized = json.dumps(value, default=str)

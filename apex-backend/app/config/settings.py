@@ -74,7 +74,7 @@ class Settings(BaseSettings):
     alphavantage_api_key: str = ""
     alphavantage_poll_interval_seconds: int = 3600
     alphavantage_min_gap_seconds: float = 12.0
-    frankfurter_poll_interval_seconds: int = 900
+    frankfurter_poll_interval_seconds: int = 180
     gemini_api_key: str = ""
     gemini_model: str = "gemini-2.0-flash"
     llm_primary_provider: str = "gemini"

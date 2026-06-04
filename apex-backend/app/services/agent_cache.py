@@ -6,11 +6,13 @@ import hashlib
 import json
 
 from app.config import settings
-from app.core.redis_client import cache_get, cache_set
+from app.core.redis_client import cache_delete_pattern, cache_get, cache_set
 from app.schemas.agent import AgentConsensus, MarketSnapshot
+from app.services.account_service import account_service
 
 
-def _cache_key(snapshot: MarketSnapshot) -> str:
+async def _cache_key(snapshot: MarketSnapshot) -> str:
+    mode = await account_service.get_mode()
     ind = snapshot.indicators
     payload = {
         "symbol": snapshot.symbol,
@@ -19,14 +21,20 @@ def _cache_key(snapshot: MarketSnapshot) -> str:
         "regime": snapshot.regime.regime.value,
         "rsi": round(ind.rsi or 0, 2),
         "macd": round(ind.macd or 0, 6),
+        "account_mode": mode,
+        "account_balance": round(snapshot.account_balance, 2),
     }
     digest = hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()[:16]
     return f"apex:agent_llm_cache:{snapshot.symbol}:{digest}"
 
 
+async def invalidate_agent_llm_cache() -> None:
+    await cache_delete_pattern("apex:agent_llm_cache:*")
+
+
 async def get_cached_consensus(snapshot: MarketSnapshot) -> AgentConsensus | None:
     try:
-        raw = await cache_get(_cache_key(snapshot))
+        raw = await cache_get(await _cache_key(snapshot))
     except Exception:
         return None
     if not raw:
@@ -40,7 +48,7 @@ async def get_cached_consensus(snapshot: MarketSnapshot) -> AgentConsensus | Non
 async def set_cached_consensus(snapshot: MarketSnapshot, consensus: AgentConsensus) -> None:
     try:
         await cache_set(
-            _cache_key(snapshot),
+            await _cache_key(snapshot),
             consensus.model_dump(mode="json"),
             ttl=settings.agent_cache_ttl_seconds,
         )

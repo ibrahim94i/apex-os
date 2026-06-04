@@ -1,4 +1,4 @@
-"""Alpha Vantage FX polling feed — used for EURUSD to preserve TwelveData quota."""
+"""Alpha Vantage FX polling feed — optional FX source (not used for active symbols)."""
 
 from __future__ import annotations
 

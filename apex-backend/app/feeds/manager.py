@@ -93,7 +93,7 @@ class FeedManager:
                 apex_symbol=asset.symbol,
             )
         if asset.feed_type == "twelvedata" and asset.twelvedata_symbol:
-            stagger_map = {"XAUUSD": 0}
+            stagger_map = {"XAUUSD": 0, "EURUSD": 6}
             stagger = stagger_map.get(asset.symbol, 0)
             return TwelveDataFeed(
                 api_key=settings.twelvedata_api_key,
