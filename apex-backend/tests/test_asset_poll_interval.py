@@ -1,12 +1,10 @@
-"""Tests for asset polling intervals."""
+"""TwelveData poll interval — 4 minutes per active asset."""
 
-from app.config.assets import ASSETS
+from app.config.assets import ACTIVE_SYMBOLS, ASSETS
 
-
-def test_xauusd_poll_interval_three_minutes() -> None:
-    assert ASSETS["XAUUSD"].poll_interval == 180
+POLL_INTERVAL_SECONDS = 240
 
 
-def test_eurusd_poll_interval_three_minutes() -> None:
-    assert ASSETS["EURUSD"].poll_interval == 180
-    assert ASSETS["USDJPY"].poll_interval == 180
+def test_active_assets_poll_four_minutes() -> None:
+    for symbol in ACTIVE_SYMBOLS:
+        assert ASSETS[symbol].poll_interval == POLL_INTERVAL_SECONDS

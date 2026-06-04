@@ -21,7 +21,7 @@ class AssetConfig:
     frankfurter_from_symbol: str | None = None
     frankfurter_to_symbol: str | None = None
     candle_interval: str = SIGNAL_TIMEFRAME
-    poll_interval: int = 180
+    poll_interval: int = 240
     min_price_move: float | None = None
     default_spread: float | None = None
     price_decimals: int = 2
@@ -45,7 +45,7 @@ ASSETS: dict[str, AssetConfig] = {
         market_schedule="xauusd",
         twelvedata_symbol="XAU/USD",
         candle_interval="1h",
-        poll_interval=180,
+        poll_interval=240,
         min_price_move=0.50,
         default_spread=0.30,
     ),
@@ -56,7 +56,7 @@ ASSETS: dict[str, AssetConfig] = {
         market_schedule="forex_24_5",
         twelvedata_symbol="EUR/USD",
         candle_interval="1h",
-        poll_interval=180,
+        poll_interval=240,
         min_price_move=0.00050,
         default_spread=0.00015,
         price_decimals=5,
@@ -68,15 +68,27 @@ ASSETS: dict[str, AssetConfig] = {
         market_schedule="forex_24_5",
         twelvedata_symbol="USD/JPY",
         candle_interval="1h",
-        poll_interval=180,
+        poll_interval=240,
         min_price_move=0.02,
         default_spread=0.01,
         price_decimals=3,
     ),
+    "GBPUSD": AssetConfig(
+        symbol="GBPUSD",
+        display_name_ar="جنيه/دولار",
+        feed_type="twelvedata",
+        market_schedule="forex_24_5",
+        twelvedata_symbol="GBP/USD",
+        candle_interval="1h",
+        poll_interval=240,
+        min_price_move=0.00050,
+        default_spread=0.00015,
+        price_decimals=5,
+    ),
 }
 
 # Active trading universe (BTCUSDT excluded until further notice)
-ACTIVE_SYMBOLS: list[str] = ["XAUUSD", "EURUSD", "USDJPY"]
+ACTIVE_SYMBOLS: list[str] = ["XAUUSD", "EURUSD", "USDJPY", "GBPUSD"]
 
 
 def get_asset(symbol: str) -> AssetConfig | None:

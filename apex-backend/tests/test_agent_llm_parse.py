@@ -70,7 +70,7 @@ def test_parse_agent_llm_json_string() -> None:
     assert out.confidence == 0.68
 
 
-@pytest.mark.parametrize("symbol", ["BTCUSDT", "XAUUSD", "EURUSD", "USDJPY"])
+@pytest.mark.parametrize("symbol", ["BTCUSDT", "XAUUSD", "EURUSD", "USDJPY", "GBPUSD"])
 def test_all_assets_same_schema(symbol: str) -> None:
     raw = {
         "direction": "LONG",

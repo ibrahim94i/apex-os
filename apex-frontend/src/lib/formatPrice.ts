@@ -3,7 +3,7 @@
 const DOLLAR_PREFIX_SYMBOLS = new Set(["XAUUSD", "BTCUSDT"]);
 
 export function priceDecimals(symbol: string): number {
-  if (symbol === "EURUSD") return 5;
+  if (symbol === "EURUSD" || symbol === "GBPUSD") return 5;
   if (symbol === "USDJPY") return 3;
   return 2;
 }

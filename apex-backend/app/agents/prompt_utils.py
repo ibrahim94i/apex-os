@@ -9,7 +9,7 @@ AGENT_JSON_SCHEMA = """{
   "reasoning": ["سبب 1 بالعربية", "سبب 2 بالعربية"]
 }"""
 
-AGENT_JSON_RULES = """قواعد إلزامية لجميع الأصول (BTCUSDT, XAUUSD, EURUSD, USDJPY):
+AGENT_JSON_RULES = """قواعد إلزامية لجميع الأصول (BTCUSDT, XAUUSD, EURUSD, USDJPY, GBPUSD):
 - أعد JSON واحداً فقط في الجذر (root) بدون غلاف أو مفتاح إضافي.
 - يجب أن يحتوي الجذر مباشرة على: direction, confidence, reasoning.
 - confidence رقم بين 0.0 و 1.0 (مثال: 0.75 وليس 75).

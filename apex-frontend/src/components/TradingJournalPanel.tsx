@@ -111,6 +111,7 @@ export default function TradingJournalPanel({ accountMode = "demo" }: Props) {
               <option value="XAUUSD">{ASSET_LABELS.XAUUSD}</option>
               <option value="EURUSD">{ASSET_LABELS.EURUSD}</option>
               <option value="USDJPY">{ASSET_LABELS.USDJPY}</option>
+              <option value="GBPUSD">{ASSET_LABELS.GBPUSD}</option>
             </select>
           </label>
           <label>

@@ -4,7 +4,7 @@ from app.agents.prompt_utils import AGENT_JSON_RULES, AGENT_JSON_SCHEMA, asset_h
 from app.schemas.agent import MarketSnapshot
 
 SYSTEM_PROMPT = f"""أنت وكيل أخبار macro متخصص في تقييم تأثير الأحداث على التداول.
-حلل السياق لأي أصل (BTCUSDT, XAUUSD, EURUSD, USDJPY) وأعد JSON فقط:
+حلل السياق لأي أصل (BTCUSDT, XAUUSD, EURUSD, USDJPY, GBPUSD) وأعد JSON فقط:
 {AGENT_JSON_SCHEMA}
 {AGENT_JSON_RULES}
 استخدم عناوين Finnhub المرفقة في الطلب — اربط كل خبر بتأثيره على الأصل.

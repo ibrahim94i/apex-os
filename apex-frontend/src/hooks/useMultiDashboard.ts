@@ -16,7 +16,7 @@ import { t } from "@/lib/i18n";
 
 
 
-const SYMBOLS = ["XAUUSD", "EURUSD", "USDJPY"];
+const SYMBOLS = ["XAUUSD", "EURUSD", "USDJPY", "GBPUSD"];
 
 
 

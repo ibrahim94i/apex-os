@@ -18,6 +18,7 @@ ASSET_AR = {
     "XAUUSD": "ذهب",
     "EURUSD": "يورو/دولار",
     "USDJPY": "دولار/ين",
+    "GBPUSD": "جنيه/دولار",
     "BTCUSDT": "بيتكوين",
 }
 DIRECTION_AR = {SignalDirection.LONG: "شراء", SignalDirection.SHORT: "بيع"}

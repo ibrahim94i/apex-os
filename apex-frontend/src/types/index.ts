@@ -306,4 +306,5 @@ export const ASSET_LABELS: Record<string, string> = {
   XAUUSD: "الذهب",
   EURUSD: "يورو/دولار",
   USDJPY: "دولار/ين",
+  GBPUSD: "جنيه/دولار",
 };
