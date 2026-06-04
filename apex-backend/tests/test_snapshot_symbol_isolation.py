@@ -47,6 +47,7 @@ import pytest
 
 @pytest.mark.asyncio
 async def test_build_market_snapshot_keeps_distinct_prices() -> None:
+    from unittest.mock import AsyncMock, patch
     from app.schemas.snapshots import KillSwitchStatusSchema
     from app.schemas.enums import KillSwitchStatus
 
@@ -62,8 +63,13 @@ async def test_build_market_snapshot_keeps_distinct_prices() -> None:
         symbol="EURUSD", timestamp=now, regime=RegimeType.RANGING, confidence=0.5
     )
 
-    xau_snap = await build_market_snapshot("XAUUSD", 2650.0, xau_ind, xau_reg, ks)
-    eur_snap = await build_market_snapshot("EURUSD", 1.085, eur_ind, eur_reg, ks)
+    with patch(
+        "app.services.market_snapshot.fetch_news_for_symbol",
+        new_callable=AsyncMock,
+        return_value=[],
+    ):
+        xau_snap = await build_market_snapshot("XAUUSD", 2650.0, xau_ind, xau_reg, ks)
+        eur_snap = await build_market_snapshot("EURUSD", 1.085, eur_ind, eur_reg, ks)
 
     assert xau_snap.symbol == "XAUUSD"
     assert eur_snap.symbol == "EURUSD"

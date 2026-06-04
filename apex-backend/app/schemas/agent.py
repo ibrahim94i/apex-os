@@ -19,6 +19,17 @@ class AgentRole(str, Enum):
     NEWS = "news"
 
 
+class NewsHeadline(BaseModel):
+    """Finnhub (or other) headline fed to the news agent."""
+
+    headline: str
+    summary: str = ""
+    source: str = ""
+    url: str = ""
+    category: str = ""
+    published_at: datetime | None = None
+
+
 class AgentLLMOutput(BaseModel):
     """Structured JSON contract returned by each agent LLM call."""
 
@@ -51,6 +62,7 @@ class MarketSnapshot(BaseModel):
     consecutive_losses: int = 0
     feed_stale: bool = False
     memory_patterns: list[dict[str, object]] = Field(default_factory=list)
+    news_headlines: list[NewsHeadline] = Field(default_factory=list)
 
 
 class AgentVerdict(BaseModel):

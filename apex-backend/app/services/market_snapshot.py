@@ -9,6 +9,7 @@ from app.logging_config import logger
 from app.schemas import IndicatorSnapshotSchema, KillSwitchStatusSchema, RegimeSnapshotSchema
 from app.schemas.agent import MarketSnapshot
 from app.services.account_service import account_service
+from app.services.finnhub_news import fetch_news_for_symbol
 from app.services.memory_engine import memory_engine
 from app.utils.time_utils import compute_age_seconds, parse_utc_timestamp
 
@@ -57,6 +58,7 @@ async def build_market_snapshot(
     patterns = await memory_engine.get_top_patterns(symbol)
 
     balance = await account_service.get_balance()
+    news_headlines = await fetch_news_for_symbol(symbol)
 
     return MarketSnapshot(
         symbol=symbol,
@@ -72,6 +74,7 @@ async def build_market_snapshot(
         consecutive_losses=kill_switch.consecutive_losses or 0,
         feed_stale=feed_stale,
         memory_patterns=patterns,
+        news_headlines=news_headlines,
     )
 
 

@@ -33,8 +33,12 @@ def _rule_based(snapshot: MarketSnapshot) -> AgentLLMOutput:
             reasoning=reasoning,
         )
 
-    reasoning.append("لا توجد أحداث إخبارية حرجة مكتشفة في النافذة الزمنية")
-    reasoning.append(f"السوق في حالة {regime} — بيئة إخبارية مستقرة نسبياً")
+    if snapshot.news_headlines:
+        reasoning.append(f"Finnhub: {len(snapshot.news_headlines)} عنوان خبر مرتبط بالأصل")
+        reasoning.append(f"أحدث عنوان: {snapshot.news_headlines[0].headline[:120]}")
+    else:
+        reasoning.append("لا توجد عناوين Finnhub — الاعتماد على السياق العام فقط")
+    reasoning.append(f"السوق في حالة {regime}")
 
     if regime == "TRENDING_UP":
         direction = SignalDirection.LONG

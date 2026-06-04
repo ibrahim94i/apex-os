@@ -7,11 +7,30 @@ SYSTEM_PROMPT = f"""أنت وكيل أخبار macro متخصص في تقييم 
 حلل السياق لأي أصل (BTCUSDT, XAUUSD, EURUSD) وأعد JSON فقط:
 {AGENT_JSON_SCHEMA}
 {AGENT_JSON_RULES}
+استخدم عناوين Finnhub المرفقة في الطلب — اربط كل خبر بتأثيره على الأصل.
 إذا كانت البيانات قديمة أو التذبذب عالياً، كن حذراً."""
+
+
+def format_finnhub_news_block(snapshot: MarketSnapshot) -> str:
+    if not snapshot.news_headlines:
+        return "آخر الأخبار الاقتصادية (Finnhub): غير متوفرة — اعتمد على السياق العام فقط"
+    lines = ["آخر الأخبار الاقتصادية (Finnhub):"]
+    for idx, item in enumerate(snapshot.news_headlines[:5], start=1):
+        when = (
+            item.published_at.strftime("%Y-%m-%d %H:%M UTC")
+            if item.published_at
+            else "—"
+        )
+        lines.append(f"{idx}. [{item.source or 'Finnhub'}] {item.headline} ({when})")
+        if item.summary:
+            lines.append(f"   ملخص: {item.summary[:280]}")
+    return "\n".join(lines)
 
 
 def build_user_prompt(snapshot: MarketSnapshot) -> str:
     return f"""{asset_header(snapshot)}
+{format_finnhub_news_block(snapshot)}
+
 السعر: {snapshot.price}
 حالة السوق: {snapshot.regime.regime.value}
 التذبذب: {snapshot.regime.volatility_pct}%

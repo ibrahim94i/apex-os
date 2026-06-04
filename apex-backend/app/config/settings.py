@@ -60,6 +60,8 @@ class Settings(BaseSettings):
     llm_429_backoff_seconds: float = 30.0
     agent_cache_ttl_seconds: int = 300
     news_block_window_minutes: int = 30
+    finnhub_api_key: str = ""
+    finnhub_news_limit: int = 5
     frontend_url: str = "http://localhost:3000"
     cors_origins: str = ""
     openai_api_key: str = ""
