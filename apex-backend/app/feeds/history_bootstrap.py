@@ -93,6 +93,14 @@ async def fetch_twelvedata_history(
                 "https://api.twelvedata.com/time_series",
                 params=params,
             )
+            if response.status_code == 404:
+                logger.warning(
+                    "twelvedata_symbol_unavailable",
+                    symbol=apex_symbol,
+                    td_symbol=td_symbol,
+                    hint="symbol may require a paid TwelveData plan",
+                )
+                return []
             if response.status_code == 429:
                 body: dict[str, Any] = {}
                 try:

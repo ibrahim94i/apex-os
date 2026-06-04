@@ -14,7 +14,12 @@ from app.schemas.agent import AgentConsensus, TeamDiscussionLLMOutput
 
 BAGHDAD = ZoneInfo("Asia/Baghdad")
 
-ASSET_AR = {"XAUUSD": "ذهب", "BTCUSDT": "بيتكوين", "EURUSD": "يورو/دولار"}
+ASSET_AR = {
+    "XAUUSD": "ذهب",
+    "EURUSD": "يورو/دولار",
+    "USDJPY": "دولار/ين",
+    "BTCUSDT": "بيتكوين",
+}
 DIRECTION_AR = {SignalDirection.LONG: "شراء", SignalDirection.SHORT: "بيع"}
 REGIME_AR = {
     RegimeType.TRENDING_UP: "اتجاه صاعد",

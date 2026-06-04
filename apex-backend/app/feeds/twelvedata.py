@@ -99,6 +99,14 @@ class TwelveDataFeed:
             from app.feeds.twelvedata_limiter import throttled_get
 
             response = await throttled_get(client, self.BASE_URL, params=params)
+            if response.status_code == 404:
+                logger.warning(
+                    "twelvedata_symbol_unavailable",
+                    symbol=self.apex_symbol,
+                    td_symbol=self.symbol,
+                    hint="symbol may require a paid TwelveData plan",
+                )
+                return None
             response.raise_for_status()
             data = response.json()
 
@@ -134,10 +142,11 @@ class TwelveDataFeed:
             try:
                 bar = await self._fetch_latest_bar()
             except httpx.HTTPStatusError as exc:
-                if exc.response.status_code == 429:
+                if exc.response.status_code in (404, 429):
                     logger.warning(
-                        "twelvedata_rate_limited_skip_retry",
+                        "twelvedata_fetch_skipped",
                         symbol=self.apex_symbol,
+                        status=exc.response.status_code,
                         attempt=attempt,
                     )
                     return None

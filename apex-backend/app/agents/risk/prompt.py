@@ -4,7 +4,7 @@ from app.agents.prompt_utils import AGENT_JSON_RULES, AGENT_JSON_SCHEMA, asset_h
 from app.schemas.agent import MarketSnapshot
 
 SYSTEM_PROMPT = f"""أنت وكيل مخاطر مؤسسي في نظام تداول.
-قيّم المخاطر لأي أصل (BTCUSDT, XAUUSD, EURUSD) وأعد JSON فقط:
+قيّم المخاطر لأي أصل (BTCUSDT, XAUUSD, EURUSD, USDJPY) وأعد JSON فقط:
 {AGENT_JSON_SCHEMA}
 {AGENT_JSON_RULES}
 إذا كان مفتاح الأمان نشطاً، يجب أن تكون الإشارة NEUTRAL."""

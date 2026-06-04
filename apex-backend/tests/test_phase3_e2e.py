@@ -19,7 +19,10 @@ def test_multi_asset_config() -> None:
     assert "BTCUSDT" in ASSETS
     assert "XAUUSD" in ASSETS
     assert "EURUSD" in ASSETS
-    assert len(ACTIVE_SYMBOLS) == 2
+    assert len(ACTIVE_SYMBOLS) == 3
+    assert "USDJPY" in ASSETS
+    assert ASSETS["USDJPY"].twelvedata_symbol == "USD/JPY"
+    assert "XAGUSD" not in ASSETS
     assert "BTCUSDT" not in ACTIVE_SYMBOLS
     assert ASSETS["XAUUSD"].feed_type == "twelvedata"
     assert ASSETS["EURUSD"].feed_type == "twelvedata"

@@ -61,10 +61,22 @@ ASSETS: dict[str, AssetConfig] = {
         default_spread=0.00015,
         price_decimals=5,
     ),
+    "USDJPY": AssetConfig(
+        symbol="USDJPY",
+        display_name_ar="دولار/ين",
+        feed_type="twelvedata",
+        market_schedule="forex_24_5",
+        twelvedata_symbol="USD/JPY",
+        candle_interval="1h",
+        poll_interval=180,
+        min_price_move=0.02,
+        default_spread=0.01,
+        price_decimals=3,
+    ),
 }
 
 # Active trading universe (BTCUSDT excluded until further notice)
-ACTIVE_SYMBOLS: list[str] = ["XAUUSD", "EURUSD"]
+ACTIVE_SYMBOLS: list[str] = ["XAUUSD", "EURUSD", "USDJPY"]
 
 
 def get_asset(symbol: str) -> AssetConfig | None:

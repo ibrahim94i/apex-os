@@ -51,6 +51,21 @@ def _sample_snapshot(symbol: str = "BTCUSDT", kill_active: bool = False) -> Mark
             atr=8.0,
             adx=32.0,
         )
+    elif symbol == "USDJPY":
+        price = 156.25
+        indicators = IndicatorSnapshotSchema(
+            symbol=symbol,
+            timestamp=now,
+            rsi=52.0,
+            macd=0.08,
+            macd_signal=0.05,
+            ema_9=156.30,
+            ema_21=156.10,
+            ema_50=155.80,
+            ema_200=155.00,
+            atr=0.25,
+            adx=24.0,
+        )
     else:
         price = 95000.0
         indicators = IndicatorSnapshotSchema(
@@ -111,7 +126,7 @@ async def test_risk_agent_blocks_on_kill_switch() -> None:
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("symbol", ["BTCUSDT", "XAUUSD", "EURUSD"])
+@pytest.mark.parametrize("symbol", ["BTCUSDT", "XAUUSD", "EURUSD", "USDJPY"])
 async def test_orchestrator_all_assets(symbol: str) -> None:
     orchestrator = AgentOrchestrator()
     consensus = await orchestrator.run(_sample_snapshot(symbol))

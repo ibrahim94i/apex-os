@@ -9,3 +9,4 @@ def test_xauusd_poll_interval_three_minutes() -> None:
 
 def test_eurusd_poll_interval_three_minutes() -> None:
     assert ASSETS["EURUSD"].poll_interval == 180
+    assert ASSETS["USDJPY"].poll_interval == 180

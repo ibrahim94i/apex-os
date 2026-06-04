@@ -6,7 +6,7 @@ from app.services.signal_rejection_i18n import rejection_reason_ar
 
 def test_btcusdt_not_in_active_symbols() -> None:
     assert "BTCUSDT" not in ACTIVE_SYMBOLS
-    assert ACTIVE_SYMBOLS == ["XAUUSD", "EURUSD"]
+    assert ACTIVE_SYMBOLS == ["XAUUSD", "EURUSD", "USDJPY"]
     assert "BTCUSDT" in ASSETS
 
 

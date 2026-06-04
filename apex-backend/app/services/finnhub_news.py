@@ -55,6 +55,23 @@ _SYMBOL_KEYWORDS: dict[str, tuple[str, ...]] = {
         "trade",
         "pmi",
     ),
+    "USDJPY": (
+        "yen",
+        "jpy",
+        "japan",
+        "boj",
+        "bank of japan",
+        "tokyo",
+        "usd",
+        "dollar",
+        "fed",
+        "rate",
+        "inflation",
+        "cpi",
+        "forex",
+        "carry",
+        "intervention",
+    ),
     "BTCUSDT": (
         "bitcoin",
         "btc",
@@ -146,7 +163,11 @@ async def fetch_news_for_symbol(symbol: str, *, limit: int | None = None) -> lis
     if not _is_configured():
         return []
 
-    categories = ("forex", "general") if symbol in ("XAUUSD", "EURUSD") else ("forex", "crypto")
+    categories = (
+        ("forex", "general")
+        if symbol in ("XAUUSD", "EURUSD", "USDJPY")
+        else ("forex", "crypto")
+    )
     merged: list[dict[str, Any]] = []
     for cat in categories:
         merged.extend(await _fetch_category(cat))

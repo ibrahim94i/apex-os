@@ -305,4 +305,5 @@ export const ASSET_LABELS: Record<string, string> = {
   BTCUSDT: "بيتكوين",
   XAUUSD: "الذهب",
   EURUSD: "يورو/دولار",
+  USDJPY: "دولار/ين",
 };

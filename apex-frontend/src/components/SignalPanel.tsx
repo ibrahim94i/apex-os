@@ -1,6 +1,7 @@
 "use client";
 
 import type { AgentConsensus, TradingSignal } from "@/types";
+import { formatAssetPrice, pricePrefix } from "@/lib/formatPrice";
 import { t, translateDirection } from "@/lib/i18n";
 
 interface Props {
@@ -10,16 +11,8 @@ interface Props {
   consensus?: AgentConsensus | null;
 }
 
-function formatPrice(price: number, symbol: string): string {
-  const decimals = symbol === "EURUSD" ? 5 : 2;
-  return price.toLocaleString("ar-EG", {
-    minimumFractionDigits: decimals,
-    maximumFractionDigits: decimals,
-  });
-}
-
 export default function SignalPanel({ signal, currentPrice, symbol, consensus }: Props) {
-  const prefix = symbol === "XAUUSD" || symbol === "BTCUSDT" ? "$" : "";
+  const prefix = pricePrefix(symbol);
 
   const rejectionHeadline =
     !signal && consensus?.signal_decision && consensus.signal_decision !== "none"
@@ -61,7 +54,7 @@ export default function SignalPanel({ signal, currentPrice, symbol, consensus }:
               <span className="card-title">{t.price} </span>
               <span className="mono metric-value">
                 {prefix}
-                {formatPrice(currentPrice, symbol)}
+                {formatAssetPrice(currentPrice, symbol)}
               </span>
             </div>
           )}
@@ -94,21 +87,21 @@ export default function SignalPanel({ signal, currentPrice, symbol, consensus }:
           <div className="label">{t.entry}</div>
           <div className="value">
             {prefix}
-            {formatPrice(signal.entry_price, symbol)}
+            {formatAssetPrice(signal.entry_price, symbol)}
           </div>
         </div>
         <div className="price-level sl">
           <div className="label">{t.stopLoss}</div>
           <div className="value">
             {prefix}
-            {formatPrice(signal.stop_loss, symbol)}
+            {formatAssetPrice(signal.stop_loss, symbol)}
           </div>
         </div>
         <div className="price-level tp">
           <div className="label">{t.takeProfit}</div>
           <div className="value">
             {prefix}
-            {formatPrice(signal.take_profit, symbol)}
+            {formatAssetPrice(signal.take_profit, symbol)}
           </div>
         </div>
       </div>
@@ -117,7 +110,7 @@ export default function SignalPanel({ signal, currentPrice, symbol, consensus }:
           <span className="card-title">{t.livePrice} </span>
           <span className="mono metric-value">
             {prefix}
-            {formatPrice(currentPrice, symbol)}
+            {formatAssetPrice(currentPrice, symbol)}
           </span>
         </div>
       )}
