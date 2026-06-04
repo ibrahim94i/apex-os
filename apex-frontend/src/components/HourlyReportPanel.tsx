@@ -30,7 +30,7 @@ export default function HourlyReportPanel({ report }: Props) {
         {t.hourlyReport} <span className="report-time mono">{time}</span>
       </div>
       <div className="hourly-report-list">
-        {report.assets.map((asset) => (
+        {report.assets?.map((asset) => (
           <div key={asset.symbol} className="hourly-report-item">
             <div className="hourly-report-item-header">
               <strong>{asset.display_name_ar}</strong>

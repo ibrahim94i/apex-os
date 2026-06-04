@@ -60,10 +60,10 @@ export default function MemoryPatternsPanel({ patterns, summaries = {} }: Props)
       )}
 
       {Object.entries(patterns).map(([sym, items]) =>
-        items.length > 0 ? (
+        (items?.length ?? 0) > 0 ? (
           <div key={sym} className="memory-section">
             <h3 className="memory-symbol">{ASSET_LABELS[sym] || sym} — {t.topPatterns}</h3>
-            {items.map((p, i) => (
+            {items!.map((p, i) => (
               <div key={i} className="memory-row">
                 <span>{translateRegime(p.regime as never)}</span>
                 <span>{TIME_AR[p.time_of_day] || p.time_of_day}</span>

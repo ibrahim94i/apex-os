@@ -34,7 +34,10 @@ function getRejectionHeadline(
 
 function AgentCard({ verdict }: { verdict: AgentVerdict }) {
   const [open, setOpen] = useState(true);
-  const agentPct = `${(verdict.confidence * 100).toFixed(0)}%`;
+  const confidence = Number.isFinite(verdict.confidence) ? verdict.confidence : 0;
+  const weight = Number.isFinite(verdict.weight) ? verdict.weight : 0;
+  const agentPct = `${(confidence * 100).toFixed(0)}%`;
+  const reasoning = verdict.reasoning ?? [];
 
   return (
     <div className="agent-card">
@@ -56,14 +59,14 @@ function AgentCard({ verdict }: { verdict: AgentVerdict }) {
       {open && (
         <div className="agent-card-body">
           <div className="agent-meta">
-            <span>{t.voteWeight}: {(verdict.weight * 100).toFixed(0)}%</span>
+            <span>{t.voteWeight}: {(weight * 100).toFixed(0)}%</span>
             <span>{verdict.used_llm ? t.llmPowered : t.ruleBased}</span>
             {verdict.latency_ms != null && (
               <span className="mono">{verdict.latency_ms.toFixed(0)}ms</span>
             )}
           </div>
           <ul className="reasoning-list">
-            {verdict.reasoning.map((reason, idx) => (
+            {reasoning.map((reason, idx) => (
               <li key={idx}>{reason}</li>
             ))}
           </ul>
@@ -75,7 +78,10 @@ function AgentCard({ verdict }: { verdict: AgentVerdict }) {
 }
 
 export default function ReasoningPanel({ consensus, regime }: Props) {
-  if (!consensus || consensus.verdicts.length === 0) {
+  const verdicts = consensus?.verdicts ?? [];
+  const reasoningSummary = consensus?.reasoning_summary ?? [];
+
+  if (!consensus || verdicts.length === 0) {
     return (
       <div className="card col-12">
         <div className="card-title">{t.reasoningPanel}</div>
@@ -85,7 +91,8 @@ export default function ReasoningPanel({ consensus, regime }: Props) {
   }
 
   const rejectionHeadline = getRejectionHeadline(consensus, regime);
-  const displayDirection = consensus.proposed_direction ?? consensus.final_direction;
+  const displayDirection =
+    consensus.proposed_direction ?? consensus.final_direction ?? "NEUTRAL";
 
   return (
     <div className="card col-12">
@@ -110,9 +117,9 @@ export default function ReasoningPanel({ consensus, regime }: Props) {
         )}
       </div>
 
-      {consensus.reasoning_summary.length > 0 && (
+      {reasoningSummary.length > 0 && (
         <div className="consensus-breakdown">
-          {consensus.reasoning_summary.map((line, idx) => (
+          {reasoningSummary.map((line, idx) => (
             <div key={idx} className="consensus-line">
               {line}
             </div>
@@ -121,7 +128,7 @@ export default function ReasoningPanel({ consensus, regime }: Props) {
       )}
 
       <div className="agent-cards">
-        {consensus.verdicts.map((verdict) => (
+        {verdicts.map((verdict) => (
           <AgentCard key={verdict.agent_id} verdict={verdict} />
         ))}
       </div>

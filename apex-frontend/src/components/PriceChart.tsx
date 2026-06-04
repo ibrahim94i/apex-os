@@ -18,8 +18,19 @@ interface Props {
   symbol: string;
 }
 
-function toChartTime(iso: string): Time {
-  return Math.floor(new Date(iso).getTime() / 1000) as Time;
+function toChartTime(iso: string): number {
+  return Math.floor(new Date(iso).getTime() / 1000);
+}
+
+function normalizeCandles(raw: CandlestickData[]): CandlestickData[] {
+  const byTime = new Map<number, CandlestickData>();
+  for (const bar of raw) {
+    const tKey = bar.time as number;
+    byTime.set(tKey, bar);
+  }
+  return Array.from(byTime.entries())
+    .sort(([a], [b]) => a - b)
+    .map(([, bar]) => bar);
 }
 
 export default function PriceChart({ currentPrice, symbol }: Props) {
@@ -82,16 +93,22 @@ export default function PriceChart({ currentPrice, symbol }: Props) {
     fetchPriceBars(symbol)
       .then((data) => {
         if (cancelled || !seriesRef.current || !data.bars.length) return;
-        const candles: CandlestickData[] = data.bars.map((b) => ({
-          time: toChartTime(b.timestamp),
-          open: b.open,
-          high: b.high,
-          low: b.low,
-          close: b.close,
-        }));
-        seriesRef.current.setData(candles);
-        lastBarRef.current = candles[candles.length - 1] ?? null;
-        chartRef.current?.timeScale().fitContent();
+        const candles = normalizeCandles(
+          data.bars.map((b) => ({
+            time: toChartTime(b.timestamp) as Time,
+            open: b.open,
+            high: b.high,
+            low: b.low,
+            close: b.close,
+          }))
+        );
+        try {
+          seriesRef.current.setData(candles);
+          lastBarRef.current = candles[candles.length - 1] ?? null;
+          chartRef.current?.timeScale().fitContent();
+        } catch {
+          /* ignore invalid bar ordering from chart library */
+        }
       })
       .catch(() => null);
 
@@ -101,27 +118,35 @@ export default function PriceChart({ currentPrice, symbol }: Props) {
   }, [symbol]);
 
   useEffect(() => {
-    if (!currentPrice || !seriesRef.current) return;
+    if (!currentPrice || !seriesRef.current || !lastBarRef.current) return;
 
-    const hourSec = (Math.floor(Date.now() / 3600000) * 3600) as Time;
+    const hourSec = Math.floor(Date.now() / 3600000) * 3600;
+    const lastTime = lastBarRef.current.time as number;
 
-    if (lastBarRef.current && lastBarRef.current.time === hourSec) {
-      const bar = { ...lastBarRef.current };
-      bar.close = currentPrice;
-      bar.high = Math.max(bar.high, currentPrice);
-      bar.low = Math.min(bar.low, currentPrice);
-      seriesRef.current.update(bar);
-      lastBarRef.current = bar;
-    } else if (lastBarRef.current) {
-      const newBar: CandlestickData = {
-        time: hourSec,
-        open: lastBarRef.current.close,
-        high: Math.max(lastBarRef.current.close, currentPrice),
-        low: Math.min(lastBarRef.current.close, currentPrice),
-        close: currentPrice,
-      };
-      seriesRef.current.update(newBar);
-      lastBarRef.current = newBar;
+    // lightweight-charts throws if update time is older than the last bar
+    if (hourSec < lastTime) return;
+
+    try {
+      if (hourSec === lastTime) {
+        const bar = { ...lastBarRef.current };
+        bar.close = currentPrice;
+        bar.high = Math.max(bar.high, currentPrice);
+        bar.low = Math.min(bar.low, currentPrice);
+        seriesRef.current.update(bar);
+        lastBarRef.current = bar;
+      } else {
+        const newBar: CandlestickData = {
+          time: hourSec as Time,
+          open: lastBarRef.current.close,
+          high: Math.max(lastBarRef.current.close, currentPrice),
+          low: Math.min(lastBarRef.current.close, currentPrice),
+          close: currentPrice,
+        };
+        seriesRef.current.update(newBar);
+        lastBarRef.current = newBar;
+      }
+    } catch {
+      /* ignore out-of-order live tick */
     }
   }, [currentPrice]);
 
