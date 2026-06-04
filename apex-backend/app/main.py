@@ -33,10 +33,7 @@ async def _startup_warmup() -> None:
         from app.services.agent_analysis_service import ensure_agent_consensus_for_active_symbols
         from app.services.feed_health_service import run_recovery_cycle
 
-        asyncio.create_task(
-            ensure_agent_consensus_for_active_symbols(),
-            name="agent_startup_analysis",
-        )
+        await ensure_agent_consensus_for_active_symbols()
         await run_recovery_cycle(force=True)
         await publish_hourly_report()
 

@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from typing import Any
 
 from app.agents.orchestrator import agent_orchestrator
+from app.config import settings
 from app.core.cache import (
     get_agent_consensus,
     get_latest_indicators,
@@ -39,6 +41,17 @@ from app.websocket.manager import broadcaster
 _signal_generator = SignalGenerator()
 _MIN_INDICATOR_BARS = IndicatorEngine().min_bars
 _DB_BAR_LIMIT = 250
+_agent_analysis_lock = asyncio.Lock()
+_last_agent_run_finished_at: float = 0.0
+
+
+async def _wait_agent_run_slot() -> None:
+    """Gap between serialized agent runs to respect Groq rate limits."""
+    global _last_agent_run_finished_at
+    gap = settings.groq_min_request_interval_seconds
+    wait = gap - (time.monotonic() - _last_agent_run_finished_at)
+    if wait > 0:
+        await asyncio.sleep(wait)
 
 
 async def _recompute_market_metrics(symbol: str) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
@@ -53,9 +66,10 @@ async def _recompute_market_metrics(symbol: str) -> tuple[dict[str, Any] | None,
         )
         return None, None
 
-    seed_bars_to_buffer(bars)
     from app.services.pipeline import _bar_buffer
 
+    _bar_buffer[symbol] = []
+    seed_bars_to_buffer(bars)
     buffer = _bar_buffer.get(symbol, [])
     indicators, regime = _signal_generator.analyze(buffer, symbol)
     if not indicators or not regime:
@@ -80,9 +94,10 @@ async def _load_market_context(
         regime_data = await get_latest_regime_from_db(symbol)
 
     ind_data = await get_latest_indicators(symbol)
-    if not ind_data:
+    if not ind_data or not regime_data:
         recomputed_ind, recomputed_reg = await _recompute_market_metrics(symbol)
-        ind_data = recomputed_ind
+        if not ind_data:
+            ind_data = recomputed_ind
         if not regime_data:
             regime_data = recomputed_reg
 
@@ -108,55 +123,66 @@ async def run_agent_analysis(symbol: str, *, force: bool = False) -> AgentConsen
         existing = await get_agent_consensus(symbol)
         if existing:
             try:
-                return AgentConsensus(**existing)
+                cached = AgentConsensus(**existing)
+                if cached.verdicts:
+                    return cached
             except Exception:
                 pass
 
-    context = await _load_market_context(symbol)
-    if not context:
-        return None
-
-    price_data, ind_data, regime_data = context
-    indicators = IndicatorSnapshotSchema(**ind_data)
-    regime = RegimeSnapshotSchema(**regime_data)
-
-    async with AsyncSessionLocal() as session:
+    async with _agent_analysis_lock:
+        global _last_agent_run_finished_at
+        await _wait_agent_run_slot()
         try:
-            await kill_switch.load_from_cache()
-            ks_status = await kill_switch.evaluate(session)
-            snapshot = await build_market_snapshot(
-                symbol=symbol,
-                price=float(price_data["price"]),
-                indicators=indicators,
-                regime=regime,
-                kill_switch=ks_status,
-            )
-            consensus = await agent_orchestrator.run(snapshot, session=session)
-            consensus = consensus.model_copy(
-                update={
-                    "signal_decision": consensus.signal_decision or "none",
-                    "rejection_reason_ar": (
-                        rejection_reason_ar(consensus.rejection_reason)
-                        if consensus.rejection_reason
-                        else consensus.rejection_reason_ar
-                    ),
-                }
-            )
-            data = consensus.model_dump(mode="json")
-            await set_agent_consensus(symbol, data)
-            await broadcaster.broadcast_agent_consensus(data)
-            await session.commit()
-            logger.info(
-                "agent_analysis_complete",
-                symbol=symbol,
-                direction=consensus.final_direction.value,
-                verdicts=len(consensus.verdicts),
-            )
-            return consensus
-        except Exception as exc:
-            await session.rollback()
-            logger.error("agent_analysis_failed", symbol=symbol, error=str(exc))
-            return None
+            context = await _load_market_context(symbol)
+            if not context:
+                return None
+
+            price_data, ind_data, regime_data = context
+            indicators = IndicatorSnapshotSchema(**ind_data)
+            regime = RegimeSnapshotSchema(**regime_data)
+
+            async with AsyncSessionLocal() as session:
+                try:
+                    await kill_switch.load_from_cache()
+                    ks_status = await kill_switch.evaluate(session)
+                    snapshot = await build_market_snapshot(
+                        symbol=symbol,
+                        price=float(price_data["price"]),
+                        indicators=indicators,
+                        regime=regime,
+                        kill_switch=ks_status,
+                    )
+                    consensus = await agent_orchestrator.run(snapshot, session=session)
+                    if not consensus.verdicts:
+                        logger.warning("agent_analysis_empty_verdicts", symbol=symbol)
+                        return None
+                    consensus = consensus.model_copy(
+                        update={
+                            "signal_decision": consensus.signal_decision or "none",
+                            "rejection_reason_ar": (
+                                rejection_reason_ar(consensus.rejection_reason)
+                                if consensus.rejection_reason
+                                else consensus.rejection_reason_ar
+                            ),
+                        }
+                    )
+                    data = consensus.model_dump(mode="json")
+                    await set_agent_consensus(symbol, data)
+                    await broadcaster.broadcast_agent_consensus(data)
+                    await session.commit()
+                    logger.info(
+                        "agent_analysis_complete",
+                        symbol=symbol,
+                        direction=consensus.final_direction.value,
+                        verdicts=len(consensus.verdicts),
+                    )
+                    return consensus
+                except Exception as exc:
+                    await session.rollback()
+                    logger.error("agent_analysis_failed", symbol=symbol, error=str(exc))
+                    return None
+        finally:
+            _last_agent_run_finished_at = time.monotonic()
 
 
 async def ensure_agent_consensus_for_active_symbols(*, force: bool = False) -> None:
@@ -166,21 +192,15 @@ async def ensure_agent_consensus_for_active_symbols(*, force: bool = False) -> N
     if not symbols:
         return
 
-    if force:
-        await asyncio.gather(
-            *(run_agent_analysis(sym, force=True) for sym in symbols),
-            return_exceptions=True,
-        )
-        return
-
-    missing = []
     for sym in symbols:
-        if not await get_agent_consensus(sym):
-            missing.append(sym)
-    if not missing:
-        return
-
-    await asyncio.gather(
-        *(run_agent_analysis(sym) for sym in missing),
-        return_exceptions=True,
-    )
+        if force:
+            await run_agent_analysis(sym, force=True)
+            continue
+        existing = await get_agent_consensus(sym)
+        if existing:
+            try:
+                if AgentConsensus(**existing).verdicts:
+                    continue
+            except Exception:
+                pass
+        await run_agent_analysis(sym)

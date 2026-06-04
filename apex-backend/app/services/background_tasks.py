@@ -30,11 +30,8 @@ async def _agent_consensus_watch_loop() -> None:
                 for sym in ACTIVE_SYMBOLS
                 if is_market_open(sym) and not await get_agent_consensus(sym)
             ]
-            if missing:
-                await asyncio.gather(
-                    *(run_agent_analysis(sym) for sym in missing),
-                    return_exceptions=True,
-                )
+            for sym in missing:
+                await run_agent_analysis(sym)
         except asyncio.CancelledError:
             raise
         except Exception as exc:
