@@ -2,33 +2,39 @@
 
 import { useState } from "react";
 import type { AgentConsensus, AgentVerdict, RegimeSnapshot } from "@/types";
-import { t, translateDirection } from "@/lib/i18n";
+import { t, translateDirection, translateRegime } from "@/lib/i18n";
 
 interface Props {
   consensus: AgentConsensus | null;
   regime?: RegimeSnapshot | null;
 }
 
-function formatConfidence(consensus: AgentConsensus, regime: RegimeSnapshot | null | undefined): string {
-  if (
-    regime?.regime === "RANGING" &&
-    consensus.final_direction === "NEUTRAL" &&
-    consensus.final_confidence === 0
-  ) {
-    return t.rangingWait;
-  }
-  if (consensus.rejection_reason === "ranging_market_wait") {
-    return t.rangingWait;
+function formatCollectiveConfidence(consensus: AgentConsensus): string {
+  if (consensus.signal_decision === "blocked" || consensus.signal_decision === "wait") {
+    return "0.0%";
   }
   return `${(consensus.final_confidence * 100).toFixed(1)}%`;
 }
 
-function AgentCard({ verdict, voteScore }: { verdict: AgentVerdict; voteScore?: number }) {
+function getRejectionHeadline(
+  consensus: AgentConsensus,
+  regime: RegimeSnapshot | null | undefined
+): string | null {
+  if (consensus.signal_decision !== "blocked" && consensus.signal_decision !== "wait") {
+    return null;
+  }
+  if (regime?.regime === "RANGING" || consensus.rejection_reason === "ranging_market_wait") {
+    return t.signalRejectedRanging;
+  }
+  if (consensus.rejection_reason_ar) {
+    return `🚫 ${consensus.rejection_reason_ar}`;
+  }
+  return `🚫 ${t.signalRejected}`;
+}
+
+function AgentCard({ verdict }: { verdict: AgentVerdict }) {
   const [open, setOpen] = useState(true);
-  const contribution =
-    voteScore != null
-      ? `${(Math.abs(voteScore) * 100).toFixed(1)}%`
-      : `${(verdict.confidence * verdict.weight * 100).toFixed(1)}%`;
+  const agentPct = `${(verdict.confidence * 100).toFixed(0)}%`;
 
   return (
     <div className="agent-card">
@@ -43,10 +49,7 @@ function AgentCard({ verdict, voteScore }: { verdict: AgentVerdict; voteScore?: 
           <span className={`signal-direction signal-${verdict.direction}`}>
             {translateDirection(verdict.direction)}
           </span>
-          <span className="mono agent-confidence">{contribution}</span>
-          <span className="agent-weight-label">
-            ({t.agentConfidence}: {(verdict.confidence * 100).toFixed(0)}%)
-          </span>
+          <span className="mono agent-confidence">{agentPct}</span>
         </div>
         <span className="agent-toggle">{open ? "−" : "+"}</span>
       </button>
@@ -81,17 +84,15 @@ export default function ReasoningPanel({ consensus, regime }: Props) {
     );
   }
 
-  const showRejection =
-    consensus.signal_decision === "blocked" || consensus.signal_decision === "wait";
-  const displayDirection =
-    consensus.proposed_direction ?? consensus.final_direction;
+  const rejectionHeadline = getRejectionHeadline(consensus, regime);
+  const displayDirection = consensus.proposed_direction ?? consensus.final_direction;
 
   return (
     <div className="card col-12">
       <div className="card-title">{t.reasoningPanel}</div>
 
-      {showRejection && consensus.rejection_reason_ar && (
-        <div className="signal-rejection-banner">{consensus.rejection_reason_ar}</div>
+      {rejectionHeadline && (
+        <div className="signal-rejection-banner">{rejectionHeadline}</div>
       )}
 
       <div className="consensus-summary">
@@ -100,14 +101,13 @@ export default function ReasoningPanel({ consensus, regime }: Props) {
           {translateDirection(displayDirection)}
         </span>
         <span className="mono metric-value" style={{ marginRight: "0.5rem" }}>
-          {formatConfidence(consensus, regime)}
+          {formatCollectiveConfidence(consensus)}
         </span>
-        {consensus.proposed_confidence != null &&
-          consensus.signal_decision === "blocked" && (
-            <span className="proposed-confidence">
-              ({t.proposedConfidence}: {(consensus.proposed_confidence * 100).toFixed(1)}%)
-            </span>
-          )}
+        {regime && (
+          <span className="proposed-confidence">
+            ({translateRegime(regime.regime)})
+          </span>
+        )}
       </div>
 
       {consensus.reasoning_summary.length > 0 && (
@@ -122,11 +122,7 @@ export default function ReasoningPanel({ consensus, regime }: Props) {
 
       <div className="agent-cards">
         {consensus.verdicts.map((verdict) => (
-          <AgentCard
-            key={verdict.agent_id}
-            verdict={verdict}
-            voteScore={consensus.vote_scores?.[verdict.agent_id]}
-          />
+          <AgentCard key={verdict.agent_id} verdict={verdict} />
         ))}
       </div>
     </div>

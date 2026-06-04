@@ -21,13 +21,22 @@ function formatPrice(price: number, symbol: string): string {
 export default function SignalPanel({ signal, currentPrice, symbol, consensus }: Props) {
   const prefix = symbol === "XAUUSD" || symbol === "BTCUSDT" ? "$" : "";
 
+  const rejectionHeadline =
+    !signal && consensus?.signal_decision && consensus.signal_decision !== "none"
+      ? consensus.rejection_reason === "ranging_market_wait"
+        ? t.signalRejectedRanging
+        : consensus.rejection_reason_ar
+          ? `🚫 ${consensus.rejection_reason_ar}`
+          : null
+      : null;
+
   if (!signal) {
     return (
       <div className="card col-6">
         <div className="card-title">{t.latestSignal}</div>
         <div className="empty-state">
-          {consensus?.rejection_reason_ar ? (
-            <div className="signal-rejection-inline">{consensus.rejection_reason_ar}</div>
+          {rejectionHeadline ? (
+            <div className="signal-rejection-inline">{rejectionHeadline}</div>
           ) : (
             t.noActiveSignal
           )}

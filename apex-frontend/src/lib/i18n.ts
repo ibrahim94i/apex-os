@@ -103,6 +103,7 @@ export const t = {
   proposedConfidence: "ثقة مقترحة",
   agentConfidence: "ثقة الوكيل",
   signalRejected: "الإشارة مرفوضة",
+  signalRejectedRanging: "🚫 تم رفض الإشارة - السوق جانبي (RANGING)",
 } as const;
 
 export const REGIME_LABELS: Record<RegimeType, string> = {
