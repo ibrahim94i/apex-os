@@ -23,16 +23,15 @@ import MarketStatusPanel from "./MarketStatusPanel";
 
 
 interface Props {
-
   symbol: string;
-
   state: DashboardState | null;
-
+  /** Hide column heading when asset name is shown in tab bar */
+  hideTitle?: boolean;
 }
 
 
 
-export default function AssetColumn({ symbol, state }: Props) {
+export default function AssetColumn({ symbol, state, hideTitle = false }: Props) {
 
   const label = ASSET_LABELS[symbol] || symbol;
 
@@ -46,11 +45,11 @@ export default function AssetColumn({ symbol, state }: Props) {
 
     <div className="asset-column">
 
-      <h2 className="asset-column-title">
-
-        {label} <span className="mono symbol">{symbol}</span>
-
-      </h2>
+      {!hideTitle && (
+        <h2 className="asset-column-title">
+          {label} <span className="mono symbol">{symbol}</span>
+        </h2>
+      )}
 
       <MarketStatusPanel status={marketStatus} />
 

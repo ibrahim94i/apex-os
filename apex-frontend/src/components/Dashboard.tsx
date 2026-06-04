@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useMultiDashboard } from "@/hooks/useMultiDashboard";
+import { ASSET_LABELS } from "@/types";
 import { t } from "@/lib/i18n";
 import KillSwitchPanel from "./KillSwitchPanel";
 import AssetColumn from "./AssetColumn";
@@ -18,8 +19,11 @@ import FeedStatusPanel from "./FeedStatusPanel";
 
 type Tab = "trading" | "backtest" | "journal" | "performance";
 
+const DEFAULT_ASSET = "XAUUSD";
+
 export default function Dashboard() {
   const [tab, setTab] = useState<Tab>("trading");
+  const [selectedAsset, setSelectedAsset] = useState(DEFAULT_ASSET);
   const {
     state,
     backtest,
@@ -97,10 +101,25 @@ export default function Dashboard() {
               symbols={symbols}
             />
           </div>
-          <div className="dual-asset-layout">
+          <nav className="asset-tabs" aria-label="اختيار الأصل">
             {symbols.map((sym) => (
-              <AssetColumn key={sym} symbol={sym} state={state?.assets[sym] ?? null} />
+              <button
+                key={sym}
+                type="button"
+                className={`asset-tab-btn ${selectedAsset === sym ? "active" : ""}`}
+                onClick={() => setSelectedAsset(sym)}
+                aria-selected={selectedAsset === sym}
+              >
+                {ASSET_LABELS[sym] ?? sym}
+              </button>
             ))}
+          </nav>
+          <div className="asset-tab-content">
+            <AssetColumn
+              symbol={selectedAsset}
+              state={state?.assets[selectedAsset] ?? null}
+              hideTitle
+            />
           </div>
           <div className="grid">
             <HourlyReportPanel report={state?.hourly_report ?? null} />

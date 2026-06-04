@@ -391,22 +391,58 @@ body {
   color: var(--red);
 }
 
-.dual-asset-layout {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 1rem;
+/* Asset selector tabs (single full-width analysis view) */
+.asset-tabs {
+  display: flex;
+  gap: 0.25rem;
+  margin-bottom: 1rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.25rem;
+  background: var(--bg-secondary);
+}
+
+.asset-tab-btn {
+  flex: 1;
+  min-width: 0;
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--text-secondary);
+  padding: 0.65rem 0.75rem;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  font-weight: 500;
+  white-space: nowrap;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+
+.asset-tab-btn:hover {
+  color: var(--text-primary);
+  background: var(--bg-tertiary);
+}
+
+.asset-tab-btn.active {
+  color: var(--gold);
+  border-color: var(--gold);
+  background: var(--bg-tertiary);
+}
+
+.asset-tab-content {
   margin-bottom: 1rem;
 }
 
-@media (max-width: 1600px) {
-  .dual-asset-layout {
-    grid-template-columns: repeat(2, 1fr);
-  }
+.asset-tab-content .asset-column {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 1rem;
+  background: var(--bg-secondary);
 }
 
-@media (max-width: 1024px) {
-  .dual-asset-layout {
-    grid-template-columns: 1fr;
+@media (max-width: 640px) {
+  .asset-tab-btn {
+    font-size: 0.75rem;
+    padding: 0.5rem 0.35rem;
   }
 }
 
