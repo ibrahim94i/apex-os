@@ -32,7 +32,7 @@ class CandlestickPatternSchema(BaseModel):
         description="0 = latest closed candle, 1 = previous, etc.",
     )
     strength: float = Field(default=1.0, ge=0.0, le=1.0)
-    source: str = Field(default="pandas", description="pandas, pandas-ta, or TA-Lib")
+    source: str = Field(default="pandas", description="pandas or TA-Lib")
 
 
 class NewsHeadline(BaseModel):

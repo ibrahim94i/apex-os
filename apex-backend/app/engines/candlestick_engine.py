@@ -1,4 +1,4 @@
-"""Candlestick pattern detection — pandas rules + pandas-ta Doji when available."""
+"""Candlestick pattern detection — pure pandas OHLC rules (optional TA-Lib if installed)."""
 
 from __future__ import annotations
 
@@ -52,34 +52,13 @@ class CandlestickPatternEngine:
         )
 
         found: list[CandlestickPatternSchema] = []
-        found.extend(self._detect_with_pandas_ta(df))
         found.extend(self._detect_with_rules(df))
+        found.extend(self._detect_with_talib(df))
 
         return self._dedupe(found)
 
-    def _detect_with_pandas_ta(self, df: pd.DataFrame) -> list[CandlestickPatternSchema]:
+    def _detect_with_talib(self, df: pd.DataFrame) -> list[CandlestickPatternSchema]:
         out: list[CandlestickPatternSchema] = []
-        try:
-            import pandas_ta as ta
-        except ImportError:
-            return out
-
-        try:
-            doji = ta.cdl_doji(df["open"], df["high"], df["low"], df["close"])
-            if doji is not None and len(doji) and float(doji.iloc[-1]) != 0:
-                out.append(
-                    CandlestickPatternSchema(
-                        pattern="DOJI",
-                        name_ar="دوجي",
-                        signal="neutral",
-                        bar_offset=0,
-                        strength=1.0,
-                        source="pandas-ta",
-                    )
-                )
-        except Exception:
-            pass
-
         try:
             import talib
 

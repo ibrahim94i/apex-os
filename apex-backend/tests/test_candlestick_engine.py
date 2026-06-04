@@ -29,7 +29,7 @@ def _flat_bars(n: int = 10, price: float = 100.0) -> list[OHLCVBar]:
 
 def test_detect_doji_on_flat_candle() -> None:
     bars = _flat_bars(9)
-    bars.append(_bar(9, 100.0, 100.05, 99.95, 100.01))
+    bars.append(_bar(9, 100.0, 100.50, 99.50, 100.02))
     patterns = candlestick_engine.detect(bars)
     ids = {p.pattern for p in patterns}
     assert "DOJI" in ids
