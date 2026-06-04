@@ -16,6 +16,28 @@ from app.websocket.manager import broadcaster
 _market_was_open: dict[str, bool] = {}
 
 
+async def _agent_consensus_watch_loop() -> None:
+    """Fill missing agent consensus so dashboard is not stuck after bootstrap/restart."""
+    from app.config.assets import ACTIVE_SYMBOLS
+    from app.core.cache import get_agent_consensus
+    from app.services.agent_analysis_service import run_agent_analysis
+
+    await asyncio.sleep(45)
+    while True:
+        try:
+            for sym in ACTIVE_SYMBOLS:
+                if not is_market_open(sym):
+                    continue
+                if await get_agent_consensus(sym):
+                    continue
+                await run_agent_analysis(sym)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logger.error("agent_consensus_watch_error", error=str(exc))
+        await asyncio.sleep(90)
+
+
 async def _hourly_report_loop() -> None:
     while True:
         try:
@@ -103,4 +125,5 @@ def start_background_tasks() -> list[asyncio.Task[None]]:
         asyncio.create_task(_feed_health_watch_loop(), name="feed_health_watch"),
         asyncio.create_task(_market_status_tick_loop(), name="market_status_tick"),
         asyncio.create_task(_market_reopen_watch_loop(), name="market_reopen_watch"),
+        asyncio.create_task(_agent_consensus_watch_loop(), name="agent_consensus_watch"),
     ]

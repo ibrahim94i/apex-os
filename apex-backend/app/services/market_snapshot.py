@@ -8,6 +8,7 @@ from app.schemas import IndicatorSnapshotSchema, KillSwitchStatusSchema, RegimeS
 from app.schemas.agent import MarketSnapshot
 from app.services.account_service import account_service
 from app.services.memory_engine import memory_engine
+from app.utils.time_utils import compute_age_seconds, parse_utc_timestamp
 
 
 async def build_market_snapshot(
@@ -40,15 +41,11 @@ async def build_market_snapshot(
 
 
 async def _is_feed_stale(symbol: str) -> bool:
-    now = datetime.now(timezone.utc)
     try:
         last = await get_feed_last_update(symbol)
     except Exception:
         return True
-    if not last:
+    if not last or not last.get("timestamp"):
         return True
-    ts = datetime.fromisoformat(last["timestamp"])
-    if ts.tzinfo is None:
-        ts = ts.replace(tzinfo=timezone.utc)
-    age = (now - ts).total_seconds()
+    age = compute_age_seconds(parse_utc_timestamp(last["timestamp"]))
     return age > settings.feed_staleness_limit_seconds

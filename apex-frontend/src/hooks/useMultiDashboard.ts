@@ -433,7 +433,31 @@ export function useMultiDashboard() {
     };
     init();
     connect();
+    const pollId = setInterval(() => {
+      fetchMultiDashboard()
+        .then((dash) => {
+          setState((prev) => {
+            if (!prev) return dash;
+            const assets = { ...prev.assets };
+            for (const [sym, asset] of Object.entries(dash.assets)) {
+              const existing = assets[sym];
+              assets[sym] = existing
+                ? {
+                    ...existing,
+                    ...asset,
+                    agent_consensus: asset.agent_consensus ?? existing.agent_consensus,
+                    regime: asset.regime ?? existing.regime,
+                    current_price: asset.current_price ?? existing.current_price,
+                  }
+                : asset;
+            }
+            return { ...dash, assets };
+          });
+        })
+        .catch(() => null);
+    }, 90000);
     return () => {
+      clearInterval(pollId);
       clearTimeout(reconnectTimer.current);
       wsRef.current?.close();
     };
