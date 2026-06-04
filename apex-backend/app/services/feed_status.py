@@ -7,6 +7,7 @@ from enum import Enum
 from typing import Any
 
 from app.core.redis_client import cache_get, cache_set
+from app.utils.time_utils import compute_age_seconds, parse_utc_timestamp
 
 STATUS_TTL = 3600
 
@@ -60,14 +61,14 @@ async def get_all_feed_statuses(symbols: list[str]) -> dict[str, dict[str, Any]]
     for sym in symbols:
         data = await get_feed_status(sym)
         if data:
-            if data.get("last_update") and data.get("age_seconds") is None:
+            if data.get("last_update"):
                 try:
-                    ts = datetime.fromisoformat(str(data["last_update"]).replace("Z", "+00:00"))
-                    if ts.tzinfo is None:
-                        ts = ts.replace(tzinfo=timezone.utc)
-                    data["age_seconds"] = int((now - ts).total_seconds())
+                    ts = parse_utc_timestamp(str(data["last_update"]))
+                    data["age_seconds"] = compute_age_seconds(ts, now)
                 except (TypeError, ValueError):
                     pass
+            elif data.get("age_seconds") is not None:
+                data["age_seconds"] = max(0, int(data["age_seconds"]))
             out[sym] = data
         else:
             out[sym] = {

@@ -17,8 +17,9 @@ function statusClass(status: FeedStatus["status"]): string {
 
 function formatAge(seconds: number | null | undefined): string {
   if (seconds == null) return "—";
-  if (seconds < 60) return `${seconds}${t.secondsShort}`;
-  const mins = Math.floor(seconds / 60);
+  const age = Math.max(0, Math.floor(seconds));
+  if (age < 60) return `${age}${t.secondsShort}`;
+  const mins = Math.floor(age / 60);
   return `${mins}${t.minutesShort}`;
 }
 

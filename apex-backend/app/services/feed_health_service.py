@@ -12,6 +12,7 @@ from app.feeds.manager import feed_manager
 from app.logging_config import logger
 from app.services.feed_status import FeedConnectionState, get_all_feed_statuses, set_feed_status
 from app.services.market_hours import is_market_open
+from app.utils.time_utils import compute_age_seconds, parse_utc_timestamp
 
 _recovery_trackers: dict[str, "_RecoveryTracker"] = {}
 _app_started_at: datetime = datetime.now(timezone.utc)
@@ -53,10 +54,7 @@ class FeedHealthReport:
 
 
 def _parse_ts(raw: str) -> datetime:
-    ts = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
-    if ts.tzinfo is None:
-        ts = ts.replace(tzinfo=timezone.utc)
-    return ts
+    return parse_utc_timestamp(raw)
 
 
 def _tracker(symbol: str) -> _RecoveryTracker:
@@ -69,8 +67,7 @@ async def _feed_data_age_seconds(symbol: str) -> int | None:
     last_raw = await get_feed_last_update(symbol)
     if not last_raw or not last_raw.get("timestamp"):
         return None
-    last_dt = _parse_ts(last_raw["timestamp"])
-    return int((datetime.now(timezone.utc) - last_dt).total_seconds())
+    return compute_age_seconds(last_raw["timestamp"])
 
 
 async def _is_feed_data_fresh(symbol: str) -> bool:
@@ -100,7 +97,7 @@ async def check_feed_health(symbol: str) -> FeedHealthStatus:
 
     if last_raw and last_raw.get("timestamp"):
         last_dt = _parse_ts(last_raw["timestamp"])
-        age = int((datetime.now(timezone.utc) - last_dt).total_seconds())
+        age = compute_age_seconds(last_dt)
         if open_now and age > settings.feed_staleness_limit_seconds:
             stale = True
         elif open_now and age > settings.feed_disconnect_threshold_seconds:

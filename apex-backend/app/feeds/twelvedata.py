@@ -12,6 +12,7 @@ from app.config import settings
 from app.core.cache import set_feed_last_update, set_latest_price
 from app.logging_config import logger
 from app.services.feed_status import FeedConnectionState, set_feed_status
+from app.utils.time_utils import compute_age_seconds, parse_utc_timestamp
 
 BarCallback = Callable[[dict[str, Any]], Awaitable[None]]
 
@@ -69,11 +70,9 @@ class TwelveDataFeed:
 
     def _bar_age_seconds(self, bar: dict[str, Any]) -> float:
         ts = bar["timestamp"]
-        if isinstance(ts, str):
-            ts = datetime.fromisoformat(ts.replace("Z", "+00:00"))
-        if ts.tzinfo is None:
-            ts = ts.replace(tzinfo=timezone.utc)
-        return max(0.0, (datetime.now(timezone.utc) - ts).total_seconds())
+        if isinstance(ts, datetime):
+            return float(compute_age_seconds(ts))
+        return float(compute_age_seconds(str(ts)))
 
     def _max_bar_age_seconds(self) -> float:
         return _INTERVAL_MAX_BAR_AGE.get(
@@ -197,14 +196,8 @@ class TwelveDataFeed:
                     self._last_success_at = datetime.now(timezone.utc)
                     self._error_count = 0
                     error_backoff = 5
-                    bar_ts = bar["timestamp"]
-                    if isinstance(bar_ts, str):
-                        bar_dt = datetime.fromisoformat(bar_ts.replace("Z", "+00:00"))
-                    else:
-                        bar_dt = bar_ts
-                    if bar_dt.tzinfo is None:
-                        bar_dt = bar_dt.replace(tzinfo=timezone.utc)
-                    bar_age = int((datetime.now(timezone.utc) - bar_dt).total_seconds())
+                    bar_dt = parse_utc_timestamp(bar["timestamp"])
+                    bar_age = compute_age_seconds(bar_dt)
                     await set_latest_price(bar["symbol"], bar["close"], bar["timestamp"])
                     await set_feed_last_update(bar["symbol"], bar["timestamp"])
                     await set_feed_status(
@@ -284,14 +277,8 @@ class TwelveDataFeed:
             if not bar:
                 return False
             self._last_success_at = datetime.now(timezone.utc)
-            bar_ts = bar["timestamp"]
-            if isinstance(bar_ts, str):
-                bar_dt = datetime.fromisoformat(bar_ts.replace("Z", "+00:00"))
-            else:
-                bar_dt = bar_ts
-            if bar_dt.tzinfo is None:
-                bar_dt = bar_dt.replace(tzinfo=timezone.utc)
-            bar_age = int((datetime.now(timezone.utc) - bar_dt).total_seconds())
+            bar_dt = parse_utc_timestamp(bar["timestamp"])
+            bar_age = compute_age_seconds(bar_dt)
             await set_latest_price(bar["symbol"], bar["close"], bar["timestamp"])
             await set_feed_last_update(bar["symbol"], bar["timestamp"])
             await set_feed_status(
