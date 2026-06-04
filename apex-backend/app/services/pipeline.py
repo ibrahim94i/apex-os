@@ -14,6 +14,7 @@ from app.core.cache import (
     set_latest_signal,
 )
 from app.database import AsyncSessionLocal
+from app.engines.candlestick_engine import candlestick_engine
 from app.engines.indicator_engine import OHLCVBar
 from app.engines.kill_switch import kill_switch
 from app.engines.signal_generator import SignalGenerator
@@ -80,6 +81,19 @@ async def _persist_bar(session: Any, bar: dict[str, Any]) -> None:
     await session.execute(stmt)
 
 
+async def get_symbol_ohlcv_bars(symbol: str, limit: int = MAX_BUFFER) -> list[OHLCVBar]:
+    """Return in-memory OHLCV buffer or load recent bars from DB."""
+    if symbol in _bar_buffer and len(_bar_buffer[symbol]) >= 5:
+        return _bar_buffer[symbol]
+    from app.services.market_data_store import fetch_bars_from_db
+
+    raw = await fetch_bars_from_db(symbol, limit)
+    if not raw:
+        return _bar_buffer.get(symbol, [])
+    seed_bars_to_buffer(raw)
+    return _bar_buffer.get(symbol, [])
+
+
 def seed_bars_to_buffer(raw_bars: list[dict[str, Any]]) -> None:
     """Pre-fill bar buffer from historical data (no pipeline side effects)."""
     if not raw_bars:
@@ -134,12 +148,14 @@ async def process_bar(raw_bar: dict[str, Any], *, skip_agents: bool = False) -> 
             agent_consensus = None
             if indicators and regime and not skip_agents:
                 indicators, regime = bind_indicator_regime_to_symbol(symbol, indicators, regime)
+                candle_patterns = candlestick_engine.detect(_bar_buffer[symbol])
                 snapshot = await build_market_snapshot(
                     symbol=symbol,
                     price=raw_bar["close"],
                     indicators=indicators,
                     regime=regime,
                     kill_switch=ks_status,
+                    candlestick_patterns=candle_patterns,
                 )
                 agent_consensus = await agent_orchestrator.run(snapshot, session=session)
 

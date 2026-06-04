@@ -11,6 +11,7 @@ pydantic>=2.5.0
 pydantic-settings>=2.1.0
 numpy>=1.26.0
 pandas>=2.1.0
+pandas-ta>=0.3.14b
 python-dotenv>=1.0.0
 structlog>=24.1.0
 openai>=1.12.0

@@ -1,12 +1,14 @@
 """Prompts for Market Analyst Agent."""
 
+from app.agents.market_analyst.candlestick_format import candlestick_block_from_snapshot
 from app.agents.prompt_utils import AGENT_JSON_RULES, AGENT_JSON_SCHEMA, asset_header
 from app.schemas.agent import MarketSnapshot
 
-SYSTEM_PROMPT = f"""أنت محلل سوق مؤسسي متخصص في التحليل الفني.
-حلل البيانات المقدمة لأي أصل (بيتكوين، ذهب، يورو/دولار) وأعد JSON فقط بالصيغة:
+SYSTEM_PROMPT = f"""أنت محلل سوق مؤسسي متخصص في التحليل الفني وأنماط الشمعات.
+حلل المؤشرات وأنماط الشمعات (دوجي، مطرقة، ابتلاع، نجمة الصباح/المساء، نجم هابط) لأي أصل وأعد JSON فقط:
 {AGENT_JSON_SCHEMA}
 {AGENT_JSON_RULES}
+- إن وُجدت أنماط شمعات صعودية/هبوطية، اذكرها ضمن reasoning.
 كن موضوعياً ومختصراً (2-5 أسباب)."""
 
 
@@ -43,4 +45,5 @@ EMA9: {ind.ema_9}, EMA21: {ind.ema_21}, EMA50: {ind.ema_50}, EMA200: {ind.ema_20
 ATR: {ind.atr}, ADX: {ind.adx}
 حالة السوق: {regime.regime.value}
 ثقة النظام: {regime.confidence}
-التذبذب: {regime.volatility_pct}%{patterns_text}"""
+التذبذب: {regime.volatility_pct}%
+{candlestick_block_from_snapshot(snapshot)}{patterns_text}"""

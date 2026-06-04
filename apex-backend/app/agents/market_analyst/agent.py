@@ -47,6 +47,13 @@ def _rule_based(snapshot: MarketSnapshot) -> AgentLLMOutput:
 
     reasoning.append(f"حالة السوق: {regime.regime.value} بثقة {regime.confidence:.0%}")
 
+    if snapshot.candlestick_patterns:
+        for pat in snapshot.candlestick_patterns[:3]:
+            sig = {"bullish": "صعودي", "bearish": "هبوطي", "neutral": "محايد"}.get(
+                pat.signal, pat.signal
+            )
+            reasoning.append(f"نمط شمعة: {pat.name_ar} — إشارة {sig}")
+
     if snapshot.memory_patterns:
         top = snapshot.memory_patterns[0]
         wr = float(top.get("win_rate", 0))

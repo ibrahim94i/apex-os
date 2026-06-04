@@ -7,7 +7,7 @@ from app.config import settings
 from app.core.cache import get_feed_last_update
 from app.logging_config import logger
 from app.schemas import IndicatorSnapshotSchema, KillSwitchStatusSchema, RegimeSnapshotSchema
-from app.schemas.agent import MarketSnapshot
+from app.schemas.agent import CandlestickPatternSchema, MarketSnapshot
 from app.services.account_service import account_service
 from app.services.finnhub_news import fetch_news_for_symbol
 from app.services.memory_engine import memory_engine
@@ -52,10 +52,18 @@ async def build_market_snapshot(
     indicators: IndicatorSnapshotSchema,
     regime: RegimeSnapshotSchema,
     kill_switch: KillSwitchStatusSchema,
+    candlestick_patterns: list[CandlestickPatternSchema] | None = None,
 ) -> MarketSnapshot:
     indicators, regime = bind_indicator_regime_to_symbol(symbol, indicators, regime)
     feed_stale = await _is_feed_stale(symbol)
     patterns = await memory_engine.get_top_patterns(symbol)
+
+    if candlestick_patterns is None:
+        from app.engines.candlestick_engine import candlestick_engine
+        from app.services.pipeline import get_symbol_ohlcv_bars
+
+        bars = await get_symbol_ohlcv_bars(symbol)
+        candlestick_patterns = candlestick_engine.detect(bars)
 
     balance = await account_service.get_balance()
     news_headlines = await fetch_news_for_symbol(symbol)
@@ -74,6 +82,7 @@ async def build_market_snapshot(
         consecutive_losses=kill_switch.consecutive_losses or 0,
         feed_stale=feed_stale,
         memory_patterns=patterns,
+        candlestick_patterns=candlestick_patterns,
         news_headlines=news_headlines,
     )
 

@@ -2,6 +2,7 @@
 
 from datetime import datetime
 from enum import Enum
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -17,6 +18,21 @@ class AgentRole(str, Enum):
     MARKET_ANALYST = "market_analyst"
     RISK = "risk"
     NEWS = "news"
+
+
+class CandlestickPatternSchema(BaseModel):
+    """Detected candlestick pattern on a recent closed bar."""
+
+    pattern: str
+    name_ar: str
+    signal: Literal["bullish", "bearish", "neutral"]
+    bar_offset: int = Field(
+        0,
+        ge=0,
+        description="0 = latest closed candle, 1 = previous, etc.",
+    )
+    strength: float = Field(default=1.0, ge=0.0, le=1.0)
+    source: str = Field(default="pandas", description="pandas, pandas-ta, or TA-Lib")
 
 
 class NewsHeadline(BaseModel):
@@ -62,6 +78,7 @@ class MarketSnapshot(BaseModel):
     consecutive_losses: int = 0
     feed_stale: bool = False
     memory_patterns: list[dict[str, object]] = Field(default_factory=list)
+    candlestick_patterns: list[CandlestickPatternSchema] = Field(default_factory=list)
     news_headlines: list[NewsHeadline] = Field(default_factory=list)
 
 

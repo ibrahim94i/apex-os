@@ -4,7 +4,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field
 
-from app.schemas.agent import AgentConsensus, AgentVerdict, MarketSnapshot
+from app.schemas.agent import AgentConsensus, AgentVerdict, CandlestickPatternSchema, MarketSnapshot
 from app.schemas.market import HourlyReportSchema, MarketStatusSchema
 from app.schemas.enums import KillSwitchStatus, RegimeType, SignalDirection
 from app.schemas.snapshots import (
