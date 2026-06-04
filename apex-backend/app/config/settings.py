@@ -75,9 +75,7 @@ class Settings(BaseSettings):
     alphavantage_poll_interval_seconds: int = 3600
     alphavantage_min_gap_seconds: float = 12.0
     frankfurter_poll_interval_seconds: int = 180
-    gemini_api_key: str = ""
-    gemini_model: str = "gemini-2.0-flash"
-    llm_primary_provider: str = "gemini"
+    llm_primary_provider: str = "groq"
     emergency_signal_confidence_threshold: float = 0.75
     signal_emission_interval_hours: float = 1.0
 

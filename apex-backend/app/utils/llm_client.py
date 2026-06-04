@@ -7,7 +7,7 @@ import json
 import time
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, TypeVar
+from typing import TypeVar
 
 import httpx
 from pydantic import BaseModel
@@ -95,7 +95,6 @@ class LLMClient:
         timeout: float | None = None,
         max_retries: int | None = None,
         circuit_threshold: int | None = None,
-        gemini_client: Any | None = None,
     ) -> None:
         self.api_key = api_key or settings.groq_api_key
         self.model = model or settings.groq_model
@@ -104,26 +103,14 @@ class LLMClient:
         self.circuit_breaker = CircuitBreaker(
             threshold=circuit_threshold or settings.agent_circuit_breaker_threshold
         )
-        if gemini_client is not None:
-            self._gemini = gemini_client
-        else:
-            from app.utils.gemini_client import gemini_client as _gemini
-
-            self._gemini = _gemini
 
     @property
     def is_configured(self) -> bool:
-        return self._gemini.is_configured or bool(
-            self.api_key and self.api_key != "your_key_here"
-        )
+        return bool(self.api_key and self.api_key != "your_key_here")
 
     @property
     def primary_provider(self) -> str:
-        if settings.llm_primary_provider == "gemini" and self._gemini.is_configured:
-            return "gemini"
-        if self.api_key and self.api_key != "your_key_here":
-            return "groq"
-        return "none"
+        return "groq" if self.is_configured else "none"
 
     async def chat_completion(
         self,
@@ -131,12 +118,6 @@ class LLMClient:
         user_prompt: str,
         temperature: float = 0.2,
     ) -> LLMResponse:
-        if settings.llm_primary_provider == "gemini" and self._gemini.is_configured:
-            try:
-                return await self._gemini.chat_completion(system_prompt, user_prompt, temperature)
-            except LLMClientError as exc:
-                logger.warning("gemini_fallback_to_groq", error=str(exc))
-
         return await self._groq_chat_completion(system_prompt, user_prompt, temperature)
 
     async def _groq_chat_completion(
