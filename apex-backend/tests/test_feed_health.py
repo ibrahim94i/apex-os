@@ -14,9 +14,9 @@ async def test_feed_manager_tracks_symbols() -> None:
     mock_feed.is_running = False
     mock_feed.start = MagicMock()
     with patch.object(mgr, "_create_feed", return_value=mock_feed):
-        assert mgr.start_feed("BTCUSDT") is True
+        assert mgr.start_feed("XAUUSD") is True
         mock_feed.start.assert_called_once()
-        assert "BTCUSDT" in mgr.get_status()
+        assert "XAUUSD" in mgr.get_status()
 
 
 @pytest.mark.asyncio

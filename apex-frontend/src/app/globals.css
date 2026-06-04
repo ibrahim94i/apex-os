@@ -257,6 +257,30 @@ body {
   flex-wrap: wrap;
 }
 
+.signal-rejection-banner {
+  background: rgba(255, 61, 61, 0.12);
+  border: 1px solid var(--red);
+  color: #ffb4b4;
+  padding: 0.65rem 0.85rem;
+  border-radius: 6px;
+  margin-bottom: 0.75rem;
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+.signal-rejection-inline {
+  color: #ffb4b4;
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+.proposed-confidence,
+.agent-weight-label {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  margin-right: 0.35rem;
+}
+
 .consensus-breakdown {
   margin-bottom: 1rem;
   padding: 0.75rem;

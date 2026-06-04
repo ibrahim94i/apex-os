@@ -101,4 +101,8 @@ class AgentConsensus(BaseModel):
     reasoning_summary: list[str] = Field(default_factory=list, max_length=15)
     team_discussion: TeamDiscussionLLMOutput | None = None
     discussion_summary_ar: list[str] = Field(default_factory=list, max_length=20)
-    llm_provider: str | None = None
+    signal_decision: str | None = None  # emitted | blocked | wait | none
+    rejection_reason: str | None = None
+    rejection_reason_ar: str | None = None
+    proposed_direction: SignalDirection | None = None
+    proposed_confidence: float | None = None

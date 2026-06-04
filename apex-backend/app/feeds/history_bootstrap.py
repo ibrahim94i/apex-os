@@ -9,7 +9,7 @@ from typing import Any
 import httpx
 
 from app.config import settings
-from app.config.assets import ASSETS, AssetConfig
+from app.config.assets import ACTIVE_SYMBOLS, ASSETS, AssetConfig
 from app.logging_config import logger
 
 
@@ -173,6 +173,35 @@ async def fetch_alphavantage_history(
     return bars
 
 
+async def fetch_frankfurter_history(
+    asset: AssetConfig,
+    limit: int = 250,
+) -> list[dict[str, Any]]:
+    if not asset.frankfurter_from_symbol or not asset.frankfurter_to_symbol:
+        return []
+
+    from app.feeds.frankfurter_client import fetch_historical_daily_bars
+    from app.services.market_data_store import fetch_bars_from_db
+
+    db_bars = await fetch_bars_from_db(asset.symbol, limit)
+    if len(db_bars) >= limit:
+        return db_bars[-limit:]
+
+    daily = await fetch_historical_daily_bars(
+        from_symbol=asset.frankfurter_from_symbol,
+        to_symbol=asset.frankfurter_to_symbol,
+        apex_symbol=asset.symbol,
+        days=min(365, limit),
+    )
+    seen = {b["timestamp"] for b in db_bars}
+    merged = list(db_bars)
+    for bar in daily:
+        if bar["timestamp"] not in seen:
+            merged.append(bar)
+    merged.sort(key=lambda b: b["timestamp"])
+    return merged[-limit:] if merged else []
+
+
 async def fetch_history_for_asset(asset: AssetConfig, limit: int = 100) -> list[dict[str, Any]]:
     if asset.feed_type == "binance":
         return await fetch_binance_history(asset.symbol, limit, asset.candle_interval)
@@ -185,6 +214,8 @@ async def fetch_history_for_asset(asset: AssetConfig, limit: int = 100) -> list[
         )
     if asset.feed_type == "alphavantage":
         return await fetch_alphavantage_history(asset, limit)
+    if asset.feed_type == "frankfurter":
+        return await fetch_frankfurter_history(asset, limit)
     return []
 
 
@@ -199,7 +230,7 @@ async def refresh_dashboard_cache() -> None:
     from app.core.cache import set_dashboard_state
     from app.services.dashboard_builder import build_asset_dashboard_state
 
-    for symbol in ASSETS:
+    for symbol in ACTIVE_SYMBOLS:
         dashboard = await build_asset_dashboard_state(symbol)
         await set_dashboard_state(symbol, dashboard.model_dump(mode="json"))
 
@@ -240,13 +271,16 @@ async def bootstrap_asset(symbol: str, limit: int = 250) -> bool:
 async def bootstrap_all_assets(limit: int = 250) -> None:
     failed: list[str] = []
 
-    for symbol, asset in ASSETS.items():
+    for symbol in ACTIVE_SYMBOLS:
+        asset = ASSETS[symbol]
         ok = await bootstrap_asset(symbol, limit)
         if not ok:
             failed.append(symbol)
         if asset.feed_type == "twelvedata":
             await asyncio.sleep(15)
         elif asset.feed_type == "alphavantage":
+            await asyncio.sleep(2)
+        elif asset.feed_type == "frankfurter":
             await asyncio.sleep(2)
 
     for attempt in range(1, 4):

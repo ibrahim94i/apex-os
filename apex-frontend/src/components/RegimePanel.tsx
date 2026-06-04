@@ -25,13 +25,19 @@ export default function RegimePanel({ regime }: Props) {
       </div>
       <div style={{ marginTop: "1rem" }}>
         <div className="card-title">{t.confidence}</div>
-        <div className="metric-value mono">{(regime.confidence * 100).toFixed(1)}%</div>
-        <div className="confidence-bar">
-          <div
-            className="confidence-fill"
-            style={{ width: `${regime.confidence * 100}%` }}
-          />
+        <div className="metric-value mono">
+          {regime.regime === "RANGING" && regime.confidence === 0
+            ? t.rangingWait
+            : `${(regime.confidence * 100).toFixed(1)}%`}
         </div>
+        {!(regime.regime === "RANGING" && regime.confidence === 0) && (
+          <div className="confidence-bar">
+            <div
+              className="confidence-fill"
+              style={{ width: `${regime.confidence * 100}%` }}
+            />
+          </div>
+        )}
       </div>
       {regime.adx_value != null && (
         <div style={{ marginTop: "0.75rem" }}>

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from app.config.assets import ASSETS
+from app.config.assets import ACTIVE_SYMBOLS, ASSETS
 from app.core.cache import get_agent_consensus, get_latest_regime, get_latest_signal, get_hourly_report, set_hourly_report
 from app.schemas.market import HourlyReportAssetSchema, HourlyReportSchema
 from app.services.market_status_service import build_market_status
@@ -29,7 +29,8 @@ async def build_hourly_report(at: datetime | None = None) -> HourlyReportSchema:
     now = at or datetime.now(timezone.utc)
     entries: list[HourlyReportAssetSchema] = []
 
-    for symbol, asset in ASSETS.items():
+    for symbol in ACTIVE_SYMBOLS:
+        asset = ASSETS[symbol]
         status = await build_market_status(symbol, now)
         regime_data = await get_latest_regime(symbol)
         signal_data = await get_latest_signal(symbol)

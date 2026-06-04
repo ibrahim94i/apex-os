@@ -98,6 +98,11 @@ export const t = {
   recoveryAttempts: "محاولات فاشلة",
   secondsShort: "ث",
   minutesShort: "د",
+  rangingWait: "السوق جانبي — انتظر",
+  proposedDirection: "الاتجاه المقترح",
+  proposedConfidence: "ثقة مقترحة",
+  agentConfidence: "ثقة الوكيل",
+  signalRejected: "الإشارة مرفوضة",
 } as const;
 
 export const REGIME_LABELS: Record<RegimeType, string> = {

@@ -16,6 +16,7 @@ import type {
   MultiAssetDashboard,
   PositionManagerStatus,
   PerformanceSummary,
+  PriceBar,
 } from "@/types";
 
 const ACCOUNT_MODE_KEY = "apex_account_mode";
@@ -59,7 +60,19 @@ export async function setAccountBalance(balance: number): Promise<AccountMode> {
   return res.json();
 }
 
-export async function fetchDashboard(symbol = "BTCUSDT"): Promise<DashboardState> {
+export async function fetchPriceBars(
+  symbol: string,
+  limit = 200
+): Promise<{ symbol: string; bars: PriceBar[] }> {
+  const res = await fetch(
+    `${API_URL}/api/v1/market/bars?symbol=${symbol}&limit=${limit}`,
+    { cache: "no-store" }
+  );
+  if (!res.ok) throw new Error("Failed to fetch price bars");
+  return res.json();
+}
+
+export async function fetchDashboard(symbol = "XAUUSD"): Promise<DashboardState> {
   const res = await fetch(`${API_URL}/api/v1/dashboard?symbol=${symbol}`, { cache: "no-store" });
   if (!res.ok) throw new Error("Failed to fetch dashboard");
   return res.json();

@@ -61,7 +61,7 @@ async def health_check(session: AsyncSession = Depends(get_db)) -> HealthRespons
 
 
 @router.get("/dashboard", response_model=DashboardStateSchema)
-async def get_dashboard(symbol: str = "BTCUSDT") -> DashboardStateSchema:
+async def get_dashboard(symbol: str = "XAUUSD") -> DashboardStateSchema:
     cached = await get_dashboard_state(symbol)
     if cached and cached.get("symbol") == symbol:
         return DashboardStateSchema(**cached)
@@ -187,8 +187,19 @@ async def get_regime_from_db(
     ]
 
 
+@router.get("/market/bars")
+async def get_market_bars(symbol: str = "XAUUSD", limit: int = 200) -> dict:
+    from app.config.assets import ACTIVE_SYMBOLS
+    from app.services.market_data_store import fetch_bars_from_db
+
+    if symbol not in ACTIVE_SYMBOLS:
+        raise HTTPException(status_code=404, detail="Symbol not active")
+    bars = await fetch_bars_from_db(symbol, min(limit, 250))
+    return {"symbol": symbol, "bars": bars}
+
+
 @router.get("/price/current")
-async def get_current_price(symbol: str = "BTCUSDT") -> dict:
+async def get_current_price(symbol: str = "XAUUSD") -> dict:
     data = await get_latest_price(symbol)
     if not data:
         raise HTTPException(status_code=404, detail="No price data available")

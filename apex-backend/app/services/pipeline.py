@@ -22,10 +22,12 @@ from app.models import IndicatorSnapshot, PriceBar, RegimeSnapshot, TradingSigna
 from app.schemas import (
     AgentConsensus,
     RegimeSnapshotSchema,
+    RegimeType,
     SignalDirection,
     KillSwitchStatusSchema,
     TradingSignalSchema,
 )
+from app.services.signal_rejection_i18n import rejection_reason_ar
 from app.services.alert_service import alert_service
 from app.services.dashboard_builder import build_asset_dashboard_state
 from app.services.market_hours import is_market_open
@@ -139,75 +141,109 @@ async def process_bar(raw_bar: dict[str, Any], *, skip_agents: bool = False) -> 
                     kill_switch=ks_status,
                 )
                 agent_consensus = await agent_orchestrator.run(snapshot, session=session)
+
+            signal = None
+            signal_decision = "none"
+            rejection_reason: str | None = None
+            proposed_direction: SignalDirection | None = None
+            proposed_confidence: float | None = None
+
+            if indicators and regime and agent_consensus:
+                if (
+                    regime.regime == RegimeType.RANGING
+                    and agent_consensus.final_direction == SignalDirection.NEUTRAL
+                ):
+                    signal_decision = "wait"
+                    rejection_reason = "ranging_market_wait"
+                elif agent_consensus.final_direction == SignalDirection.NEUTRAL:
+                    rejection_reason = "neutral_direction"
+                elif agent_consensus.final_direction != SignalDirection.NEUTRAL:
+                    from app.services.account_service import account_service
+
+                    proposed_direction = agent_consensus.final_direction
+                    proposed_confidence = agent_consensus.final_confidence
+                    balance = await account_service.get_balance()
+                    signal = signal_generator.build_trading_signal(
+                        _bar_buffer[symbol],
+                        symbol,
+                        agent_consensus.final_direction,
+                        agent_consensus.final_confidence,
+                        indicators,
+                        regime,
+                        kill_switch_active=kill_switch.is_active,
+                        require_min_confidence=True,
+                        account_balance=balance,
+                    )
+                    if signal:
+                        safe, safety_reason = check_mandatory_safety_gate(
+                            agent_consensus.final_direction,
+                            regime,
+                            indicators,
+                            raw_bar["close"],
+                        )
+                        if not safe:
+                            logger.info(
+                                "safety_gate_blocked",
+                                symbol=symbol,
+                                reason=safety_reason,
+                            )
+                            signal_decision = "blocked"
+                            rejection_reason = safety_reason
+                            signal = None
+
+                    if signal:
+                        allowed, reason = await apply_high_selectivity_filters(
+                            symbol,
+                            agent_consensus.final_direction,
+                            signal.confidence,
+                            indicators,
+                            regime,
+                            _bar_buffer[symbol],
+                            agent_consensus,
+                        )
+                        if not allowed:
+                            logger.info(
+                                "selectivity_wait",
+                                symbol=symbol,
+                                reason=reason,
+                                confidence=signal.confidence,
+                            )
+                            signal_decision = "wait"
+                            rejection_reason = reason or "selectivity_wait"
+                            signal = None
+
+                    if signal:
+                        allowed, reason = await should_emit_new_signal(symbol, signal.entry_price)
+                        if not allowed:
+                            logger.info(
+                                "signal_suppressed",
+                                symbol=symbol,
+                                reason=reason,
+                                confidence=signal.confidence,
+                            )
+                            signal_decision = "wait"
+                            rejection_reason = reason or "signal_suppressed"
+                            signal = None
+
+                    if signal:
+                        signal_decision = "emitted"
+                    elif signal_decision == "none" and rejection_reason is None:
+                        signal_decision = "wait"
+                        rejection_reason = "selectivity_wait"
+
+            if agent_consensus:
+                agent_consensus = agent_consensus.model_copy(
+                    update={
+                        "signal_decision": signal_decision,
+                        "rejection_reason": rejection_reason,
+                        "rejection_reason_ar": rejection_reason_ar(rejection_reason),
+                        "proposed_direction": proposed_direction,
+                        "proposed_confidence": proposed_confidence,
+                    }
+                )
                 consensus_data = agent_consensus.model_dump(mode="json")
                 await set_agent_consensus(symbol, consensus_data)
                 await broadcaster.broadcast_agent_consensus(consensus_data)
-
-            signal = None
-            if (
-                indicators
-                and regime
-                and agent_consensus
-                and agent_consensus.final_direction != SignalDirection.NEUTRAL
-            ):
-                from app.services.account_service import account_service
-
-                balance = await account_service.get_balance()
-                signal = signal_generator.build_trading_signal(
-                    _bar_buffer[symbol],
-                    symbol,
-                    agent_consensus.final_direction,
-                    agent_consensus.final_confidence,
-                    indicators,
-                    regime,
-                    kill_switch_active=kill_switch.is_active,
-                    require_min_confidence=True,
-                    account_balance=balance,
-                )
-                if signal:
-                    safe, safety_reason = check_mandatory_safety_gate(
-                        agent_consensus.final_direction,
-                        regime,
-                        indicators,
-                        raw_bar["close"],
-                    )
-                    if not safe:
-                        logger.info(
-                            "safety_gate_blocked",
-                            symbol=symbol,
-                            reason=safety_reason,
-                        )
-                        signal = None
-
-                if signal:
-                    allowed, reason = await apply_high_selectivity_filters(
-                        symbol,
-                        agent_consensus.final_direction,
-                        signal.confidence,
-                        indicators,
-                        regime,
-                        _bar_buffer[symbol],
-                        agent_consensus,
-                    )
-                    if not allowed:
-                        logger.info(
-                            "selectivity_wait",
-                            symbol=symbol,
-                            reason=reason,
-                            confidence=signal.confidence,
-                        )
-                        signal = None
-
-                if signal:
-                    allowed, reason = await should_emit_new_signal(symbol, signal.entry_price)
-                    if not allowed:
-                        logger.info(
-                            "signal_suppressed",
-                            symbol=symbol,
-                            reason=reason,
-                            confidence=signal.confidence,
-                        )
-                        signal = None
 
             if indicators:
                 ind_data = indicators.model_dump(mode="json")

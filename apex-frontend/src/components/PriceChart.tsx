@@ -11,10 +11,15 @@ import {
   type Time,
 } from "lightweight-charts";
 import { t } from "@/lib/i18n";
+import { fetchPriceBars } from "@/lib/api";
 
 interface Props {
   currentPrice: number | null;
   symbol: string;
+}
+
+function toChartTime(iso: string): Time {
+  return Math.floor(new Date(iso).getTime() / 1000) as Time;
 }
 
 export default function PriceChart({ currentPrice, symbol }: Props) {
@@ -66,27 +71,53 @@ export default function PriceChart({ currentPrice, symbol }: Props) {
       chart.remove();
       chartRef.current = null;
       seriesRef.current = null;
+      lastBarRef.current = null;
     };
   }, []);
 
   useEffect(() => {
+    if (!seriesRef.current || !symbol) return;
+
+    let cancelled = false;
+    fetchPriceBars(symbol)
+      .then((data) => {
+        if (cancelled || !seriesRef.current || !data.bars.length) return;
+        const candles: CandlestickData[] = data.bars.map((b) => ({
+          time: toChartTime(b.timestamp),
+          open: b.open,
+          high: b.high,
+          low: b.low,
+          close: b.close,
+        }));
+        seriesRef.current.setData(candles);
+        lastBarRef.current = candles[candles.length - 1] ?? null;
+        chartRef.current?.timeScale().fitContent();
+      })
+      .catch(() => null);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [symbol]);
+
+  useEffect(() => {
     if (!currentPrice || !seriesRef.current) return;
 
-    const nowSec = Math.floor(Date.now() / 1000);
-    const minute = (Math.floor(nowSec / 60) * 60) as Time;
+    const hourSec = (Math.floor(Date.now() / 3600000) * 3600) as Time;
 
-    if (lastBarRef.current && lastBarRef.current.time === minute) {
-      const bar = lastBarRef.current;
+    if (lastBarRef.current && lastBarRef.current.time === hourSec) {
+      const bar = { ...lastBarRef.current };
       bar.close = currentPrice;
       bar.high = Math.max(bar.high, currentPrice);
       bar.low = Math.min(bar.low, currentPrice);
       seriesRef.current.update(bar);
-    } else {
+      lastBarRef.current = bar;
+    } else if (lastBarRef.current) {
       const newBar: CandlestickData = {
-        time: minute,
-        open: currentPrice,
-        high: currentPrice,
-        low: currentPrice,
+        time: hourSec,
+        open: lastBarRef.current.close,
+        high: Math.max(lastBarRef.current.close, currentPrice),
+        low: Math.min(lastBarRef.current.close, currentPrice),
         close: currentPrice,
       };
       seriesRef.current.update(newBar);

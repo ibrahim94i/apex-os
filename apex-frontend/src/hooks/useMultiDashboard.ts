@@ -16,7 +16,7 @@ import { t } from "@/lib/i18n";
 
 
 
-const SYMBOLS = ["BTCUSDT", "XAUUSD", "EURUSD"];
+const SYMBOLS = ["XAUUSD", "EURUSD"];
 
 
 
@@ -194,7 +194,7 @@ export function useMultiDashboard() {
 
               if (!prev) return prev;
 
-              const sym = (msg.data as { symbol?: string }).symbol || signal.symbol || "BTCUSDT";
+              const sym = (msg.data as { symbol?: string }).symbol || signal.symbol || "XAUUSD";
 
               const asset = prev.assets[sym];
 

@@ -65,7 +65,7 @@ class DashboardStateSchema(BaseModel):
     kill_switch: KillSwitchStatusSchema
     signal_history: list[TradingSignalSchema] = []
     current_price: float | None = None
-    symbol: str = "BTCUSDT"
+    symbol: str = "XAUUSD"
     agent_consensus: AgentConsensus | None = None
     market_status: MarketStatusSchema | None = None
 

@@ -4,24 +4,29 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.config.assets import ASSETS, AssetConfig, get_asset
+from app.config.assets import ACTIVE_SYMBOLS, ASSETS, AssetConfig, get_asset
 from app.config import settings
 from app.feeds.alphavantage import AlphaVantageFeed
 from app.feeds.binance_ws import BinanceWebSocketFeed
+from app.feeds.frankfurter import FrankfurterFeed
 from app.feeds.twelvedata import TwelveDataFeed
 from app.logging_config import logger
 from app.services.pipeline import process_bar
 
+FeedHandle = BinanceWebSocketFeed | TwelveDataFeed | AlphaVantageFeed | FrankfurterFeed
+
 
 class FeedManager:
     def __init__(self) -> None:
-        self._feeds: dict[str, BinanceWebSocketFeed | TwelveDataFeed | AlphaVantageFeed] = {}
+        self._feeds: dict[str, FeedHandle] = {}
 
     def start_all(self) -> None:
-        for symbol in ASSETS:
+        for symbol in ACTIVE_SYMBOLS:
             self.start_feed(symbol)
 
     def start_feed(self, symbol: str) -> bool:
+        if symbol not in ACTIVE_SYMBOLS:
+            return False
         if symbol in self._feeds and self._feeds[symbol].is_running:
             return False
 
@@ -53,12 +58,12 @@ class FeedManager:
 
     async def restart_all(self) -> list[str]:
         restarted: list[str] = []
-        for symbol in ASSETS:
+        for symbol in ACTIVE_SYMBOLS:
             if await self.restart_feed(symbol):
                 restarted.append(symbol)
         return restarted
 
-    def get_feed(self, symbol: str) -> BinanceWebSocketFeed | TwelveDataFeed | AlphaVantageFeed | None:
+    def get_feed(self, symbol: str) -> FeedHandle | None:
         return self._feeds.get(symbol)
 
     def is_running(self, symbol: str) -> bool:
@@ -69,7 +74,7 @@ class FeedManager:
         out: dict[str, dict[str, Any]] = {}
         for symbol, feed in self._feeds.items():
             out[symbol] = feed.status()
-        for symbol in ASSETS:
+        for symbol in ACTIVE_SYMBOLS:
             if symbol not in out:
                 asset = get_asset(symbol)
                 out[symbol] = {
@@ -80,9 +85,7 @@ class FeedManager:
                 }
         return out
 
-    def _create_feed(
-        self, asset: AssetConfig
-    ) -> BinanceWebSocketFeed | TwelveDataFeed | AlphaVantageFeed | None:
+    def _create_feed(self, asset: AssetConfig) -> FeedHandle | None:
         if asset.feed_type == "binance" and asset.binance_ws_url:
             return BinanceWebSocketFeed(
                 ws_url=asset.binance_ws_url,
@@ -90,7 +93,7 @@ class FeedManager:
                 apex_symbol=asset.symbol,
             )
         if asset.feed_type == "twelvedata" and asset.twelvedata_symbol:
-            stagger_map = {"BTCUSDT": 0, "XAUUSD": 20}
+            stagger_map = {"XAUUSD": 0}
             stagger = stagger_map.get(asset.symbol, 0)
             return TwelveDataFeed(
                 api_key=settings.twelvedata_api_key,
@@ -115,6 +118,19 @@ class FeedManager:
                 poll_interval=asset.poll_interval,
                 on_bar=process_bar,
                 stagger_seconds=5,
+            )
+        if (
+            asset.feed_type == "frankfurter"
+            and asset.frankfurter_from_symbol
+            and asset.frankfurter_to_symbol
+        ):
+            return FrankfurterFeed(
+                from_symbol=asset.frankfurter_from_symbol,
+                to_symbol=asset.frankfurter_to_symbol,
+                apex_symbol=asset.symbol,
+                poll_interval=asset.poll_interval,
+                on_bar=process_bar,
+                stagger_seconds=3,
             )
         return None
 

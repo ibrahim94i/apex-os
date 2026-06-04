@@ -19,13 +19,12 @@ def test_multi_asset_config() -> None:
     assert "BTCUSDT" in ASSETS
     assert "XAUUSD" in ASSETS
     assert "EURUSD" in ASSETS
-    assert len(ACTIVE_SYMBOLS) == 3
+    assert len(ACTIVE_SYMBOLS) == 2
+    assert "BTCUSDT" not in ACTIVE_SYMBOLS
     assert ASSETS["XAUUSD"].feed_type == "twelvedata"
-    assert ASSETS["EURUSD"].feed_type == "alphavantage"
-    assert ASSETS["EURUSD"].alphavantage_from_symbol == "EUR"
+    assert ASSETS["EURUSD"].feed_type == "frankfurter"
     assert ASSETS["EURUSD"].market_schedule == "forex_24_5"
     assert ASSETS["BTCUSDT"].feed_type == "twelvedata"
-    assert ASSETS["BTCUSDT"].twelvedata_symbol == "BTC/USD"
 
 
 def test_time_of_day_buckets() -> None:

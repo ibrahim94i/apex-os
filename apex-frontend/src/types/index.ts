@@ -69,6 +69,22 @@ export interface AgentConsensus {
   verdicts: AgentVerdict[];
   vote_scores: Record<string, number>;
   reasoning_summary: string[];
+  signal_decision?: string | null;
+  rejection_reason?: string | null;
+  rejection_reason_ar?: string | null;
+  proposed_direction?: SignalDirection | null;
+  proposed_confidence?: number | null;
+}
+
+export interface PriceBar {
+  symbol: string;
+  timestamp: string;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
+  source: string;
 }
 
 export interface MarketStatus {
