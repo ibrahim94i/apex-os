@@ -153,7 +153,8 @@ class LLMClient:
         for attempt in range(1, max_attempts + 1):
             await _enforce_rate_limit()
             try:
-                async with httpx.AsyncClient(timeout=self.timeout) as client:
+                timeout = httpx.Timeout(self.timeout, connect=5.0)
+                async with httpx.AsyncClient(timeout=timeout) as client:
                     response = await client.post(
                         self.GROQ_CHAT_URL,
                         headers=headers,

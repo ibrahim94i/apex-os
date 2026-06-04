@@ -72,12 +72,17 @@ class CombinedAgentService:
             return self._rule_based_verdicts(snapshot, start), False, str(exc)
 
     def _rule_based_verdicts(
-        self, snapshot: MarketSnapshot, start: float
+        self,
+        snapshot: MarketSnapshot,
+        start: float,
+        *,
+        fallback_error: str | None = None,
     ) -> list[AgentVerdict]:
         latency = (time.monotonic() - start) * 1000
         ma = ma_rule(snapshot)
         risk = risk_rule(snapshot)
         news = news_rule(snapshot)
+        err = fallback_error
         return [
             AgentVerdict(
                 agent_id=AgentRole.MARKET_ANALYST,
@@ -88,6 +93,7 @@ class CombinedAgentService:
                 weight=MA_WEIGHT,
                 latency_ms=round(latency / 3, 2),
                 used_llm=False,
+                error=err,
             ),
             AgentVerdict(
                 agent_id=AgentRole.RISK,
@@ -98,6 +104,7 @@ class CombinedAgentService:
                 weight=RISK_WEIGHT,
                 latency_ms=round(latency / 3, 2),
                 used_llm=False,
+                error=err,
             ),
             AgentVerdict(
                 agent_id=AgentRole.NEWS,
@@ -108,6 +115,7 @@ class CombinedAgentService:
                 weight=NEWS_WEIGHT,
                 latency_ms=round(latency / 3, 2),
                 used_llm=False,
+                error=err,
             ),
         ]
 

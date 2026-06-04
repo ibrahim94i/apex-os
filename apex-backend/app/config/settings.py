@@ -64,7 +64,7 @@ class Settings(BaseSettings):
     cors_origins: str = ""
     groq_api_key: str = ""
     groq_model: str = "llama-3.1-8b-instant"
-    agent_timeout_seconds: int = 10
+    agent_timeout_seconds: int = 30
     agent_max_retries: int = 2
     agent_circuit_breaker_threshold: int = 3
     agent_data_max_age_seconds: int = 300

@@ -54,8 +54,11 @@ class TeamDiscussionService:
             verdicts = self._build_verdicts_from_round1(output.round1_initial, latency, now)
             return verdicts, True, None, output, response.provider
         except LLMClientError as exc:
-            verdicts = self._fallback._rule_based_verdicts(snapshot, start)
-            return verdicts, False, str(exc), None, None
+            msg = str(exc)
+            verdicts = self._fallback._rule_based_verdicts(
+                snapshot, start, fallback_error=msg
+            )
+            return verdicts, False, msg, None, None
 
     def _build_verdicts_from_round1(
         self,

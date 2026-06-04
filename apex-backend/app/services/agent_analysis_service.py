@@ -124,7 +124,7 @@ async def run_agent_analysis(symbol: str, *, force: bool = False) -> AgentConsen
         if existing:
             try:
                 cached = AgentConsensus(**existing)
-                if cached.verdicts:
+                if cached.verdicts and cached.is_groq_powered():
                     return cached
             except Exception:
                 pass
@@ -156,6 +156,13 @@ async def run_agent_analysis(symbol: str, *, force: bool = False) -> AgentConsen
                     if not consensus.verdicts:
                         logger.warning("agent_analysis_empty_verdicts", symbol=symbol)
                         return None
+                    if not consensus.is_groq_powered():
+                        logger.warning(
+                            "agent_analysis_groq_fallback",
+                            symbol=symbol,
+                            error=consensus.verdicts[0].error,
+                        )
+                        return consensus
                     consensus = consensus.model_copy(
                         update={
                             "signal_decision": consensus.signal_decision or "none",
@@ -199,7 +206,8 @@ async def ensure_agent_consensus_for_active_symbols(*, force: bool = False) -> N
         existing = await get_agent_consensus(sym)
         if existing:
             try:
-                if AgentConsensus(**existing).verdicts:
+                cached = AgentConsensus(**existing)
+                if cached.verdicts and cached.is_groq_powered():
                     continue
             except Exception:
                 pass

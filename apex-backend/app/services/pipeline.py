@@ -231,7 +231,7 @@ async def process_bar(raw_bar: dict[str, Any], *, skip_agents: bool = False) -> 
                         signal_decision = "wait"
                         rejection_reason = "selectivity_wait"
 
-            if agent_consensus:
+            if agent_consensus and agent_consensus.is_groq_powered():
                 agent_consensus = agent_consensus.model_copy(
                     update={
                         "signal_decision": signal_decision,

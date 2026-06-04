@@ -24,6 +24,7 @@ def _sample_consensus() -> AgentConsensus:
                 confidence=0.7,
                 reasoning=["اختبار"],
                 weight=0.35,
+                used_llm=True,
             )
         ],
         vote_scores={"market_analyst": -0.2},
@@ -237,3 +238,20 @@ async def test_run_agent_analysis_publishes_consensus() -> None:
     mock_set.assert_awaited_once()
     mock_broadcast.assert_awaited_once()
     mock_session.commit.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_run_agent_analysis_does_not_cache_rule_based_fallback() -> None:
+    rule_consensus = _sample_consensus().model_copy(
+        update={
+            "verdicts": [
+                _sample_consensus().verdicts[0].model_copy(
+                    update={"used_llm": False, "error": "timeout"}
+                )
+            ]
+        }
+    )
+    assert not rule_consensus.is_groq_powered()
+
+    llm_consensus = _sample_consensus()
+    assert llm_consensus.is_groq_powered()

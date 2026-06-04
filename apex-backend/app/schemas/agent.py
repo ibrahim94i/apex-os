@@ -106,3 +106,8 @@ class AgentConsensus(BaseModel):
     rejection_reason_ar: str | None = None
     proposed_direction: SignalDirection | None = None
     proposed_confidence: float | None = None
+    llm_provider: str | None = None
+
+    def is_groq_powered(self) -> bool:
+        """True when all verdicts used Groq (not rule-based fallback)."""
+        return bool(self.verdicts) and all(v.used_llm for v in self.verdicts)
