@@ -262,6 +262,9 @@ async def bootstrap_asset(symbol: str, limit: int = 250) -> bool:
         await process_bar(last_bar, skip_agents=True)
         await _mark_feed_warmed(symbol, last_bar)
         logger.info("history_bootstrap_complete", symbol=symbol, bars=len(bars))
+        from app.services.agent_analysis_service import run_agent_analysis
+
+        asyncio.create_task(run_agent_analysis(symbol), name=f"agent_bootstrap_{symbol}")
         return True
     except Exception as exc:
         logger.error("history_bootstrap_failed", symbol=symbol, error=str(exc))
@@ -296,8 +299,8 @@ async def bootstrap_all_assets(limit: int = 250) -> None:
                 continue
             from app.services.market_data_store import fetch_bars_from_db
 
-            db_bars = await fetch_bars_from_db(symbol, min(limit, 50))
-            if db_bars:
+            db_bars = await fetch_bars_from_db(symbol, limit)
+            if len(db_bars) >= 200:
                 from app.services.pipeline import process_bar, seed_bars_to_buffer
 
                 seed_bars_to_buffer(db_bars)
@@ -305,7 +308,17 @@ async def bootstrap_all_assets(limit: int = 250) -> None:
                 await process_bar(last_bar, skip_agents=True)
                 await _mark_feed_warmed(symbol, last_bar)
                 logger.info("history_bootstrap_db_retry_success", symbol=symbol, bars=len(db_bars))
+                from app.services.agent_analysis_service import run_agent_analysis
+
+                asyncio.create_task(run_agent_analysis(symbol), name=f"agent_bootstrap_{symbol}")
                 continue
+            if db_bars:
+                logger.warning(
+                    "history_bootstrap_db_insufficient_bars",
+                    symbol=symbol,
+                    bars=len(db_bars),
+                    required=200,
+                )
             still_failed.append(symbol)
             if asset.feed_type == "twelvedata":
                 await asyncio.sleep(15)

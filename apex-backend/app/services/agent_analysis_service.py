@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
+from typing import Any
+
 from app.agents.orchestrator import agent_orchestrator
 from app.core.cache import (
     get_agent_consensus,
@@ -9,8 +12,12 @@ from app.core.cache import (
     get_latest_price,
     get_latest_regime,
     set_agent_consensus,
+    set_latest_indicators,
+    set_latest_regime,
 )
 from app.database import AsyncSessionLocal
+from app.engines.indicator_engine import IndicatorEngine
+from app.engines.signal_generator import SignalGenerator
 from app.engines.kill_switch import kill_switch
 from app.logging_config import logger
 from app.schemas import (
@@ -19,9 +26,77 @@ from app.schemas import (
     RegimeSnapshotSchema,
 )
 from app.services.market_hours import is_market_open
+from app.services.market_data_store import (
+    fetch_bars_from_db,
+    get_latest_price_from_db,
+    get_latest_regime_from_db,
+)
 from app.services.market_snapshot import build_market_snapshot
+from app.services.pipeline import seed_bars_to_buffer
 from app.services.signal_rejection_i18n import rejection_reason_ar
 from app.websocket.manager import broadcaster
+
+_signal_generator = SignalGenerator()
+_MIN_INDICATOR_BARS = IndicatorEngine().min_bars
+_DB_BAR_LIMIT = 250
+
+
+async def _recompute_market_metrics(symbol: str) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+    """Rebuild indicators/regime from DB OHLCV when Redis cache is empty."""
+    bars = await fetch_bars_from_db(symbol, _DB_BAR_LIMIT)
+    if len(bars) < _MIN_INDICATOR_BARS:
+        logger.warning(
+            "agent_analysis_insufficient_bars",
+            symbol=symbol,
+            bars=len(bars),
+            required=_MIN_INDICATOR_BARS,
+        )
+        return None, None
+
+    seed_bars_to_buffer(bars)
+    from app.services.pipeline import _bar_buffer
+
+    buffer = _bar_buffer.get(symbol, [])
+    indicators, regime = _signal_generator.analyze(buffer, symbol)
+    if not indicators or not regime:
+        return None, None
+
+    ind_data = indicators.model_dump(mode="json")
+    reg_data = regime.model_dump(mode="json")
+    await set_latest_indicators(symbol, ind_data)
+    await set_latest_regime(symbol, reg_data)
+    return ind_data, reg_data
+
+
+async def _load_market_context(
+    symbol: str,
+) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]] | None:
+    price_data = await get_latest_price(symbol)
+    if not price_data:
+        price_data = await get_latest_price_from_db(symbol)
+
+    regime_data = await get_latest_regime(symbol)
+    if not regime_data:
+        regime_data = await get_latest_regime_from_db(symbol)
+
+    ind_data = await get_latest_indicators(symbol)
+    if not ind_data:
+        recomputed_ind, recomputed_reg = await _recompute_market_metrics(symbol)
+        ind_data = recomputed_ind
+        if not regime_data:
+            regime_data = recomputed_reg
+
+    if not price_data or not ind_data or not regime_data:
+        logger.warning(
+            "agent_analysis_missing_context",
+            symbol=symbol,
+            has_price=bool(price_data),
+            has_indicators=bool(ind_data),
+            has_regime=bool(regime_data),
+        )
+        return None
+
+    return price_data, ind_data, regime_data
 
 
 async def run_agent_analysis(symbol: str, *, force: bool = False) -> AgentConsensus | None:
@@ -37,13 +112,11 @@ async def run_agent_analysis(symbol: str, *, force: bool = False) -> AgentConsen
             except Exception:
                 pass
 
-    price_data = await get_latest_price(symbol)
-    ind_data = await get_latest_indicators(symbol)
-    regime_data = await get_latest_regime(symbol)
-    if not price_data or not ind_data or not regime_data:
-        logger.debug("agent_analysis_skipped_missing_data", symbol=symbol)
+    context = await _load_market_context(symbol)
+    if not context:
         return None
 
+    price_data, ind_data, regime_data = context
     indicators = IndicatorSnapshotSchema(**ind_data)
     regime = RegimeSnapshotSchema(**regime_data)
 
@@ -89,9 +162,25 @@ async def run_agent_analysis(symbol: str, *, force: bool = False) -> AgentConsen
 async def ensure_agent_consensus_for_active_symbols(*, force: bool = False) -> None:
     from app.config.assets import ACTIVE_SYMBOLS
 
-    for symbol in ACTIVE_SYMBOLS:
-        if not is_market_open(symbol):
-            continue
-        if not force and await get_agent_consensus(symbol):
-            continue
-        await run_agent_analysis(symbol, force=force)
+    symbols = [sym for sym in ACTIVE_SYMBOLS if is_market_open(sym)]
+    if not symbols:
+        return
+
+    if force:
+        await asyncio.gather(
+            *(run_agent_analysis(sym, force=True) for sym in symbols),
+            return_exceptions=True,
+        )
+        return
+
+    missing = []
+    for sym in symbols:
+        if not await get_agent_consensus(sym):
+            missing.append(sym)
+    if not missing:
+        return
+
+    await asyncio.gather(
+        *(run_agent_analysis(sym) for sym in missing),
+        return_exceptions=True,
+    )

@@ -6,7 +6,8 @@ import pytest
 
 from app.schemas import SignalDirection
 from app.schemas.agent import AgentConsensus, AgentRole, AgentVerdict
-from app.services.agent_analysis_service import run_agent_analysis
+from app.schemas import IndicatorSnapshotSchema, RegimeSnapshotSchema
+from app.services.agent_analysis_service import run_agent_analysis, _load_market_context
 
 
 def _sample_consensus() -> AgentConsensus:
@@ -52,12 +53,96 @@ async def test_run_agent_analysis_skips_without_warm_data() -> None:
             return_value=None,
         ):
             with patch(
-                "app.services.agent_analysis_service.get_latest_price",
+                "app.services.agent_analysis_service._load_market_context",
                 new_callable=AsyncMock,
                 return_value=None,
             ):
-                result = await run_agent_analysis("XAUUSD")
+                result = await run_agent_analysis("EURUSD")
     assert result is None
+
+
+@pytest.mark.asyncio
+async def test_load_market_context_recomputes_indicators_from_db() -> None:
+    from app.services.agent_analysis_service import _load_market_context
+
+    bars = [
+        {
+            "symbol": "EURUSD",
+            "timestamp": f"2026-01-{(i // 24) + 1:02d}T{i % 24:02d}:00:00+00:00",
+            "open": 1.1,
+            "high": 1.11,
+            "low": 1.09,
+            "close": 1.1,
+            "volume": 0.0,
+            "source": "twelvedata",
+            "is_closed": True,
+        }
+        for i in range(250)
+    ]
+    ind = {
+        "symbol": "EURUSD",
+        "timestamp": "2026-02-01T00:00:00+00:00",
+        "rsi": 50.0,
+        "macd": 0.0,
+        "macd_signal": 0.0,
+        "macd_histogram": 0.0,
+        "ema_9": 1.1,
+        "ema_21": 1.1,
+        "ema_50": 1.1,
+        "ema_200": 1.1,
+        "atr": 0.001,
+        "atr_avg_20": 0.001,
+        "bb_upper": 1.11,
+        "bb_middle": 1.1,
+        "bb_lower": 1.09,
+        "adx": 25.0,
+    }
+    reg = {
+        "symbol": "EURUSD",
+        "timestamp": "2026-02-01T00:00:00+00:00",
+        "regime": "TRENDING_DOWN",
+        "confidence": 0.6,
+        "adx_value": 25.0,
+        "volatility_pct": 0.05,
+        "trend_strength": -0.2,
+    }
+
+    with patch(
+        "app.services.agent_analysis_service.get_latest_price",
+        new_callable=AsyncMock,
+        return_value={"price": 1.1608, "timestamp": "2026-02-01T00:00:00+00:00"},
+    ):
+        with patch(
+            "app.services.agent_analysis_service.get_latest_regime",
+            new_callable=AsyncMock,
+            return_value=reg,
+        ):
+            with patch(
+                "app.services.agent_analysis_service.get_latest_indicators",
+                new_callable=AsyncMock,
+                return_value=None,
+            ):
+                with patch(
+                    "app.services.agent_analysis_service.fetch_bars_from_db",
+                    new_callable=AsyncMock,
+                    return_value=bars,
+                ):
+                    with patch(
+                        "app.services.agent_analysis_service._signal_generator.analyze",
+                        return_value=(IndicatorSnapshotSchema(**ind), RegimeSnapshotSchema(**reg)),
+                    ):
+                        with patch(
+                            "app.services.agent_analysis_service.set_latest_indicators",
+                            new_callable=AsyncMock,
+                        ):
+                            with patch(
+                                "app.services.agent_analysis_service.set_latest_regime",
+                                new_callable=AsyncMock,
+                            ):
+                                ctx = await _load_market_context("EURUSD")
+
+    assert ctx is not None
+    assert ctx[1]["symbol"] == "EURUSD"
 
 
 @pytest.mark.asyncio
@@ -103,23 +188,13 @@ async def test_run_agent_analysis_publishes_consensus() -> None:
             return_value=None,
         ):
             with patch(
-                "app.services.agent_analysis_service.get_latest_price",
+                "app.services.agent_analysis_service._load_market_context",
                 new_callable=AsyncMock,
-                return_value=price,
+                return_value=(price, indicators, regime),
             ):
                 with patch(
-                    "app.services.agent_analysis_service.get_latest_indicators",
-                    new_callable=AsyncMock,
-                    return_value=indicators,
-                ):
-                    with patch(
-                        "app.services.agent_analysis_service.get_latest_regime",
-                        new_callable=AsyncMock,
-                        return_value=regime,
-                    ):
-                        with patch(
-                            "app.services.agent_analysis_service.AsyncSessionLocal"
-                        ) as mock_local:
+                    "app.services.agent_analysis_service.AsyncSessionLocal"
+                ) as mock_local:
                             mock_local.return_value.__aenter__ = AsyncMock(return_value=mock_session)
                             mock_local.return_value.__aexit__ = AsyncMock(return_value=False)
                             with patch(
