@@ -197,12 +197,21 @@ class TwelveDataFeed:
                     self._last_success_at = datetime.now(timezone.utc)
                     self._error_count = 0
                     error_backoff = 5
+                    bar_ts = bar["timestamp"]
+                    if isinstance(bar_ts, str):
+                        bar_dt = datetime.fromisoformat(bar_ts.replace("Z", "+00:00"))
+                    else:
+                        bar_dt = bar_ts
+                    if bar_dt.tzinfo is None:
+                        bar_dt = bar_dt.replace(tzinfo=timezone.utc)
+                    bar_age = int((datetime.now(timezone.utc) - bar_dt).total_seconds())
                     await set_latest_price(bar["symbol"], bar["close"], bar["timestamp"])
                     await set_feed_last_update(bar["symbol"], bar["timestamp"])
                     await set_feed_status(
                         self.apex_symbol,
                         FeedConnectionState.CONNECTED,
-                        last_update=self._last_success_at,
+                        last_update=bar_dt,
+                        age_seconds=bar_age,
                     )
                     if self.on_bar:
                         await self.on_bar(bar)
@@ -275,9 +284,22 @@ class TwelveDataFeed:
             if not bar:
                 return False
             self._last_success_at = datetime.now(timezone.utc)
+            bar_ts = bar["timestamp"]
+            if isinstance(bar_ts, str):
+                bar_dt = datetime.fromisoformat(bar_ts.replace("Z", "+00:00"))
+            else:
+                bar_dt = bar_ts
+            if bar_dt.tzinfo is None:
+                bar_dt = bar_dt.replace(tzinfo=timezone.utc)
+            bar_age = int((datetime.now(timezone.utc) - bar_dt).total_seconds())
             await set_latest_price(bar["symbol"], bar["close"], bar["timestamp"])
             await set_feed_last_update(bar["symbol"], bar["timestamp"])
-            await set_feed_status(self.apex_symbol, FeedConnectionState.CONNECTED)
+            await set_feed_status(
+                self.apex_symbol,
+                FeedConnectionState.CONNECTED,
+                last_update=bar_dt,
+                age_seconds=bar_age,
+            )
             if self.on_bar:
                 await self.on_bar(bar)
             return True

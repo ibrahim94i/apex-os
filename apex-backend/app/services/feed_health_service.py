@@ -65,6 +65,21 @@ def _tracker(symbol: str) -> _RecoveryTracker:
     return _recovery_trackers[symbol]
 
 
+async def _feed_data_age_seconds(symbol: str) -> int | None:
+    last_raw = await get_feed_last_update(symbol)
+    if not last_raw or not last_raw.get("timestamp"):
+        return None
+    last_dt = _parse_ts(last_raw["timestamp"])
+    return int((datetime.now(timezone.utc) - last_dt).total_seconds())
+
+
+async def _is_feed_data_fresh(symbol: str) -> bool:
+    age = await _feed_data_age_seconds(symbol)
+    if age is None:
+        return False
+    return age <= settings.feed_staleness_limit_seconds
+
+
 async def check_feed_health(symbol: str) -> FeedHealthStatus:
     asset = get_asset(symbol)
     feed_type = asset.feed_type if asset else "unknown"
@@ -86,7 +101,9 @@ async def check_feed_health(symbol: str) -> FeedHealthStatus:
     if last_raw and last_raw.get("timestamp"):
         last_dt = _parse_ts(last_raw["timestamp"])
         age = int((datetime.now(timezone.utc) - last_dt).total_seconds())
-        if open_now and age > settings.feed_disconnect_threshold_seconds:
+        if open_now and age > settings.feed_staleness_limit_seconds:
+            stale = True
+        elif open_now and age > settings.feed_disconnect_threshold_seconds:
             stale = True
     elif open_now and not in_startup_grace and not has_warm_data:
         stale = True
@@ -151,20 +168,47 @@ async def recover_feed(symbol: str, reason: str) -> bool:
 
         from app.feeds.history_bootstrap import bootstrap_asset
 
-        existing_regime = await get_latest_regime(symbol)
-        if existing_regime:
+        if await _is_feed_data_fresh(symbol):
             ok = True
-            logger.info("feed_recovery_skip_bootstrap", symbol=symbol, reason="warm_data_present")
+            logger.info("feed_recovery_fresh_after_restart", symbol=symbol)
         else:
+            logger.warning(
+                "feed_recovery_stale_after_restart",
+                symbol=symbol,
+                age_seconds=await _feed_data_age_seconds(symbol),
+            )
             ok = await bootstrap_asset(symbol)
+
+        if ok and not await _is_feed_data_fresh(symbol):
+            price_data = await get_latest_price(symbol)
+            ok = price_data is not None
+            if ok:
+                logger.info(
+                    "feed_recovery_accepted_db_warm",
+                    symbol=symbol,
+                    age_seconds=await _feed_data_age_seconds(symbol),
+                )
+
         if ok:
             tracker.consecutive_failures = 0
             tracker.cooldown_until = None
-            await set_feed_status(symbol, FeedConnectionState.CONNECTED, consecutive_failures=0)
+            last_raw = await get_feed_last_update(symbol)
+            last_dt = (
+                _parse_ts(last_raw["timestamp"])
+                if last_raw and last_raw.get("timestamp")
+                else datetime.now(timezone.utc)
+            )
+            await set_feed_status(
+                symbol,
+                FeedConnectionState.CONNECTED,
+                last_update=last_dt,
+                age_seconds=await _feed_data_age_seconds(symbol),
+                consecutive_failures=0,
+            )
             logger.info("feed_recovery_complete", symbol=symbol)
             return True
 
-        raise RuntimeError("bootstrap_failed")
+        raise RuntimeError("feed_still_stale_after_recovery")
 
     except Exception as exc:
         tracker.consecutive_failures += 1
@@ -206,7 +250,16 @@ async def run_recovery_cycle(*, force: bool = False) -> FeedHealthReport:
             reason = "feed_task_not_running"
         elif status.stale and status.market_open and not status.in_cooldown:
             needs_recovery = True
-            reason = "disconnected_over_60s"
+            reason = "data_stale"
+        elif (
+            status.feed_running
+            and status.market_open
+            and not status.in_cooldown
+            and status.age_seconds is not None
+            and status.age_seconds > settings.feed_staleness_limit_seconds
+        ):
+            needs_recovery = True
+            reason = "data_stale_over_limit"
         elif force and status.market_open and not status.in_cooldown:
             regime = await get_latest_regime(symbol)
             if status.stale or regime is None:

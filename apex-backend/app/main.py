@@ -30,6 +30,9 @@ async def _startup_warmup() -> None:
         await bootstrap_all_assets()
         await refresh_dashboard_cache()
         feed_manager.start_all()
+        from app.services.feed_health_service import run_recovery_cycle
+
+        await run_recovery_cycle(force=True)
         await publish_hourly_report()
 
         if telegram_notifier.enabled:
