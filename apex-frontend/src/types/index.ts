@@ -261,11 +261,35 @@ export interface JournalEntryCreate {
   notes?: string | null;
 }
 
+export type FollowUpAction = "entered" | "lost" | "ignored";
+
 export interface JournalEntry extends JournalEntryCreate {
   id: number;
+  follow_up_status: "pending" | "entered" | "lost" | "ignored";
+  signal_confidence?: number | null;
   pnl: number;
   pnl_pct: number;
   closed_at: string;
+  created_at?: string;
+}
+
+export interface JournalFollowUp {
+  action: FollowUpAction;
+  exit_price?: number;
+  result?: "win" | "loss";
+}
+
+export interface JournalSignalReport {
+  total_signals: number;
+  entered_count: number;
+  ignored_count: number;
+  lost_count: number;
+  pending_count: number;
+  win_rate: number;
+  total_profit: number;
+  total_loss: number;
+  net_pnl: number;
+  generated_at: string;
 }
 
 export interface JournalAnalysis {
@@ -281,6 +305,7 @@ export interface JournalAnalysis {
   worse_emotion_ar: string;
   recommendation_ar: string;
   generated_at: string;
+  signal_report?: JournalSignalReport | null;
 }
 
 export interface PositionManagerStatus {

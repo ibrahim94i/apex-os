@@ -950,11 +950,88 @@ body {
 
 .journal-row {
   display: grid;
-  grid-template-columns: 1.2fr 0.8fr 0.6fr 0.6fr 1fr 0.8fr 0.8fr;
+  grid-template-columns: 1.2fr 0.8fr 0.6fr 0.7fr 0.6fr 0.8fr;
   gap: 0.5rem;
   padding: 0.4rem 0;
   border-bottom: 1px solid var(--border);
   font-size: 0.8rem;
+}
+
+.signal-report-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.75rem;
+}
+
+.pending-signals-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.pending-signal-card {
+  padding: 0.75rem;
+  background: var(--bg-tertiary);
+  border-radius: 6px;
+  border: 1px solid var(--border);
+}
+
+.pending-signal-header {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: center;
+  margin-bottom: 0.5rem;
+  font-size: 0.85rem;
+}
+
+.follow-up-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.follow-btn {
+  padding: 0.4rem 0.75rem;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  cursor: pointer;
+  font-size: 0.8rem;
+}
+
+.follow-btn:hover {
+  border-color: var(--gold);
+}
+
+.follow-up-form {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.follow-up-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.75rem;
+}
+
+.follow-up-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  gap: 0.5rem;
+}
+
+.journal-manual-details summary {
+  cursor: pointer;
+  list-style: none;
+}
+
+.journal-manual-details summary::-webkit-details-marker {
+  display: none;
 }
 
 .journal-header {

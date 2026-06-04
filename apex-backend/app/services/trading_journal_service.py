@@ -1,4 +1,4 @@
-"""Trading journal — manual entries and periodic analysis."""
+"""Trading journal — Telegram signals, follow-up, and analysis."""
 
 from __future__ import annotations
 
@@ -7,8 +7,16 @@ from datetime import datetime, timezone
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.journal import JournalEntry
-from app.schemas.journal import JournalAnalysisSchema, JournalEntryCreateSchema, JournalEntrySchema
+from app.logging_config import logger
+from app.models.journal import FollowUpStatus, JournalEntry
+from app.schemas import TradingSignalSchema
+from app.schemas.journal import (
+    JournalAnalysisSchema,
+    JournalEntryCreateSchema,
+    JournalEntrySchema,
+    JournalFollowUpSchema,
+    JournalSignalReportSchema,
+)
 from app.services.memory_engine import time_of_day
 
 TIME_AR = {
@@ -20,6 +28,13 @@ TIME_AR = {
 
 SOURCE_AR = {"system_signal": "إشارات النظام", "personal": "قراراتك الشخصية"}
 EMOTION_AR = {"confident": "الثقة", "hesitant": "التردد", "fearful": "الخوف"}
+
+FOLLOW_UP_AR = {
+    FollowUpStatus.PENDING.value: "بانتظار ردك",
+    FollowUpStatus.ENTERED.value: "دخلت",
+    FollowUpStatus.LOST.value: "خسرت",
+    FollowUpStatus.IGNORED.value: "تجاهلت",
+}
 
 
 def calc_pnl(direction: str, entry: float, exit_: float) -> tuple[float, float]:
@@ -33,6 +48,82 @@ def calc_pnl(direction: str, entry: float, exit_: float) -> tuple[float, float]:
 
 class TradingJournalService:
     ANALYSIS_EVERY = 5
+
+    async def record_telegram_signal(
+        self,
+        session: AsyncSession,
+        signal: TradingSignalSchema,
+    ) -> JournalEntrySchema:
+        """Auto-log journal row when a signal is sent on Telegram."""
+        entry = JournalEntry(
+            symbol=signal.symbol,
+            direction=signal.direction.value,
+            entry_price=signal.entry_price,
+            exit_price=signal.entry_price,
+            stop_loss=signal.stop_loss,
+            take_profit=signal.take_profit,
+            source="system_signal",
+            emotion="hesitant",
+            result="pending",
+            follow_up_status=FollowUpStatus.PENDING.value,
+            signal_confidence=signal.confidence,
+            notes=f"إشارة Telegram — ثقة {signal.confidence * 100:.1f}%",
+            pnl=0.0,
+            pnl_pct=0.0,
+            closed_at=signal.timestamp,
+        )
+        session.add(entry)
+        await session.commit()
+        await session.refresh(entry)
+        logger.info(
+            "journal_signal_recorded",
+            symbol=signal.symbol,
+            direction=signal.direction.value,
+            journal_id=entry.id,
+        )
+        return self._to_schema(entry)
+
+    async def apply_follow_up(
+        self,
+        session: AsyncSession,
+        entry_id: int,
+        data: JournalFollowUpSchema,
+    ) -> JournalEntrySchema:
+        result = await session.execute(
+            select(JournalEntry).where(JournalEntry.id == entry_id)
+        )
+        entry = result.scalar_one_or_none()
+        if entry is None:
+            raise ValueError("journal_entry_not_found")
+        if entry.follow_up_status != FollowUpStatus.PENDING.value:
+            raise ValueError("journal_entry_already_resolved")
+
+        if data.action == "ignored":
+            entry.follow_up_status = FollowUpStatus.IGNORED.value
+            entry.result = "neutral"
+            entry.exit_price = entry.entry_price
+            entry.pnl = 0.0
+            entry.pnl_pct = 0.0
+            entry.notes = (entry.notes or "") + " | تجاهل الإشارة"
+        elif data.action == "lost":
+            assert data.exit_price is not None
+            entry.follow_up_status = FollowUpStatus.LOST.value
+            entry.result = "loss"
+            entry.exit_price = data.exit_price
+            entry.pnl, entry.pnl_pct = calc_pnl(entry.direction, entry.entry_price, entry.exit_price)
+            entry.notes = (entry.notes or "") + " | خسارة — سعر الإغلاق"
+        else:
+            assert data.exit_price is not None and data.result is not None
+            entry.follow_up_status = FollowUpStatus.ENTERED.value
+            entry.result = data.result
+            entry.exit_price = data.exit_price
+            entry.pnl, entry.pnl_pct = calc_pnl(entry.direction, entry.entry_price, entry.exit_price)
+            entry.notes = (entry.notes or "") + f" | دخلت — {data.result}"
+
+        entry.closed_at = datetime.now(timezone.utc)
+        await session.commit()
+        await session.refresh(entry)
+        return self._to_schema(entry)
 
     async def create_entry(
         self, session: AsyncSession, data: JournalEntryCreateSchema
@@ -48,6 +139,7 @@ class TradingJournalService:
             source=data.source,
             emotion=data.emotion,
             result=data.result,
+            follow_up_status=FollowUpStatus.ENTERED.value,
             notes=data.notes,
             pnl=pnl,
             pnl_pct=pnl_pct,
@@ -64,26 +156,94 @@ class TradingJournalService:
         self, session: AsyncSession, limit: int = 50
     ) -> list[JournalEntrySchema]:
         result = await session.execute(
-            select(JournalEntry).order_by(JournalEntry.closed_at.desc()).limit(limit)
+            select(JournalEntry).order_by(JournalEntry.created_at.desc()).limit(limit)
         )
         return [self._to_schema(e) for e in result.scalars().all()]
+
+    async def get_signal_report(self, session: AsyncSession) -> JournalSignalReportSchema:
+        result = await session.execute(
+            select(JournalEntry).where(JournalEntry.source == "system_signal")
+        )
+        signals = list(result.scalars().all())
+        entered = [e for e in signals if e.follow_up_status == FollowUpStatus.ENTERED.value]
+        ignored = [e for e in signals if e.follow_up_status == FollowUpStatus.IGNORED.value]
+        lost = [e for e in signals if e.follow_up_status == FollowUpStatus.LOST.value]
+        pending = [e for e in signals if e.follow_up_status == FollowUpStatus.PENDING.value]
+
+        resolved = entered + lost
+        wins = sum(1 for e in resolved if e.result == "win")
+        win_rate = wins / len(resolved) if resolved else 0.0
+
+        total_profit = sum(e.pnl for e in resolved if e.pnl > 0)
+        total_loss = sum(abs(e.pnl) for e in resolved if e.pnl < 0)
+        net_pnl = sum(e.pnl for e in resolved)
+
+        return JournalSignalReportSchema(
+            total_signals=len(signals),
+            entered_count=len(entered),
+            ignored_count=len(ignored),
+            lost_count=len(lost),
+            pending_count=len(pending),
+            win_rate=round(win_rate, 4),
+            total_profit=round(total_profit, 4),
+            total_loss=round(total_loss, 4),
+            net_pnl=round(net_pnl, 4),
+            generated_at=datetime.now(timezone.utc),
+        )
 
     async def get_latest_analysis(
         self, session: AsyncSession
     ) -> JournalAnalysisSchema | None:
         count = await self._count_entries(session)
-        if count < self.ANALYSIS_EVERY:
+        signal_report = await self.get_signal_report(session)
+        if count < self.ANALYSIS_EVERY and signal_report.total_signals == 0:
+            if signal_report.total_signals > 0:
+                return JournalAnalysisSchema(
+                    total_trades=0,
+                    win_rate=0.0,
+                    best_time_of_day="morning",
+                    best_time_of_day_ar="صباحاً",
+                    system_losses=0,
+                    personal_losses=0,
+                    worse_source_ar="—",
+                    fearful_losses=0,
+                    confident_losses=0,
+                    worse_emotion_ar="—",
+                    recommendation_ar="سجّل متابعتك للإشارات باستخدام الأزرار أعلاه.",
+                    generated_at=datetime.now(timezone.utc),
+                    signal_report=signal_report,
+                )
             return None
-        if count % self.ANALYSIS_EVERY != 0:
-            return await self._build_analysis(session, count)
-        return await self._build_analysis(session, count)
+        if count % self.ANALYSIS_EVERY != 0 and count < self.ANALYSIS_EVERY:
+            base = await self._build_analysis(session, count)
+            return base.model_copy(update={"signal_report": signal_report})
+        base = await self._build_analysis(session, max(count, 1))
+        return base.model_copy(update={"signal_report": signal_report})
 
     async def _maybe_analyze(
         self, session: AsyncSession
     ) -> JournalAnalysisSchema | None:
         count = await self._count_entries(session)
+        signal_report = await self.get_signal_report(session)
         if count >= self.ANALYSIS_EVERY and count % self.ANALYSIS_EVERY == 0:
-            return await self._build_analysis(session, count)
+            base = await self._build_analysis(session, count)
+            return base.model_copy(update={"signal_report": signal_report})
+        if signal_report.total_signals > 0:
+            return JournalAnalysisSchema(
+                total_trades=count,
+                win_rate=signal_report.win_rate,
+                best_time_of_day="morning",
+                best_time_of_day_ar="صباحاً",
+                system_losses=signal_report.lost_count,
+                personal_losses=0,
+                worse_source_ar="—",
+                fearful_losses=0,
+                confident_losses=0,
+                worse_emotion_ar="—",
+                recommendation_ar="راجع تقرير الإشارات أعلاه.",
+                generated_at=datetime.now(timezone.utc),
+                signal_report=signal_report,
+            )
         return None
 
     async def _count_entries(self, session: AsyncSession) -> int:
@@ -94,7 +254,10 @@ class TradingJournalService:
         self, session: AsyncSession, total: int
     ) -> JournalAnalysisSchema:
         result = await session.execute(
-            select(JournalEntry).order_by(JournalEntry.closed_at.desc()).limit(total)
+            select(JournalEntry)
+            .where(JournalEntry.follow_up_status != FollowUpStatus.PENDING.value)
+            .order_by(JournalEntry.closed_at.desc())
+            .limit(total)
         )
         entries = list(result.scalars().all())
         wins = sum(1 for e in entries if e.result == "win")
@@ -164,6 +327,7 @@ class TradingJournalService:
             worse_emotion_ar=worse_emotion,
             recommendation_ar=recommendation,
             generated_at=datetime.now(timezone.utc),
+            signal_report=None,
         )
 
     def _to_schema(self, entry: JournalEntry) -> JournalEntrySchema:
@@ -178,10 +342,13 @@ class TradingJournalService:
             source=entry.source,
             emotion=entry.emotion,
             result=entry.result,
+            follow_up_status=entry.follow_up_status,
+            signal_confidence=entry.signal_confidence,
             notes=entry.notes,
             pnl=entry.pnl,
             pnl_pct=entry.pnl_pct,
             closed_at=entry.closed_at,
+            created_at=entry.created_at,
         )
 
 

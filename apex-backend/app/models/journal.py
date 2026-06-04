@@ -24,6 +24,14 @@ class JournalResult(str, PyEnum):
     WIN = "win"
     LOSS = "loss"
     NEUTRAL = "neutral"
+    PENDING = "pending"
+
+
+class FollowUpStatus(str, PyEnum):
+    PENDING = "pending"
+    ENTERED = "entered"
+    LOST = "lost"
+    IGNORED = "ignored"
 
 
 class JournalEntry(Base):
@@ -39,6 +47,10 @@ class JournalEntry(Base):
     source: Mapped[str] = mapped_column(String(16), nullable=False)
     emotion: Mapped[str] = mapped_column(String(16), nullable=False)
     result: Mapped[str] = mapped_column(String(16), nullable=False, index=True)
+    follow_up_status: Mapped[str] = mapped_column(
+        String(16), nullable=False, default=FollowUpStatus.ENTERED.value, index=True
+    )
+    signal_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     pnl: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     pnl_pct: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)

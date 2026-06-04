@@ -13,6 +13,8 @@ import type {
   JournalAnalysis,
   JournalEntry,
   JournalEntryCreate,
+  JournalFollowUp,
+  JournalSignalReport,
   MultiAssetDashboard,
   PositionManagerStatus,
   PerformanceSummary,
@@ -125,6 +127,28 @@ export async function createJournalEntry(
     body: JSON.stringify(data),
   });
   if (!res.ok) throw new Error("فشل تسجيل الصفقة");
+  return res.json();
+}
+
+export async function fetchJournalSignalReport(): Promise<JournalSignalReport> {
+  const res = await fetch(`${API_URL}/api/v1/journal/signal-report`, { cache: "no-store" });
+  if (!res.ok) throw new Error("فشل جلب تقرير الإشارات");
+  return res.json();
+}
+
+export async function submitJournalFollowUp(
+  entryId: number,
+  data: JournalFollowUp
+): Promise<JournalEntry> {
+  const res = await fetch(`${API_URL}/api/v1/journal/entries/${entryId}/follow-up`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error((err as { detail?: string }).detail || "فشل تحديث الإشارة");
+  }
   return res.json();
 }
 

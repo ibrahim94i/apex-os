@@ -42,6 +42,7 @@ from app.services.safety_gate import check_mandatory_safety_gate
 from app.services.position_service import detect_position_signal_conflict, get_open_positions
 from app.config import settings
 from app.services.telegram_notifier import telegram_notifier
+from app.services.trading_journal_service import trading_journal_service
 from app.websocket.manager import broadcaster
 
 _bar_buffer: dict[str, list[OHLCVBar]] = {}
@@ -367,11 +368,13 @@ async def process_bar(raw_bar: dict[str, Any], *, skip_agents: bool = False) -> 
                     symbol, signal.direction.value, signal.confidence
                 )
                 market_status = await build_market_status(symbol)
-                await telegram_notifier.send_signal_alert(
+                tg_sent = await telegram_notifier.send_signal_alert(
                     signal,
                     market_status_ar=market_status.schedule_ar if market_status.is_open else "مغلق",
                     consensus=agent_consensus,
                 )
+                if tg_sent:
+                    await trading_journal_service.record_telegram_signal(session, signal)
 
             from app.core.cache import get_signal_history, get_agent_consensus
 

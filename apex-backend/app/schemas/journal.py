@@ -3,7 +3,10 @@
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
+
+
+FollowUpAction = Literal["entered", "lost", "ignored"]
 
 
 class JournalEntryCreateSchema(BaseModel):
@@ -19,6 +22,24 @@ class JournalEntryCreateSchema(BaseModel):
     notes: str | None = None
 
 
+class JournalFollowUpSchema(BaseModel):
+    """User response to a pending Telegram signal journal row."""
+
+    action: FollowUpAction
+    exit_price: float | None = Field(default=None, gt=0)
+    result: Literal["win", "loss"] | None = None
+
+    @model_validator(mode="after")
+    def validate_action_fields(self) -> "JournalFollowUpSchema":
+        if self.action == "ignored":
+            return self
+        if self.exit_price is None:
+            raise ValueError("exit_price required for entered and lost")
+        if self.action == "entered" and self.result is None:
+            raise ValueError("result required when action is entered")
+        return self
+
+
 class JournalEntrySchema(BaseModel):
     id: int
     symbol: str
@@ -30,10 +51,26 @@ class JournalEntrySchema(BaseModel):
     source: str
     emotion: str
     result: str
+    follow_up_status: str
+    signal_confidence: float | None = None
     notes: str | None
     pnl: float
     pnl_pct: float
     closed_at: datetime
+    created_at: datetime | None = None
+
+
+class JournalSignalReportSchema(BaseModel):
+    total_signals: int
+    entered_count: int
+    ignored_count: int
+    lost_count: int
+    pending_count: int
+    win_rate: float
+    total_profit: float
+    total_loss: float
+    net_pnl: float
+    generated_at: datetime
 
 
 class JournalAnalysisSchema(BaseModel):
@@ -49,6 +86,7 @@ class JournalAnalysisSchema(BaseModel):
     worse_emotion_ar: str
     recommendation_ar: str
     generated_at: datetime
+    signal_report: JournalSignalReportSchema | None = None
 
 
 class PositionManagerSchema(BaseModel):

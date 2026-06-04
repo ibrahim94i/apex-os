@@ -8,6 +8,8 @@ from app.schemas.journal import (
     JournalAnalysisSchema,
     JournalEntryCreateSchema,
     JournalEntrySchema,
+    JournalFollowUpSchema,
+    JournalSignalReportSchema,
     PositionManagerSchema,
 )
 from app.services.position_manager_service import position_manager_service
@@ -38,6 +40,22 @@ async def get_journal_analysis(
     session: AsyncSession = Depends(get_db),
 ) -> JournalAnalysisSchema | None:
     return await trading_journal_service.get_latest_analysis(session)
+
+
+@journal_router.get("/journal/signal-report", response_model=JournalSignalReportSchema)
+async def get_journal_signal_report(
+    session: AsyncSession = Depends(get_db),
+) -> JournalSignalReportSchema:
+    return await trading_journal_service.get_signal_report(session)
+
+
+@journal_router.patch("/journal/entries/{entry_id}/follow-up", response_model=JournalEntrySchema)
+async def journal_entry_follow_up(
+    entry_id: int,
+    data: JournalFollowUpSchema,
+    session: AsyncSession = Depends(get_db),
+) -> JournalEntrySchema:
+    return await trading_journal_service.apply_follow_up(session, entry_id, data)
 
 
 @journal_router.get("/position-manager/status", response_model=PositionManagerSchema)
