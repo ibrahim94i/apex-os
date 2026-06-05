@@ -19,7 +19,8 @@ def test_multi_asset_config() -> None:
     assert "BTCUSDT" in ASSETS
     assert "XAUUSD" in ASSETS
     assert "EURUSD" in ASSETS
-    assert len(ACTIVE_SYMBOLS) == 4
+    assert len(ACTIVE_SYMBOLS) == 5
+    assert "BTCUSDT" in ACTIVE_SYMBOLS
     assert "USDJPY" in ASSETS
     assert "GBPUSD" in ASSETS
     assert ASSETS["USDJPY"].frankfurter_from_symbol == "USD"
@@ -27,13 +28,12 @@ def test_multi_asset_config() -> None:
     assert ASSETS["GBPUSD"].frankfurter_from_symbol == "GBP"
     assert ASSETS["GBPUSD"].frankfurter_to_symbol == "USD"
     assert "XAGUSD" not in ASSETS
-    assert "BTCUSDT" not in ACTIVE_SYMBOLS
     assert ASSETS["XAUUSD"].feed_type == "twelvedata"
     assert ASSETS["EURUSD"].feed_type == "twelvedata"
     assert ASSETS["EURUSD"].twelvedata_symbol == "EUR/USD"
     assert ASSETS["EURUSD"].poll_interval == 300
     assert ASSETS["EURUSD"].market_schedule == "forex_24_5"
-    assert ASSETS["BTCUSDT"].feed_type == "twelvedata"
+    assert ASSETS["BTCUSDT"].feed_type == "binance"
 
 
 def test_time_of_day_buckets() -> None:

@@ -8,6 +8,13 @@ from app.config.assets import (
 )
 
 
+def test_btcusdt_binance_rest_poll_three_minutes() -> None:
+    asset = ASSETS["BTCUSDT"]
+    assert asset.feed_type == "binance"
+    assert asset.poll_interval == POLL_INTERVAL_SECONDS
+    assert asset.market_schedule == "24_7"
+
+
 def test_xauusd_twelvedata_poll_three_minutes() -> None:
     asset = ASSETS["XAUUSD"]
     assert asset.feed_type == "twelvedata"

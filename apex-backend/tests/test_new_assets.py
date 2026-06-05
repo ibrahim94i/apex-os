@@ -6,9 +6,9 @@ from app.services.market_hours import SCHEDULE_LABELS
 from app.services.telegram_notifier import ASSET_AR
 
 
-def test_active_symbols_four_assets() -> None:
-    assert ACTIVE_SYMBOLS == ["XAUUSD", "EURUSD", "USDJPY", "GBPUSD"]
-    assert "BTCUSDT" not in ACTIVE_SYMBOLS
+def test_active_symbols_five_assets() -> None:
+    assert ACTIVE_SYMBOLS == ["BTCUSDT", "XAUUSD", "EURUSD", "USDJPY", "GBPUSD"]
+    assert "BTCUSDT" in ACTIVE_SYMBOLS
 
 
 def test_fx_frankfurter_pairs_poll_three_minutes() -> None:
@@ -36,6 +36,16 @@ def test_telegram_label_gbpusd() -> None:
 
 def test_schedule_label_gbpusd() -> None:
     assert "GBPUSD" in SCHEDULE_LABELS
+
+
+def test_feed_manager_creates_btcusdt_binance_feed() -> None:
+    btc = ASSETS["BTCUSDT"]
+    feed = feed_manager._create_feed(btc)
+    assert feed is not None
+    from app.feeds.binance_rest import BinanceRestFeed
+
+    assert isinstance(feed, BinanceRestFeed)
+    assert feed.poll_interval == 180
 
 
 def test_feed_manager_creates_eurusd_twelvedata_feed() -> None:

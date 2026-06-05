@@ -31,17 +31,19 @@ class AssetConfig:
     price_decimals: int = 2
 
 
-# BTCUSDT paused — kept for future re-enable; not in ACTIVE_SYMBOLS
+# BTCUSDT: Binance REST (free, no TwelveData credits). FX/metals: TwelveData + Frankfurter.
 ASSETS: dict[str, AssetConfig] = {
     "BTCUSDT": AssetConfig(
         symbol="BTCUSDT",
         display_name_ar="بيتكوين",
-        feed_type="twelvedata",
+        feed_type="binance",
         market_schedule="24_7",
-        twelvedata_symbol="BTC/USD",
         candle_interval="1h",
         poll_interval=POLL_INTERVAL_SECONDS,
         finnhub_symbol="OANDA:BTC_USD",
+        min_price_move=50.0,
+        default_spread=15.0,
+        price_decimals=2,
     ),
     "XAUUSD": AssetConfig(
         symbol="XAUUSD",
@@ -99,7 +101,7 @@ ASSETS: dict[str, AssetConfig] = {
 }
 
 # Active trading universe
-ACTIVE_SYMBOLS: list[str] = ["XAUUSD", "EURUSD", "USDJPY", "GBPUSD"]
+ACTIVE_SYMBOLS: list[str] = ["BTCUSDT", "XAUUSD", "EURUSD", "USDJPY", "GBPUSD"]
 
 
 def get_asset(symbol: str) -> AssetConfig | None:

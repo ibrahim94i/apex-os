@@ -7,13 +7,14 @@ from typing import Any
 from app.config.assets import ACTIVE_SYMBOLS, ASSETS, AssetConfig, get_asset
 from app.config import settings
 from app.feeds.alphavantage import AlphaVantageFeed
+from app.feeds.binance_rest import BinanceRestFeed
 from app.feeds.binance_ws import BinanceWebSocketFeed
 from app.feeds.frankfurter import FrankfurterFeed
 from app.feeds.twelvedata import TwelveDataFeed
 from app.logging_config import logger
 from app.services.pipeline import process_bar
 
-FeedHandle = BinanceWebSocketFeed | TwelveDataFeed | AlphaVantageFeed | FrankfurterFeed
+FeedHandle = BinanceWebSocketFeed | BinanceRestFeed | TwelveDataFeed | AlphaVantageFeed | FrankfurterFeed
 
 
 class FeedManager:
@@ -86,11 +87,21 @@ class FeedManager:
         return out
 
     def _create_feed(self, asset: AssetConfig) -> FeedHandle | None:
-        if asset.feed_type == "binance" and asset.binance_ws_url:
-            return BinanceWebSocketFeed(
-                ws_url=asset.binance_ws_url,
-                on_bar=process_bar,
+        if asset.feed_type == "binance":
+            stagger = ACTIVE_SYMBOLS.index(asset.symbol) * 6 if asset.symbol in ACTIVE_SYMBOLS else 0
+            if asset.binance_ws_url:
+                return BinanceWebSocketFeed(
+                    ws_url=asset.binance_ws_url,
+                    on_bar=process_bar,
+                    apex_symbol=asset.symbol,
+                )
+            return BinanceRestFeed(
+                symbol=asset.symbol,
                 apex_symbol=asset.symbol,
+                interval=asset.candle_interval,
+                poll_interval=asset.poll_interval,
+                on_bar=process_bar,
+                stagger_seconds=stagger,
             )
         if asset.feed_type == "twelvedata" and asset.twelvedata_symbol:
             stagger = ACTIVE_SYMBOLS.index(asset.symbol) * 6 if asset.symbol in ACTIVE_SYMBOLS else 0

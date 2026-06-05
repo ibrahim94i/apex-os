@@ -9,10 +9,14 @@ from app.config.assets import (
 from app.services.signal_rejection_i18n import rejection_reason_ar
 
 
-def test_btcusdt_not_in_active_symbols() -> None:
-    assert "BTCUSDT" not in ACTIVE_SYMBOLS
-    assert ACTIVE_SYMBOLS == ["XAUUSD", "EURUSD", "USDJPY", "GBPUSD"]
-    assert "BTCUSDT" in ASSETS
+def test_active_symbols_include_btcusdt() -> None:
+    assert ACTIVE_SYMBOLS == ["BTCUSDT", "XAUUSD", "EURUSD", "USDJPY", "GBPUSD"]
+
+
+def test_btcusdt_uses_binance_feed() -> None:
+    asset = ASSETS["BTCUSDT"]
+    assert asset.feed_type == "binance"
+    assert asset.poll_interval == POLL_INTERVAL_SECONDS
 
 
 def test_eurusd_uses_twelvedata_feed() -> None:

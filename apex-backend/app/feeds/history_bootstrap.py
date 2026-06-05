@@ -41,29 +41,9 @@ def _normalize_bar(
 async def fetch_binance_history(
     symbol: str, limit: int = 100, interval: str = "1h"
 ) -> list[dict[str, Any]]:
-    url = "https://api.binance.com/api/v3/klines"
-    params = {"symbol": symbol, "interval": interval, "limit": limit}
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        response = await client.get(url, params=params)
-        response.raise_for_status()
-        rows = response.json()
+    from app.feeds.binance_client import fetch_binance_klines
 
-    bars: list[dict[str, Any]] = []
-    for row in rows:
-        ts = datetime.fromtimestamp(row[0] / 1000, tz=timezone.utc)
-        bars.append(
-            _normalize_bar(
-                symbol=symbol,
-                timestamp=ts,
-                open_=float(row[1]),
-                high=float(row[2]),
-                low=float(row[3]),
-                close=float(row[4]),
-                volume=float(row[5]),
-                source="binance",
-            )
-        )
-    return bars
+    return await fetch_binance_klines(symbol, limit=limit, interval=interval)
 
 
 async def fetch_twelvedata_history(

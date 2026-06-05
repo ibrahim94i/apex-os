@@ -164,6 +164,7 @@ class TelegramNotifier:
         fallback_ar = {
             "finnhub": "Finnhub",
             "frankfurter": "Frankfurter (ECB)",
+            "binance": "Binance REST",
             "alphavantage": "Alpha Vantage",
             "metals_live": "Metals.live (ذهب)",
             "db": "قاعدة البيانات (آخر بيانات محفوظة)",
