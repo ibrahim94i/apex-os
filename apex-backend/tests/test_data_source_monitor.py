@@ -1,6 +1,4 @@
-"""Tests for data source failover monitoring and Telegram alerts."""
-
-from unittest.mock import AsyncMock, patch
+"""Data source monitor — TwelveData primary recovery logging."""
 
 import pytest
 
@@ -15,26 +13,12 @@ def _reset() -> None:
 
 
 @pytest.mark.asyncio
-async def test_failover_sends_telegram_once() -> None:
-    with patch(
-        "app.services.telegram_notifier.telegram_notifier.send_data_source_failover_alert",
-        new=AsyncMock(return_value=True),
-    ) as mock_alert:
-        await report_live_bar_source("XAUUSD", "finnhub")
-        await report_live_bar_source("XAUUSD", "finnhub")
-    mock_alert.assert_awaited_once()
+async def test_report_twelvedata_primary_is_noop_without_prior_failover() -> None:
+    await report_live_bar_source("XAUUSD", "twelvedata")
+    await report_live_bar_source("XAUUSD", "twelvedata")
 
 
 @pytest.mark.asyncio
-async def test_primary_recovery_clears_failover_state() -> None:
-    with patch(
-        "app.services.telegram_notifier.telegram_notifier.send_data_source_failover_alert",
-        new=AsyncMock(return_value=True),
-    ):
-        with patch(
-            "app.services.telegram_notifier.telegram_notifier.send_data_source_recovery_alert",
-            new=AsyncMock(return_value=True),
-        ) as mock_recovery:
-            await report_live_bar_source("EURUSD", "finnhub")
-            await report_live_bar_source("EURUSD", "twelvedata")
-    mock_recovery.assert_awaited_once()
+async def test_non_primary_sources_ignored() -> None:
+    await report_live_bar_source("XAUUSD", "db")
+    await report_live_bar_source("EURUSD", "frankfurter")

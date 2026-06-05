@@ -1,4 +1,4 @@
-"""TwelveData REST polling feed with Finnhub/DB fallback chain."""
+"""TwelveData REST polling feed for gold (XAUUSD) with DB fallback."""
 
 from __future__ import annotations
 

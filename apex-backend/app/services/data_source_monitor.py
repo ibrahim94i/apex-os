@@ -1,7 +1,6 @@
-"""Track live data source priority and alert on primary-source failover.
+"""Track TwelveData primary source for gold (XAUUSD).
 
-Priority: TwelveData (primary) → Finnhub (fallback) → DB (last resort).
-Auto-return to TwelveData when the next poll succeeds.
+FX pairs use FrankfurterFeed directly. DB fallback is silent (no Telegram).
 """
 
 from __future__ import annotations
@@ -9,51 +8,22 @@ from __future__ import annotations
 from app.logging_config import logger
 
 PRIMARY_SOURCE = "twelvedata"
-FALLBACK_SOURCE = "finnhub"
 
 _failover_active: dict[str, str] = {}
 
 
 async def report_live_bar_source(symbol: str, source: str) -> None:
-    """Notify when primary source recovers or failover occurs."""
-    from app.services.telegram_notifier import telegram_notifier
-
-    if source == PRIMARY_SOURCE:
-        if symbol in _failover_active:
-            fallback = _failover_active.pop(symbol)
-            logger.info(
-                "data_source_primary_recovered",
-                symbol=symbol,
-                primary=PRIMARY_SOURCE,
-                was_on=fallback,
-            )
-            if telegram_notifier.enabled and fallback == FALLBACK_SOURCE:
-                await telegram_notifier.send_data_source_recovery_alert(
-                    symbol,
-                    primary=PRIMARY_SOURCE,
-                    fallback=fallback,
-                )
+    """Log when TwelveData primary recovers after a prior fallback."""
+    if source != PRIMARY_SOURCE:
         return
 
-    if source != FALLBACK_SOURCE:
-        return
-
-    previous = _failover_active.get(symbol)
-    if previous == source:
-        return
-
-    _failover_active[symbol] = source
-    logger.warning(
-        "data_source_failover",
-        symbol=symbol,
-        primary=PRIMARY_SOURCE,
-        fallback=source,
-    )
-    if telegram_notifier.enabled:
-        await telegram_notifier.send_data_source_failover_alert(
-            symbol,
+    if symbol in _failover_active:
+        fallback = _failover_active.pop(symbol)
+        logger.info(
+            "data_source_primary_recovered",
+            symbol=symbol,
             primary=PRIMARY_SOURCE,
-            fallback=source,
+            was_on=fallback,
         )
 
 

@@ -199,7 +199,7 @@ async def fetch_frankfurter_history(
         from_symbol=asset.frankfurter_from_symbol,
         to_symbol=asset.frankfurter_to_symbol,
         apex_symbol=asset.symbol,
-        days=min(365, limit),
+        days=min(365, limit + 30),
     )
     seen = {b["timestamp"] for b in db_bars}
     merged = list(db_bars)
@@ -211,39 +211,24 @@ async def fetch_frankfurter_history(
 
 
 async def fetch_bootstrap_history(asset: AssetConfig, limit: int = 250) -> list[dict[str, Any]]:
-    """Bootstrap: Alpha Vantage → Finnhub (premium) → DB."""
-    if asset.alphavantage_from_symbol and asset.alphavantage_to_symbol:
-        from app.feeds.alphavantage_client import fetch_fx_intraday_bars
-
-        bars = await fetch_fx_intraday_bars(
-            from_symbol=asset.alphavantage_from_symbol,
-            to_symbol=asset.alphavantage_to_symbol,
-            apex_symbol=asset.symbol,
-            interval=asset.candle_interval,
-            outputsize="full",
+    """Bootstrap: TwelveData (gold) or Frankfurter (FX) → DB fallback."""
+    bars = await fetch_history_for_asset(asset, limit)
+    if len(bars) >= limit:
+        logger.info(
+            "history_bootstrap_primary",
+            symbol=asset.symbol,
+            source=asset.feed_type,
+            bars=len(bars),
         )
-        if len(bars) >= limit:
-            logger.info("history_bootstrap_alphavantage", symbol=asset.symbol, bars=len(bars))
-            return bars[-limit:]
-        if bars:
-            logger.info(
-                "history_bootstrap_alphavantage_partial",
-                symbol=asset.symbol,
-                bars=len(bars),
-            )
-            return bars
-
-    if asset.finnhub_symbol:
-        from app.feeds.finnhub_market import fetch_finnhub_history
-
-        bars = await fetch_finnhub_history(
-            asset.symbol,
-            asset.finnhub_symbol,
-            limit=limit,
-            interval=asset.candle_interval,
+        return bars[-limit:]
+    if bars:
+        logger.info(
+            "history_bootstrap_partial",
+            symbol=asset.symbol,
+            source=asset.feed_type,
+            bars=len(bars),
         )
-        if bars:
-            return bars
+        return bars
 
     from app.services.market_data_store import fetch_bars_from_db
 

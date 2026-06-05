@@ -1,4 +1,4 @@
-"""Frankfurter polling feed — free live EUR/USD spot as hourly bars."""
+"""Frankfurter polling feed — free ECB rates for FX pairs (live + bootstrap)."""
 
 from __future__ import annotations
 
@@ -11,6 +11,7 @@ from app.core.cache import set_feed_last_update, set_latest_price
 from app.feeds.frankfurter_client import build_hourly_bar, fetch_latest_rate
 from app.logging_config import logger
 from app.services.feed_status import FeedConnectionState, set_feed_status
+from app.services.market_data_store import fetch_bars_from_db
 
 BarCallback = Callable[[dict[str, Any]], Awaitable[None]]
 
@@ -55,16 +56,24 @@ class FrankfurterFeed:
 
     async def _poll_once(self) -> bool:
         rate = await fetch_latest_rate(self.from_symbol, self.to_symbol)
-        if rate is None:
-            return False
-
+        source = "frankfurter"
         now = datetime.now(timezone.utc)
-        bar = build_hourly_bar(apex_symbol=self.apex_symbol, price=rate, at=now)
-        if self._last_price is not None:
-            bar["open"] = self._last_price
-            bar["high"] = max(self._last_price, rate)
-            bar["low"] = min(self._last_price, rate)
-        self._last_price = rate
+
+        if rate is None:
+            bars = await fetch_bars_from_db(self.apex_symbol, limit=1)
+            if not bars:
+                return False
+            bar = dict(bars[-1])
+            bar["source"] = "db"
+            source = "db"
+            logger.info("live_bar_db_fallback", symbol=self.apex_symbol)
+        else:
+            bar = build_hourly_bar(apex_symbol=self.apex_symbol, price=rate, at=now)
+            if self._last_price is not None:
+                bar["open"] = self._last_price
+                bar["high"] = max(self._last_price, rate)
+                bar["low"] = min(self._last_price, rate)
+            self._last_price = rate
 
         self._last_success_at = now
         self._error_count = 0
@@ -74,6 +83,7 @@ class FrankfurterFeed:
             self.apex_symbol,
             FeedConnectionState.CONNECTED,
             last_update=self._last_success_at,
+            detail=f"source={source}",
         )
         if self.on_bar:
             await self.on_bar(bar)

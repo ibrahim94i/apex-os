@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Literal
 
 SIGNAL_TIMEFRAME = "1h"
+POLL_INTERVAL_SECONDS = 180  # 3 min — gold TwelveData ~480 calls/day; FX Frankfurter free
 
 MarketSchedule = Literal["24_7", "xauusd", "forex_24_5"]
 
@@ -21,7 +22,7 @@ class AssetConfig:
     frankfurter_from_symbol: str | None = None
     frankfurter_to_symbol: str | None = None
     candle_interval: str = SIGNAL_TIMEFRAME
-    poll_interval: int = 300
+    poll_interval: int = POLL_INTERVAL_SECONDS
     finnhub_symbol: str | None = None
     min_price_move: float | None = None
     default_spread: float | None = None
@@ -37,7 +38,7 @@ ASSETS: dict[str, AssetConfig] = {
         market_schedule="24_7",
         twelvedata_symbol="BTC/USD",
         candle_interval="1h",
-        poll_interval=300,
+        poll_interval=POLL_INTERVAL_SECONDS,
         finnhub_symbol="OANDA:BTC_USD",
     ),
     "XAUUSD": AssetConfig(
@@ -47,26 +48,21 @@ ASSETS: dict[str, AssetConfig] = {
         market_schedule="xauusd",
         twelvedata_symbol="XAU/USD",
         finnhub_symbol="OANDA:XAU_USD",
-        alphavantage_from_symbol="XAU",
-        alphavantage_to_symbol="USD",
         candle_interval="1h",
-        poll_interval=300,
+        poll_interval=POLL_INTERVAL_SECONDS,
         min_price_move=0.50,
         default_spread=0.30,
     ),
     "EURUSD": AssetConfig(
         symbol="EURUSD",
         display_name_ar="يورو/دولار",
-        feed_type="twelvedata",
+        feed_type="frankfurter",
         market_schedule="forex_24_5",
-        twelvedata_symbol="EUR/USD",
-        finnhub_symbol="OANDA:EUR_USD",
         frankfurter_from_symbol="EUR",
         frankfurter_to_symbol="USD",
-        alphavantage_from_symbol="EUR",
-        alphavantage_to_symbol="USD",
+        finnhub_symbol="OANDA:EUR_USD",
         candle_interval="1h",
-        poll_interval=300,
+        poll_interval=POLL_INTERVAL_SECONDS,
         min_price_move=0.00050,
         default_spread=0.00015,
         price_decimals=5,
@@ -74,16 +70,13 @@ ASSETS: dict[str, AssetConfig] = {
     "USDJPY": AssetConfig(
         symbol="USDJPY",
         display_name_ar="دولار/ين",
-        feed_type="twelvedata",
+        feed_type="frankfurter",
         market_schedule="forex_24_5",
-        twelvedata_symbol="USD/JPY",
-        finnhub_symbol="OANDA:USD_JPY",
         frankfurter_from_symbol="USD",
         frankfurter_to_symbol="JPY",
-        alphavantage_from_symbol="USD",
-        alphavantage_to_symbol="JPY",
+        finnhub_symbol="OANDA:USD_JPY",
         candle_interval="1h",
-        poll_interval=300,
+        poll_interval=POLL_INTERVAL_SECONDS,
         min_price_move=0.02,
         default_spread=0.01,
         price_decimals=3,
@@ -91,16 +84,13 @@ ASSETS: dict[str, AssetConfig] = {
     "GBPUSD": AssetConfig(
         symbol="GBPUSD",
         display_name_ar="جنيه/دولار",
-        feed_type="twelvedata",
+        feed_type="frankfurter",
         market_schedule="forex_24_5",
-        twelvedata_symbol="GBP/USD",
-        finnhub_symbol="OANDA:GBP_USD",
         frankfurter_from_symbol="GBP",
         frankfurter_to_symbol="USD",
-        alphavantage_from_symbol="GBP",
-        alphavantage_to_symbol="USD",
+        finnhub_symbol="OANDA:GBP_USD",
         candle_interval="1h",
-        poll_interval=300,
+        poll_interval=POLL_INTERVAL_SECONDS,
         min_price_move=0.00050,
         default_spread=0.00015,
         price_decimals=5,

@@ -10,11 +10,12 @@ def test_btcusdt_not_in_active_symbols() -> None:
     assert "BTCUSDT" in ASSETS
 
 
-def test_eurusd_uses_twelvedata_feed() -> None:
+def test_eurusd_uses_frankfurter_feed() -> None:
     asset = ASSETS["EURUSD"]
-    assert asset.feed_type == "twelvedata"
-    assert asset.twelvedata_symbol == "EUR/USD"
-    assert asset.poll_interval == 300
+    assert asset.feed_type == "frankfurter"
+    assert asset.frankfurter_from_symbol == "EUR"
+    assert asset.frankfurter_to_symbol == "USD"
+    assert asset.poll_interval == 180
 
 
 def test_xauusd_uses_twelvedata_feed() -> None:
@@ -22,7 +23,7 @@ def test_xauusd_uses_twelvedata_feed() -> None:
     assert asset.feed_type == "twelvedata"
     assert asset.twelvedata_symbol == "XAU/USD"
     assert asset.finnhub_symbol == "OANDA:XAU_USD"
-    assert asset.poll_interval == 300
+    assert asset.poll_interval == 180
 
 
 def test_rejection_reason_ar() -> None:

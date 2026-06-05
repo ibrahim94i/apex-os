@@ -22,13 +22,15 @@ def test_multi_asset_config() -> None:
     assert len(ACTIVE_SYMBOLS) == 4
     assert "USDJPY" in ASSETS
     assert "GBPUSD" in ASSETS
-    assert ASSETS["USDJPY"].twelvedata_symbol == "USD/JPY"
-    assert ASSETS["GBPUSD"].twelvedata_symbol == "GBP/USD"
+    assert ASSETS["USDJPY"].frankfurter_from_symbol == "USD"
+    assert ASSETS["USDJPY"].frankfurter_to_symbol == "JPY"
+    assert ASSETS["GBPUSD"].frankfurter_from_symbol == "GBP"
+    assert ASSETS["GBPUSD"].frankfurter_to_symbol == "USD"
     assert "XAGUSD" not in ASSETS
     assert "BTCUSDT" not in ACTIVE_SYMBOLS
     assert ASSETS["XAUUSD"].feed_type == "twelvedata"
-    assert ASSETS["EURUSD"].feed_type == "twelvedata"
-    assert ASSETS["EURUSD"].twelvedata_symbol == "EUR/USD"
+    assert ASSETS["EURUSD"].feed_type == "frankfurter"
+    assert ASSETS["EURUSD"].frankfurter_from_symbol == "EUR"
     assert ASSETS["EURUSD"].market_schedule == "forex_24_5"
     assert ASSETS["BTCUSDT"].feed_type == "twelvedata"
 

@@ -1,10 +1,7 @@
-"""Live market data resolution — TwelveData → Finnhub → DB.
+"""Live market data resolution for TwelveData assets (gold only).
 
-1. TwelveData (primary) — every poll (5 min)
-2. Finnhub (fallback) — immediate live prices when TwelveData fails
-3. DB (silent last resort) — no Telegram alert
-
-Auto-return to TwelveData when the next poll succeeds.
+TwelveData (primary, every 3 min) → DB (silent last resort).
+FX pairs use FrankfurterFeed directly — not this resolver.
 """
 
 from __future__ import annotations
@@ -15,16 +12,13 @@ from typing import Any, Literal
 import httpx
 
 from app.config import settings
-from app.config.assets import get_asset
-from app.feeds.finnhub_market import fetch_finnhub_latest_bar
 from app.feeds.twelvedata_limiter import throttled_get
 from app.logging_config import logger
 from app.services.data_source_monitor import report_live_bar_source
 from app.services.market_data_store import fetch_bars_from_db
 
-LiveDataSource = Literal["twelvedata", "finnhub", "db"]
+LiveDataSource = Literal["twelvedata", "db"]
 PRIMARY_LIVE_SOURCE: LiveDataSource = "twelvedata"
-FALLBACK_LIVE_SOURCE: LiveDataSource = "finnhub"
 LAST_RESORT_LIVE_SOURCE: LiveDataSource = "db"
 
 TWELVEDATA_URL = "https://api.twelvedata.com/time_series"
@@ -94,26 +88,6 @@ async def _fetch_twelvedata_latest(
     }
 
 
-async def _fetch_finnhub_live(
-    apex_symbol: str,
-    *,
-    interval: str = "1h",
-) -> dict[str, Any] | None:
-    asset = get_asset(apex_symbol)
-    if not asset or not asset.finnhub_symbol:
-        return None
-    bar = await fetch_finnhub_latest_bar(
-        apex_symbol,
-        asset.finnhub_symbol,
-        interval=interval,
-    )
-    if bar:
-        logger.info("live_bar_finnhub_fallback", symbol=apex_symbol, close=bar["close"])
-    else:
-        logger.warning("finnhub_live_fetch_failed", symbol=apex_symbol)
-    return bar
-
-
 async def _fetch_db_latest(apex_symbol: str) -> dict[str, Any] | None:
     bars = await fetch_bars_from_db(apex_symbol, limit=1)
     if not bars:
@@ -129,20 +103,12 @@ async def fetch_live_bar_with_fallback(
     *,
     interval: str = "1h",
 ) -> tuple[dict[str, Any] | None, LiveDataSource | None]:
-    """Resolve latest bar: TwelveData → Finnhub → DB (silent)."""
-    # 1. Primary — always try TwelveData first
+    """Resolve latest bar for gold: TwelveData → DB (silent)."""
     bar = await _fetch_twelvedata_latest(apex_symbol, td_symbol, interval)
     if bar:
         await report_live_bar_source(apex_symbol, PRIMARY_LIVE_SOURCE)
         return bar, PRIMARY_LIVE_SOURCE
 
-    # 2. Fallback — Finnhub live prices immediately after TwelveData failure
-    bar = await _fetch_finnhub_live(apex_symbol, interval=interval)
-    if bar:
-        await report_live_bar_source(apex_symbol, FALLBACK_LIVE_SOURCE)
-        return bar, FALLBACK_LIVE_SOURCE
-
-    # 3. Last resort — DB only (no Telegram alert)
     bar = await _fetch_db_latest(apex_symbol)
     if bar:
         logger.info("live_bar_db_fallback", symbol=apex_symbol)
