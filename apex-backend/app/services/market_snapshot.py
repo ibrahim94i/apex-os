@@ -10,7 +10,7 @@ from app.schemas import IndicatorSnapshotSchema, KillSwitchStatusSchema, RegimeS
 from app.schemas.agent import CandlestickPatternSchema, EconomicEventSchema, MarketSnapshot
 from app.services.account_service import account_service
 from app.services.finnhub_calendar import fetch_upcoming_high_impact_events
-from app.services.finnhub_news import fetch_news_for_symbol
+from app.services.news_aggregator import fetch_news_for_symbol
 from app.services.memory_engine import memory_engine
 from app.utils.time_utils import compute_age_seconds, parse_utc_timestamp
 

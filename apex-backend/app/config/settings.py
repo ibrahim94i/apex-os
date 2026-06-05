@@ -65,6 +65,9 @@ class Settings(BaseSettings):
     news_block_window_minutes: int = 30
     finnhub_api_key: str = ""
     finnhub_news_limit: int = 5
+    news_aggregate_limit: int = 20
+    alphavantage_news_enabled: bool = True
+    alphavantage_news_limit: int = 15
     finnhub_calendar_cache_ttl_seconds: int = 300
     economic_calendar_pre_event_minutes: int = 30
     economic_calendar_post_event_minutes: int = 15

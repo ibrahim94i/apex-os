@@ -9,6 +9,7 @@ from app.agents.combined_prompt import SYSTEM_PROMPT, build_combined_user_prompt
 from app.agents.market_analyst.agent import AGENT_NAME_AR as MA_NAME, WEIGHT as MA_WEIGHT, _rule_based as ma_rule
 from app.agents.news.agent import AGENT_NAME_AR as NEWS_NAME, WEIGHT as NEWS_WEIGHT, _rule_based as news_rule
 from app.agents.risk.agent import AGENT_NAME_AR as RISK_NAME, WEIGHT as RISK_WEIGHT, _rule_based as risk_rule
+from app.agents.news.prompt import flatten_news_reasoning
 from app.schemas.agent import AgentConsensus, AgentRole, AgentVerdict, CombinedAgentLLMOutput, MarketSnapshot
 from app.utils.llm_client import LLMClient, LLMClientError, llm_client
 
@@ -61,7 +62,7 @@ class CombinedAgentService:
                     agent_name_ar=NEWS_NAME,
                     direction=output.news.direction,
                     confidence=output.news.confidence,
-                    reasoning=output.news.reasoning,
+                    reasoning=flatten_news_reasoning(output.news),
                     weight=NEWS_WEIGHT,
                     latency_ms=round(latency / 3, 2),
                     used_llm=True,
@@ -111,7 +112,7 @@ class CombinedAgentService:
                 agent_name_ar=NEWS_NAME,
                 direction=news.direction,
                 confidence=news.confidence,
-                reasoning=news.reasoning,
+                reasoning=flatten_news_reasoning(news),
                 weight=NEWS_WEIGHT,
                 latency_ms=round(latency / 3, 2),
                 used_llm=False,

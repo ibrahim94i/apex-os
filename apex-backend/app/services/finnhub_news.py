@@ -131,6 +131,7 @@ def _to_headline(article: dict[str, Any]) -> NewsHeadline:
         headline=str(article.get("headline") or "").strip(),
         summary=str(article.get("summary") or "").strip()[:500],
         source=str(article.get("source") or "").strip(),
+        provider="finnhub",
         url=str(article.get("url") or "").strip(),
         category=str(article.get("category") or "").strip(),
         published_at=_parse_published(article),
@@ -176,8 +177,8 @@ def _dedupe_articles(articles: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return out
 
 
-async def fetch_news_for_symbol(symbol: str, *, limit: int | None = None) -> list[NewsHeadline]:
-    """Return up to `limit` Finnhub headlines most relevant to the symbol."""
+async def fetch_finnhub_headlines(symbol: str, *, limit: int | None = None) -> list[NewsHeadline]:
+    """Return Finnhub headlines most relevant to the symbol."""
     max_items = limit or settings.finnhub_news_limit
     if not _is_configured():
         return []

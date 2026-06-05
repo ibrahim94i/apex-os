@@ -202,12 +202,14 @@ def parse_combined_agent_llm_json(content: str, symbol: str | None = None):
             return normalize_agent_llm_payload(block, symbol=symbol)
         return normalize_agent_llm_payload({}, symbol=symbol)
 
+    from app.schemas.agent import CombinedAgentLLMOutput, NewsAgentLLMOutput
+
     return CombinedAgentLLMOutput(
         market_analyst=AgentLLMOutput.model_validate(
             _parse_agent("market_analyst", ("market", "analyst", "technical"))
         ),
         risk=AgentLLMOutput.model_validate(_parse_agent("risk", ("risk_agent",))),
-        news=AgentLLMOutput.model_validate(_parse_agent("news", ("news_agent",))),
+        news=NewsAgentLLMOutput.model_validate(_parse_agent("news", ("news_agent",))),
     )
 
 

@@ -49,14 +49,23 @@ class EconomicEventSchema(BaseModel):
 
 
 class NewsHeadline(BaseModel):
-    """Finnhub (or other) headline fed to the news agent."""
+    """Multi-source headline fed to the news agent."""
 
     headline: str
     summary: str = ""
     source: str = ""
+    provider: str = ""
     url: str = ""
     category: str = ""
     published_at: datetime | None = None
+    sentiment_score: float | None = Field(
+        default=None,
+        description="Normalized sentiment -1.0 (bearish) to +1.0 (bullish)",
+    )
+    sentiment_label: str = Field(
+        default="",
+        description="Bullish/Bearish/Neutral or Arabic equivalent",
+    )
 
 
 class AgentLLMOutput(BaseModel):
@@ -67,12 +76,26 @@ class AgentLLMOutput(BaseModel):
     reasoning: list[str] = Field(min_length=1, max_length=15)
 
 
+class NewsAgentLLMOutput(AgentLLMOutput):
+    """Extended news agent output with per-asset impact analysis."""
+
+    asset_impacts: dict[str, Literal["positive", "negative", "neutral"]] = Field(
+        default_factory=dict,
+        description="Impact on XAUUSD, EURUSD, USDJPY, GBPUSD",
+    )
+    overall_risk_level: Literal["low", "medium", "high", "critical"] = "medium"
+    recommendation_ar: str = Field(
+        default="",
+        description="Clear trading recommendation based on news only",
+    )
+
+
 class CombinedAgentLLMOutput(BaseModel):
     """Single Groq response covering all three agents."""
 
     market_analyst: AgentLLMOutput
     risk: AgentLLMOutput
-    news: AgentLLMOutput
+    news: NewsAgentLLMOutput
 
 
 class MarketSnapshot(BaseModel):

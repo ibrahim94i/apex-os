@@ -11,8 +11,8 @@ from app.schemas.agent import AgentConsensus, AgentRole, AgentVerdict
 from app.services.memory_engine import memory_engine
 
 RISK_MIN_WEIGHT = 0.40
-MARKET_BASE = 0.35
-NEWS_BASE = 0.25
+MARKET_BASE = 0.25
+NEWS_BASE = 0.35
 
 
 class AdaptiveWeightedEngine:
@@ -48,7 +48,7 @@ class AdaptiveWeightedEngine:
             market_w = 0.40
             reasons.append(f"محلل السوق دقة {market_acc:.0%} — رفع الوزن")
         if news_acc < 0.50:
-            news_w = 0.15
+            news_w = 0.20
             reasons.append(f"وكيل الأخبار دقة {news_acc:.0%} — خفض الوزن")
 
         risk_w = max(RISK_MIN_WEIGHT, 1.0 - market_w - news_w)
