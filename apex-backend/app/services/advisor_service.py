@@ -21,7 +21,84 @@ from app.services.market_snapshot import redis_snapshot_matches_symbol
 from app.services.news_aggregator import fetch_news_for_symbol
 from app.utils.llm_client import LLMClientError, llm_client
 
-from app.services.advisor_prompt import ADVISOR_SYSTEM_PROMPT
+from app.services.advisor_prompt import ADVISOR_SYSTEM_PROMPT, INTRADAY_DISCLAIMER
+
+
+def _entry_band(price: float) -> tuple[float, float]:
+    margin = price * 0.005
+    return price - margin, price + margin
+
+
+def _fmt_band(low: float, high: float, decimals: int) -> str:
+    return f"{low:.{decimals}f} – {high:.{decimals}f}"
+
+
+async def _build_intraday_block(symbol: str, ctx: AdvisorAssetContext) -> str:
+    """Recent H1 bars, candle patterns, session, and entry band for intraday focus."""
+    from app.engines.candlestick_engine import candlestick_engine
+    from app.services.market_data_store import fetch_bars_from_db
+    from app.services.market_status_service import build_market_status
+
+    lines: list[str] = []
+    market = await build_market_status(symbol)
+    lines.append(f"السوق مفتوح: {'نعم' if market.is_open else 'لا'}")
+    if market.schedule_ar:
+        lines.append(f"جدول الجلسة: {market.schedule_ar}")
+
+    if ctx.price is not None:
+        dec = 2 if symbol == "XAUUSD" else (3 if symbol == "USDJPY" else 5)
+        lo, hi = _entry_band(ctx.price)
+        lines.append(f"السعر الحالي APEX: {_fmt(ctx.price, dec)}")
+        lines.append(f"نطاق الدخول المسموح (±0.5%): {_fmt_band(lo, hi, dec)}")
+
+    bars = await fetch_bars_from_db(symbol, limit=8)
+    if bars:
+        lines.append("آخر شموع H1 (O/H/L/C):")
+        for bar in bars[-5:]:
+            ts = str(bar.get("timestamp", ""))[:16]
+            lines.append(
+                f"  {ts} O={bar['open']} H={bar['high']} L={bar['low']} C={bar['close']}"
+            )
+        from app.engines.indicator_engine import OHLCVBar
+        from app.utils.time_utils import parse_utc_timestamp
+
+        ohlcv = [
+            OHLCVBar(
+                timestamp=parse_utc_timestamp(b["timestamp"]),
+                open=float(b["open"]),
+                high=float(b["high"]),
+                low=float(b["low"]),
+                close=float(b["close"]),
+                volume=float(b.get("volume", 0)),
+            )
+            for b in bars
+        ]
+        patterns = candlestick_engine.detect(ohlcv)
+        if patterns:
+            pat_text = ", ".join(f"{p.name_ar} ({p.signal})" for p in patterns[:5])
+            lines.append(f"أنماط الشموع: {pat_text}")
+        else:
+            lines.append("أنماط الشموع: لا نمط واضح على آخر الشموع")
+        if len(bars) >= 2:
+            prev_close = float(bars[-2]["close"])
+            last_close = float(bars[-1]["close"])
+            change_pct = ((last_close - prev_close) / prev_close) * 100 if prev_close else 0
+            lines.append(f"زخم آخر شمعتين H1: {change_pct:+.3f}%")
+    else:
+        lines.append("شموع H1: غير متوفرة — اعتمد على البحث اللحظي فقط")
+
+    if not ctx.data_complete:
+        lines.append(
+            "⚠️ بيانات APEX ناقصة — ابحث في الويب عن السعر اللحظي وتحليل الجلسة الحالية فقط"
+        )
+
+    return "\n".join(lines)
+
+
+def _ensure_intraday_disclaimer(reply: str) -> str:
+    if INTRADAY_DISCLAIMER in reply:
+        return reply
+    return f"{reply.rstrip()}\n\n{INTRADAY_DISCLAIMER}"
 
 
 def _fmt(value: float | None, decimals: int = 5) -> str:
@@ -127,38 +204,56 @@ async def build_all_advisor_context() -> list[AdvisorAssetContext]:
 def _format_apex_context(contexts: list[AdvisorAssetContext]) -> str:
     blocks: list[str] = []
     for ctx in contexts:
-        headlines_note = f"{ctx.news_count} عنوان خبر" if ctx.news_count else "لا أخبار"
+        headlines_note = f"{ctx.news_count} عنوان خبر جلسة" if ctx.news_count else "لا أخبار عاجلة"
         block = f"""
 === {ctx.symbol} ({ctx.display_name_ar}) ===
 مصدر البيانات: {ctx.feed_type or 'غير معروف'}
 السعر APEX: {_fmt(ctx.price, 2 if ctx.symbol == 'XAUUSD' else 5)}
-نظام السوق: {ctx.regime or 'N/A'} (ثقة: {_fmt(ctx.regime_confidence, 2) if ctx.regime_confidence else 'N/A'})
-RSI: {_fmt(ctx.rsi, 1)} | MACD: {_fmt(ctx.macd, 4)} | إشارة MACD: {_fmt(ctx.macd_signal, 4)}
-EMA9: {_fmt(ctx.ema_9)} | EMA21: {_fmt(ctx.ema_21)} | EMA50: {_fmt(ctx.ema_50)} | EMA200: {_fmt(ctx.ema_200)}
-ADX: {_fmt(ctx.adx, 1)}
+مؤشرات H1 (زخم لحظي): RSI {_fmt(ctx.rsi, 1)} | MACD {_fmt(ctx.macd, 4)} | ADX {_fmt(ctx.adx, 1)}
+EMA9/21 (قصير): {_fmt(ctx.ema_9)} / {_fmt(ctx.ema_21)}
+نظام السوق H1: {ctx.regime or 'N/A'}
 قرار الوكلاء: {ctx.agent_direction or 'N/A'} (ثقة: {_fmt(ctx.agent_confidence, 2) if ctx.agent_confidence else 'N/A'})
-ملخص الوكلاء: {ctx.agent_summary or 'لا يوجد'}
-آخر إشارة APEX: {ctx.latest_signal_direction or 'لا إشارة'} (ثقة: {_fmt(ctx.latest_signal_confidence, 2) if ctx.latest_signal_confidence else 'N/A'})
-الأخبار: {headlines_note}
-اكتمال البيانات: {'نعم' if ctx.data_complete else 'ناقص'}
+آخر إشارة APEX: {ctx.latest_signal_direction or 'لا إشارة'}
+اكتمال البيانات: {'نعم' if ctx.data_complete else 'ناقص — اعتمد على الويب للسعر اللحظي'}
 """
         blocks.append(block.strip())
     return "\n\n".join(blocks)
 
 
-def _build_user_prompt(
+async def _build_user_prompt(
     message: str,
     contexts: list[AdvisorAssetContext],
     focus_symbol: str | None,
 ) -> str:
     focus_line = f"\nالأصل المطلوب التركيز عليه: {focus_symbol}\n" if focus_symbol else ""
+    ctx_by_sym = {c.symbol: c for c in contexts}
+    target_symbols = [focus_symbol] if focus_symbol else [c.symbol for c in contexts]
+
+    intraday_sections: list[str] = []
+    for sym in target_symbols:
+        ctx = ctx_by_sym.get(sym)
+        if ctx:
+            block = await _build_intraday_block(sym, ctx)
+            intraday_sections.append(f"=== سياق لحظي {sym} ===\n{block}")
+
+    now_utc = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     apex_json = json.dumps([c.model_dump(mode="json") for c in contexts], ensure_ascii=False, indent=2)
     return f"""{focus_line}
---- بيانات APEX الداخلية (JSON) ---
+--- تعليمات هذا الطلب ---
+الوقت: {now_utc}
+الأفق الزمني: 15–60 دقيقة فقط (تداول لحظي H1)
+تجاهل: أي توقع يومي/أسبوعي/شهري
+الدخول: ضمن ±0.5% من السعر الحالي
+SL/TP: واقعيان لـ H1 (قريبان — ليس بعيدين)
+
+--- بيانات APEX (JSON) ---
 {apex_json}
 
---- ملخص نصي ---
+--- ملخص APEX ---
 {_format_apex_context(contexts)}
+
+--- سياق لحظي: شموع H1 + أنماط + زخم + نطاق الدخول ---
+{chr(10).join(intraday_sections) if intraday_sections else "لا سياق لحظي"}
 
 --- سؤال المستخدم ---
 {message}
@@ -186,7 +281,7 @@ async def advisor_chat(
         raise LLMClientError("OpenAI API key not configured")
 
     contexts = await build_all_advisor_context()
-    user_prompt = _build_user_prompt(message, contexts, symbol)
+    user_prompt = await _build_user_prompt(message, contexts, symbol)
 
     conv_history = [{"role": m["role"], "content": m["content"]} for m in (history or [])][-10:]
 
@@ -196,6 +291,8 @@ async def advisor_chat(
         conversation_history=conv_history,
     )
 
+    reply = _ensure_intraday_disclaimer(response.content)
+
     logger.info(
         "advisor_chat_complete",
         symbol=symbol,
@@ -204,7 +301,7 @@ async def advisor_chat(
     )
 
     return AdvisorChatResponse(
-        reply=response.content,
+        reply=reply,
         symbol=symbol,
         model=response.model,
         latency_ms=response.latency_ms,

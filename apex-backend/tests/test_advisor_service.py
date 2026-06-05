@@ -6,10 +6,12 @@ import pytest
 
 from app.services.advisor_service import (
     _build_user_prompt,
+    _ensure_intraday_disclaimer,
     _format_apex_context,
     advisor_chat,
     build_asset_advisor_context,
 )
+from app.services.advisor_prompt import INTRADAY_DISCLAIMER
 from app.schemas.advisor import AdvisorAssetContext
 from app.utils.llm_client import LLMResponse
 
@@ -66,11 +68,32 @@ def test_format_apex_context_includes_symbol() -> None:
     assert "RSI" in text
 
 
-def test_build_user_prompt_includes_question() -> None:
-    ctx = AdvisorAssetContext(symbol="XAUUSD", display_name_ar="الذهب", data_complete=False)
-    prompt = _build_user_prompt("ما توصيتك للذهب؟", [ctx], "XAUUSD")
+def test_ensure_intraday_disclaimer_appended() -> None:
+    reply = _ensure_intraday_disclaimer("توصية: شراء")
+    assert INTRADAY_DISCLAIMER in reply
+
+
+def test_ensure_intraday_disclaimer_not_duplicated() -> None:
+    text = f"توصية\n\n{INTRADAY_DISCLAIMER}"
+    assert _ensure_intraday_disclaimer(text) == text
+
+
+@pytest.mark.asyncio
+async def test_build_user_prompt_includes_intraday_horizon() -> None:
+    ctx = AdvisorAssetContext(
+        symbol="XAUUSD",
+        display_name_ar="الذهب",
+        price=4400.0,
+        data_complete=True,
+    )
+    with patch(
+        "app.services.advisor_service._build_intraday_block",
+        new=AsyncMock(return_value="نطاق الدخول المسموح (±0.5%)"),
+    ):
+        prompt = await _build_user_prompt("ما توصيتك للذهب؟", [ctx], "XAUUSD")
+    assert "15–60 دقيقة" in prompt
+    assert "±0.5%" in prompt
     assert "ما توصيتك للذهب؟" in prompt
-    assert "XAUUSD" in prompt
 
 
 @pytest.mark.asyncio
@@ -93,7 +116,12 @@ async def test_advisor_chat_calls_llm_with_web_search() -> None:
         ),
     ):
         with patch("app.services.advisor_service.llm_client", mock_client):
-            result = await advisor_chat("ما رأيك في الذهب؟", symbol="XAUUSD")
+            with patch(
+                "app.services.advisor_service._build_user_prompt",
+                new=AsyncMock(return_value="prompt"),
+            ):
+                result = await advisor_chat("ما رأيك في الذهب؟", symbol="XAUUSD")
     assert "توصية" in result.reply
+    assert INTRADAY_DISCLAIMER in result.reply
     assert result.web_search_used is True
     mock_client.advisor_chat_with_web_search.assert_awaited_once()
