@@ -121,6 +121,19 @@ export const t = {
   agentConfidence: "ثقة الوكيل",
   signalRejected: "الإشارة مرفوضة",
   signalRejectedRanging: "🚫 تم رفض الإشارة - السوق جانبي (RANGING)",
+  advisorTab: "المستشار الذكي",
+  advisorTitle: "المستشار الذكي",
+  advisorSubtitle: "تحليل متقاطع — بيانات APEX + السوق الحي",
+  advisorPlaceholder: "اسأل عن أي أصل... (مثال: ما توصيتك للذهب الآن؟)",
+  advisorSend: "إرسال",
+  advisorThinking: "جاري البحث والتحليل...",
+  advisorEmpty: "اسأل المستشار عن الذهب أو أي زوج فوركس — سيقارن بيانات APEX مع السوق الحي.",
+  advisorFocusAsset: "التركيز على",
+  advisorAllAssets: "جميع الأصول",
+  advisorApexData: "بيانات APEX الحالية",
+  advisorWebSearch: "بحث ويب",
+  advisorNoKey: "مفتاح OpenAI غير مكون — المستشار غير متاح",
+  advisorError: "فشل الاتصال بالمستشار",
 } as const;
 
 export const REGIME_LABELS: Record<RegimeType, string> = {

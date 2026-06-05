@@ -8,6 +8,8 @@ function deriveWebSocketBase(apiUrl: string): string {
 
 import type {
   AccountMode,
+  AdvisorChatResponse,
+  AdvisorMessage,
   BacktestResults,
   DashboardState,
   JournalAnalysis,
@@ -167,5 +169,25 @@ export async function fetchPositionManagerStatus(
     cache: "no-store",
   });
   if (!res.ok) throw new Error("فشل جلب مدير المراكز");
+  return res.json();
+}
+
+export async function postAdvisorChat(
+  message: string,
+  options?: { symbol?: string; history?: AdvisorMessage[] }
+): Promise<AdvisorChatResponse> {
+  const res = await fetch(`${API_URL}/api/v1/advisor/chat`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      message,
+      symbol: options?.symbol ?? null,
+      history: options?.history ?? [],
+    }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error((err as { detail?: string }).detail || "فشل الاتصال بالمستشار");
+  }
   return res.json();
 }

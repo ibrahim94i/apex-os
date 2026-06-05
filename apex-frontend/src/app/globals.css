@@ -1187,4 +1187,225 @@ body {
   color: var(--text);
 }
 
-/* end account balance edit */
+/* Smart Advisor (المستشار الذكي) */
+.advisor-layout {
+  display: grid;
+  grid-template-columns: 280px 1fr;
+  gap: 1rem;
+  min-height: 70vh;
+}
+
+@media (max-width: 900px) {
+  .advisor-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+.advisor-sidebar {
+  max-height: 75vh;
+  overflow-y: auto;
+}
+
+.advisor-context-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.advisor-context-card {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0.6rem 0.75rem;
+}
+
+.advisor-context-card.incomplete {
+  border-color: var(--gold);
+  opacity: 0.85;
+}
+
+.advisor-context-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.35rem;
+}
+
+.advisor-context-symbol {
+  font-weight: 600;
+  font-size: 0.85rem;
+}
+
+.advisor-context-price {
+  color: var(--gold);
+  font-size: 0.8rem;
+}
+
+.advisor-context-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.6rem;
+  font-size: 0.7rem;
+  color: var(--text-secondary);
+}
+
+.advisor-main {
+  display: flex;
+  flex-direction: column;
+  min-height: 70vh;
+}
+
+.advisor-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+  margin-bottom: 1rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.advisor-header h2 {
+  font-size: 1.1rem;
+  margin-bottom: 0.25rem;
+}
+
+.advisor-subtitle {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+
+.advisor-focus {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.7rem;
+  color: var(--text-secondary);
+}
+
+.advisor-focus select {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+  border-radius: 4px;
+  padding: 0.35rem 0.5rem;
+  font-size: 0.8rem;
+}
+
+.advisor-chat {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 0.5rem 0;
+  min-height: 300px;
+  max-height: 55vh;
+}
+
+.advisor-empty {
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+  text-align: center;
+  padding: 2rem 1rem;
+  line-height: 1.6;
+}
+
+.advisor-msg {
+  max-width: 92%;
+  padding: 0.75rem 1rem;
+  border-radius: 8px;
+  font-size: 0.9rem;
+  line-height: 1.65;
+  white-space: pre-wrap;
+}
+
+.advisor-msg-user {
+  align-self: flex-start;
+  background: rgba(0, 194, 255, 0.12);
+  border: 1px solid rgba(0, 194, 255, 0.25);
+}
+
+.advisor-msg-assistant {
+  align-self: flex-end;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+}
+
+.advisor-msg-content {
+  direction: rtl;
+}
+
+.advisor-msg-meta {
+  display: flex;
+  gap: 0.75rem;
+  margin-top: 0.5rem;
+  font-size: 0.65rem;
+  color: var(--text-secondary);
+}
+
+.advisor-thinking {
+  color: var(--text-secondary);
+  font-style: italic;
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 1; }
+}
+
+.advisor-error {
+  color: var(--red);
+  font-size: 0.8rem;
+  padding: 0.5rem 0;
+}
+
+.advisor-input-row {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: auto;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--border);
+}
+
+.advisor-input {
+  flex: 1;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-primary);
+  padding: 0.6rem 0.75rem;
+  font-family: inherit;
+  font-size: 0.9rem;
+  resize: vertical;
+  min-height: 2.5rem;
+}
+
+.advisor-input:focus {
+  outline: none;
+  border-color: var(--blue);
+}
+
+.advisor-send-btn {
+  align-self: flex-end;
+  background: var(--blue);
+  color: var(--bg-primary);
+  border: none;
+  border-radius: 6px;
+  padding: 0.6rem 1.25rem;
+  font-weight: 600;
+  cursor: pointer;
+  font-size: 0.85rem;
+  min-width: 5rem;
+}
+
+.advisor-send-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.advisor-send-btn:not(:disabled):hover {
+  filter: brightness(1.1);
+}
+

@@ -16,8 +16,9 @@ import AccountModeToggle from "./AccountModeToggle";
 import PerformancePanel from "./PerformancePanel";
 import TradingJournalPanel from "./TradingJournalPanel";
 import FeedStatusPanel from "./FeedStatusPanel";
+import SmartAdvisorPanel from "./SmartAdvisorPanel";
 
-type Tab = "trading" | "backtest" | "journal" | "performance";
+type Tab = "trading" | "backtest" | "journal" | "performance" | "advisor";
 
 const DEFAULT_ASSET = "XAUUSD";
 
@@ -77,6 +78,13 @@ export default function Dashboard() {
             onClick={() => setTab("performance")}
           >
             {t.performanceTab}
+          </button>
+          <button
+            type="button"
+            className={`tab-btn ${tab === "advisor" ? "active" : ""}`}
+            onClick={() => setTab("advisor")}
+          >
+            {t.advisorTab}
           </button>
         </div>
         <AccountModeToggle
@@ -147,6 +155,10 @@ export default function Dashboard() {
         <div className="grid">
           <PerformancePanel performance={performance} onRefresh={refreshPerformance} />
         </div>
+      )}
+
+      {tab === "advisor" && (
+        <SmartAdvisorPanel symbols={symbols} dashboardState={state} />
       )}
     </div>
   );

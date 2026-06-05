@@ -321,6 +321,45 @@ export interface PositionManagerStatus {
   message_ar: string;
 }
 
+export interface AdvisorMessage {
+  role: "user" | "assistant";
+  content: string;
+}
+
+export interface AdvisorAssetContext {
+  symbol: string;
+  display_name_ar: string;
+  price?: number | null;
+  feed_type?: string | null;
+  regime?: string | null;
+  regime_confidence?: number | null;
+  adx?: number | null;
+  rsi?: number | null;
+  macd?: number | null;
+  macd_signal?: number | null;
+  ema_9?: number | null;
+  ema_21?: number | null;
+  ema_50?: number | null;
+  ema_200?: number | null;
+  agent_direction?: string | null;
+  agent_confidence?: number | null;
+  agent_summary?: string | null;
+  latest_signal_direction?: string | null;
+  latest_signal_confidence?: number | null;
+  news_count: number;
+  data_complete: boolean;
+}
+
+export interface AdvisorChatResponse {
+  reply: string;
+  symbol?: string | null;
+  model: string;
+  latency_ms: number;
+  web_search_used: boolean;
+  apex_context: AdvisorAssetContext[];
+  timestamp: string;
+}
+
 export interface WSMessage {
   type: string;
   data: unknown;

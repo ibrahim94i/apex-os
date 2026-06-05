@@ -1,0 +1,214 @@
+"""Smart Advisor — aggregates APEX data and calls GPT-4o-mini with web search."""
+
+from __future__ import annotations
+
+import json
+from datetime import datetime, timezone
+from typing import Any
+
+from app.config.assets import ACTIVE_SYMBOLS, ASSETS, get_asset
+from app.core.cache import (
+    get_agent_consensus,
+    get_latest_indicators,
+    get_latest_price,
+    get_latest_regime,
+    get_latest_signal,
+)
+from app.logging_config import logger
+from app.schemas.advisor import AdvisorAssetContext, AdvisorChatResponse, AdvisorContextResponse
+from app.services.market_data_store import get_latest_price_from_db, get_latest_regime_from_db
+from app.services.market_snapshot import redis_snapshot_matches_symbol
+from app.services.news_aggregator import fetch_news_for_symbol
+from app.utils.llm_client import LLMClientError, llm_client
+
+from app.services.advisor_prompt import ADVISOR_SYSTEM_PROMPT
+
+
+def _fmt(value: float | None, decimals: int = 5) -> str:
+    if value is None:
+        return "N/A"
+    return f"{value:.{decimals}f}"
+
+
+async def _load_indicators(symbol: str) -> dict[str, Any] | None:
+    ind_data = await get_latest_indicators(symbol)
+    if ind_data and redis_snapshot_matches_symbol(symbol, ind_data):
+        return ind_data
+
+    from app.services.agent_analysis_service import _recompute_market_metrics
+
+    recomputed_ind, _ = await _recompute_market_metrics(symbol)
+    return recomputed_ind
+
+
+async def build_asset_advisor_context(symbol: str) -> AdvisorAssetContext:
+    asset = get_asset(symbol)
+    display = asset.display_name_ar if asset else symbol
+    feed_type = asset.feed_type if asset else None
+
+    price_data = await get_latest_price(symbol)
+    if not price_data:
+        price_data = await get_latest_price_from_db(symbol)
+    price = float(price_data["price"]) if price_data else None
+
+    regime_data = await get_latest_regime(symbol)
+    if not regime_data:
+        regime_data = await get_latest_regime_from_db(symbol)
+
+    ind_data = await _load_indicators(symbol)
+    consensus_data = await get_agent_consensus(symbol)
+    signal_data = await get_latest_signal(symbol)
+    news = await fetch_news_for_symbol(symbol)
+
+    agent_direction = None
+    agent_confidence = None
+    agent_summary = None
+    if consensus_data:
+        agent_direction = consensus_data.get("final_direction")
+        agent_confidence = consensus_data.get("final_confidence")
+        agent_summary = consensus_data.get("team_discussion_summary")
+        if not agent_summary:
+            summary_list = consensus_data.get("reasoning_summary")
+            if isinstance(summary_list, list) and summary_list:
+                agent_summary = " | ".join(str(x) for x in summary_list[:3])
+            else:
+                agent_summary = consensus_data.get("collective_reasoning")
+
+    signal_direction = None
+    signal_confidence = None
+    if signal_data:
+        signal_direction = signal_data.get("direction")
+        signal_confidence = signal_data.get("confidence")
+
+    data_complete = bool(price and ind_data and regime_data)
+
+    return AdvisorAssetContext(
+        symbol=symbol,
+        display_name_ar=display,
+        price=price,
+        feed_type=feed_type,
+        regime=regime_data.get("regime") if regime_data else None,
+        regime_confidence=regime_data.get("confidence") if regime_data else None,
+        adx=ind_data.get("adx") if ind_data else regime_data.get("adx_value") if regime_data else None,
+        rsi=ind_data.get("rsi") if ind_data else None,
+        macd=ind_data.get("macd") if ind_data else None,
+        macd_signal=ind_data.get("macd_signal") if ind_data else None,
+        ema_9=ind_data.get("ema_9") if ind_data else None,
+        ema_21=ind_data.get("ema_21") if ind_data else None,
+        ema_50=ind_data.get("ema_50") if ind_data else None,
+        ema_200=ind_data.get("ema_200") if ind_data else None,
+        agent_direction=agent_direction,
+        agent_confidence=agent_confidence,
+        agent_summary=str(agent_summary)[:500] if agent_summary else None,
+        latest_signal_direction=signal_direction,
+        latest_signal_confidence=signal_confidence,
+        news_count=len(news),
+        data_complete=data_complete,
+    )
+
+
+async def build_all_advisor_context() -> list[AdvisorAssetContext]:
+    contexts: list[AdvisorAssetContext] = []
+    for symbol in ACTIVE_SYMBOLS:
+        try:
+            contexts.append(await build_asset_advisor_context(symbol))
+        except Exception as exc:
+            logger.warning("advisor_context_build_failed", symbol=symbol, error=str(exc))
+            contexts.append(
+                AdvisorAssetContext(
+                    symbol=symbol,
+                    display_name_ar=ASSETS[symbol].display_name_ar,
+                    data_complete=False,
+                )
+            )
+    return contexts
+
+
+def _format_apex_context(contexts: list[AdvisorAssetContext]) -> str:
+    blocks: list[str] = []
+    for ctx in contexts:
+        headlines_note = f"{ctx.news_count} عنوان خبر" if ctx.news_count else "لا أخبار"
+        block = f"""
+=== {ctx.symbol} ({ctx.display_name_ar}) ===
+مصدر البيانات: {ctx.feed_type or 'غير معروف'}
+السعر APEX: {_fmt(ctx.price, 2 if ctx.symbol == 'XAUUSD' else 5)}
+نظام السوق: {ctx.regime or 'N/A'} (ثقة: {_fmt(ctx.regime_confidence, 2) if ctx.regime_confidence else 'N/A'})
+RSI: {_fmt(ctx.rsi, 1)} | MACD: {_fmt(ctx.macd, 4)} | إشارة MACD: {_fmt(ctx.macd_signal, 4)}
+EMA9: {_fmt(ctx.ema_9)} | EMA21: {_fmt(ctx.ema_21)} | EMA50: {_fmt(ctx.ema_50)} | EMA200: {_fmt(ctx.ema_200)}
+ADX: {_fmt(ctx.adx, 1)}
+قرار الوكلاء: {ctx.agent_direction or 'N/A'} (ثقة: {_fmt(ctx.agent_confidence, 2) if ctx.agent_confidence else 'N/A'})
+ملخص الوكلاء: {ctx.agent_summary or 'لا يوجد'}
+آخر إشارة APEX: {ctx.latest_signal_direction or 'لا إشارة'} (ثقة: {_fmt(ctx.latest_signal_confidence, 2) if ctx.latest_signal_confidence else 'N/A'})
+الأخبار: {headlines_note}
+اكتمال البيانات: {'نعم' if ctx.data_complete else 'ناقص'}
+"""
+        blocks.append(block.strip())
+    return "\n\n".join(blocks)
+
+
+def _build_user_prompt(
+    message: str,
+    contexts: list[AdvisorAssetContext],
+    focus_symbol: str | None,
+) -> str:
+    focus_line = f"\nالأصل المطلوب التركيز عليه: {focus_symbol}\n" if focus_symbol else ""
+    apex_json = json.dumps([c.model_dump(mode="json") for c in contexts], ensure_ascii=False, indent=2)
+    return f"""{focus_line}
+--- بيانات APEX الداخلية (JSON) ---
+{apex_json}
+
+--- ملخص نصي ---
+{_format_apex_context(contexts)}
+
+--- سؤال المستخدم ---
+{message}
+"""
+
+
+async def get_advisor_context() -> AdvisorContextResponse:
+    contexts = await build_all_advisor_context()
+    return AdvisorContextResponse(
+        assets=contexts,
+        timestamp=datetime.now(timezone.utc),
+    )
+
+
+async def advisor_chat(
+    message: str,
+    *,
+    symbol: str | None = None,
+    history: list[dict[str, str]] | None = None,
+) -> AdvisorChatResponse:
+    if symbol and symbol not in ACTIVE_SYMBOLS:
+        raise ValueError(f"Unknown symbol: {symbol}")
+
+    if not llm_client.is_configured:
+        raise LLMClientError("OpenAI API key not configured")
+
+    contexts = await build_all_advisor_context()
+    user_prompt = _build_user_prompt(message, contexts, symbol)
+
+    conv_history = [{"role": m["role"], "content": m["content"]} for m in (history or [])][-10:]
+
+    response = await llm_client.advisor_chat_with_web_search(
+        ADVISOR_SYSTEM_PROMPT,
+        user_prompt,
+        conversation_history=conv_history,
+    )
+
+    logger.info(
+        "advisor_chat_complete",
+        symbol=symbol,
+        latency_ms=round(response.latency_ms, 1),
+        web_search=response.provider == "openai_web",
+    )
+
+    return AdvisorChatResponse(
+        reply=response.content,
+        symbol=symbol,
+        model=response.model,
+        latency_ms=response.latency_ms,
+        web_search_used=response.provider == "openai_web",
+        apex_context=contexts,
+        timestamp=datetime.now(timezone.utc),
+    )

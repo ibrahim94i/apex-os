@@ -87,6 +87,7 @@ async def _enforce_rate_limit() -> None:
 
 class LLMClient:
     OPENAI_CHAT_URL = "https://api.openai.com/v1/chat/completions"
+    OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses"
 
     def __init__(
         self,
@@ -211,6 +212,163 @@ class LLMClient:
                 await asyncio.sleep(min(2**attempt, 8))
 
         raise LLMClientError(f"LLM request failed after retries: {last_error}")
+
+    @staticmethod
+    def _extract_responses_text(data: dict) -> str:
+        parts: list[str] = []
+        for item in data.get("output", []):
+            if item.get("type") != "message":
+                continue
+            for block in item.get("content", []):
+                if block.get("type") == "output_text" and block.get("text"):
+                    parts.append(block["text"])
+        if parts:
+            return "\n".join(parts).strip()
+        # Fallback for alternate response shapes
+        if data.get("output_text"):
+            return str(data["output_text"]).strip()
+        raise LLMClientError("Empty response from OpenAI Responses API")
+
+    async def advisor_chat_with_web_search(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        *,
+        conversation_history: list[dict[str, str]] | None = None,
+        temperature: float = 0.3,
+    ) -> LLMResponse:
+        """GPT-4o-mini with web_search_preview via OpenAI Responses API."""
+        if not self.is_configured:
+            raise LLMClientError("OpenAI API key not configured")
+
+        if not self.circuit_breaker.can_execute():
+            raise LLMCircuitOpenError("LLM circuit breaker is open")
+
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+        }
+
+        input_payload: list[dict[str, str]] | str
+        if conversation_history:
+            input_payload = [
+                {"role": m["role"], "content": m["content"]}
+                for m in conversation_history
+                if m.get("role") in ("user", "assistant") and m.get("content")
+            ]
+            input_payload.append({"role": "user", "content": user_prompt})
+        else:
+            input_payload = user_prompt
+
+        payload = {
+            "model": self.model,
+            "instructions": system_prompt,
+            "tools": [{"type": "web_search_preview"}],
+            "input": input_payload,
+            "temperature": temperature,
+        }
+
+        advisor_timeout = float(getattr(settings, "advisor_timeout_seconds", 90))
+        last_error: Exception | None = None
+        start = time.monotonic()
+        max_attempts = self.max_retries + 1
+
+        for attempt in range(1, max_attempts + 1):
+            await _enforce_rate_limit()
+            try:
+                timeout = httpx.Timeout(advisor_timeout, connect=10.0)
+                async with httpx.AsyncClient(timeout=timeout) as client:
+                    response = await client.post(
+                        self.OPENAI_RESPONSES_URL,
+                        headers=headers,
+                        json=payload,
+                    )
+                    if response.status_code == 429:
+                        wait = settings.llm_429_backoff_seconds * (2 ** (attempt - 1))
+                        logger.warning("advisor_rate_limited", attempt=attempt, wait_seconds=wait)
+                        await asyncio.sleep(wait)
+                        continue
+                    response.raise_for_status()
+                    data = response.json()
+
+                content = self._extract_responses_text(data)
+                latency_ms = (time.monotonic() - start) * 1000
+                usage = data.get("usage", {})
+                self.circuit_breaker.record_success()
+                return LLMResponse(
+                    content=content,
+                    model=self.model,
+                    latency_ms=latency_ms,
+                    usage={
+                        "prompt_tokens": usage.get("input_tokens", 0),
+                        "completion_tokens": usage.get("output_tokens", 0),
+                    },
+                    provider="openai_web",
+                )
+            except httpx.HTTPStatusError as exc:
+                last_error = exc
+                body = exc.response.text[:300] if exc.response else ""
+                logger.warning(
+                    "advisor_web_search_failed",
+                    attempt=attempt,
+                    status=exc.response.status_code if exc.response else None,
+                    body=body,
+                )
+                if exc.response.status_code == 429:
+                    continue
+                self.circuit_breaker.record_failure()
+            except Exception as exc:
+                last_error = exc
+                self.circuit_breaker.record_failure()
+                logger.warning("advisor_web_search_failed", attempt=attempt, error=str(exc))
+
+            if attempt < max_attempts:
+                await asyncio.sleep(min(2**attempt, 8))
+
+        # Fallback: plain chat without web search
+        logger.warning("advisor_falling_back_to_chat_without_web_search")
+        fallback = await self._openai_chat_completion_plain(system_prompt, user_prompt, temperature)
+        fallback.provider = "openai"
+        return fallback
+
+    async def _openai_chat_completion_plain(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        temperature: float = 0.3,
+    ) -> LLMResponse:
+        """Chat completion without JSON mode — for advisor fallback."""
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+        }
+        payload = {
+            "model": self.model,
+            "temperature": temperature,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+        }
+        advisor_timeout = float(getattr(settings, "advisor_timeout_seconds", 90))
+        start = time.monotonic()
+        timeout = httpx.Timeout(advisor_timeout, connect=10.0)
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            response = await client.post(self.OPENAI_CHAT_URL, headers=headers, json=payload)
+            response.raise_for_status()
+            data = response.json()
+        content = data["choices"][0]["message"]["content"]
+        usage = data.get("usage", {})
+        return LLMResponse(
+            content=content,
+            model=self.model,
+            latency_ms=(time.monotonic() - start) * 1000,
+            usage={
+                "prompt_tokens": usage.get("prompt_tokens", 0),
+                "completion_tokens": usage.get("completion_tokens", 0),
+            },
+            provider="openai",
+        )
 
     async def structured_completion(
         self,
