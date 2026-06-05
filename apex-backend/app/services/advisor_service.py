@@ -1,4 +1,4 @@
-"""Smart Advisor — aggregates APEX data and calls GPT-4o-mini with web search."""
+"""Smart Advisor — aggregates APEX data and calls GPT-4o-mini (APEX data only)."""
 
 from __future__ import annotations
 
@@ -21,7 +21,11 @@ from app.services.news_aggregator import fetch_news_for_symbol
 from app.utils.llm_client import LLMClientError, llm_client
 
 from app.services.advisor_price_resolver import resolve_advisor_price
-from app.services.advisor_prompt import ADVISOR_SYSTEM_PROMPT, INTRADAY_DISCLAIMER
+from app.services.advisor_prompt import (
+    ADVISOR_SYSTEM_PROMPT,
+    DATA_UNAVAILABLE_MSG,
+    INTRADAY_DISCLAIMER,
+)
 
 
 def _entry_band(price: float) -> tuple[float, float]:
@@ -48,26 +52,12 @@ async def _build_intraday_block(symbol: str, ctx: AdvisorAssetContext) -> str:
     if ctx.price is not None:
         dec = 2 if symbol == "XAUUSD" else (3 if symbol == "USDJPY" else 5)
         lo, hi = _entry_band(ctx.price)
-        source_label = ctx.price_source or "apex"
-        lines.append(f"السعر المرجعي ({source_label}): {_fmt(ctx.price, dec)}")
+        lines.append(f"السعر APEX ({ctx.price_source}): {_fmt(ctx.price, dec)}")
         lines.append(f"نطاق الدخول المسموح (±0.5%): {_fmt_band(lo, hi, dec)}")
         if ctx.price_age_minutes is not None and ctx.price_age_minutes > 0:
             lines.append(f"عمر السعر: {ctx.price_age_minutes:.1f} دقيقة")
-    elif ctx.price_requires_web:
-        lines.append(
-            "⛔ سعر APEX قديم/غير متاح — ابحث في Investing.com + TradingView + Yahoo Finance "
-            "واستخدم أدق سعر لحظي (لا تستخدم APEX القديم)"
-        )
-        if ctx.apex_price is not None and ctx.apex_price_stale:
-            dec = 2 if symbol == "XAUUSD" else (3 if symbol == "USDJPY" else 5)
-            age_note = (
-                f" (أقدم من {ctx.price_age_minutes:.0f} د)"
-                if ctx.price_age_minutes is not None
-                else ""
-            )
-            lines.append(
-                f"سعر APEX القديم ⛔ ممنوع: {_fmt(ctx.apex_price, dec)}{age_note}"
-            )
+    else:
+        lines.append("السعر APEX: غير متاح أو قديم (>10 دقائق)")
 
     bars = await fetch_bars_from_db(symbol, limit=8)
     if bars:
@@ -103,12 +93,10 @@ async def _build_intraday_block(symbol: str, ctx: AdvisorAssetContext) -> str:
             change_pct = ((last_close - prev_close) / prev_close) * 100 if prev_close else 0
             lines.append(f"زخم آخر شمعتين H1: {change_pct:+.3f}%")
     else:
-        lines.append("شموع H1: غير متوفرة — اعتمد على البحث اللحظي فقط")
+        lines.append("شموع H1: غير متوفرة")
 
-    if not ctx.data_complete or ctx.price_requires_web:
-        lines.append(
-            "⚠️ بيانات APEX ناقصة أو السعر قديم — ابحث في Investing.com وTradingView وYahoo Finance"
-        )
+    if not ctx.data_complete:
+        lines.append("⚠️ بيانات APEX ناقصة — لا توصية متاحة")
 
     return "\n".join(lines)
 
@@ -172,12 +160,7 @@ async def build_asset_advisor_context(symbol: str) -> AdvisorAssetContext:
         signal_direction = signal_data.get("direction")
         signal_confidence = signal_data.get("confidence")
 
-    data_complete = bool(
-        price_info.price is not None
-        and not price_info.price_requires_web
-        and ind_data
-        and regime_data
-    )
+    data_complete = bool(price_info.price is not None and ind_data and regime_data)
 
     return AdvisorAssetContext(
         symbol=symbol,
@@ -188,7 +171,6 @@ async def build_asset_advisor_context(symbol: str) -> AdvisorAssetContext:
         price_age_minutes=price_info.price_age_minutes,
         apex_price_stale=price_info.apex_price_stale,
         price_source=price_info.price_source,
-        price_requires_web=price_info.price_requires_web,
         feed_type=feed_type,
         regime=regime_data.get("regime") if regime_data else None,
         regime_confidence=regime_data.get("confidence") if regime_data else None,
@@ -233,12 +215,9 @@ def _format_apex_context(contexts: list[AdvisorAssetContext]) -> str:
         headlines_note = f"{ctx.news_count} عنوان خبر جلسة" if ctx.news_count else "لا أخبار عاجلة"
         dec = 2 if ctx.symbol == "XAUUSD" else 5
         if ctx.price is not None:
-            price_line = f"السعر المرجعي ({ctx.price_source}): {_fmt(ctx.price, dec)}"
-        elif ctx.price_requires_web:
-            stale_note = ""
-            if ctx.apex_price is not None and ctx.apex_price_stale:
-                stale_note = f" | APEX قديم ⛔: {_fmt(ctx.apex_price, dec)}"
-            price_line = f"السعر: يتطلب بحث الويب (Investing/TradingView/Yahoo){stale_note}"
+            price_line = f"السعر APEX ({ctx.price_source}): {_fmt(ctx.price, dec)}"
+        elif ctx.apex_price_stale and ctx.apex_price is not None:
+            price_line = f"السعر: قديم/غير صالح — آخر APEX: {_fmt(ctx.apex_price, dec)}"
         else:
             price_line = "السعر: غير متاح"
         block = f"""
@@ -250,7 +229,7 @@ EMA9/21 (قصير): {_fmt(ctx.ema_9)} / {_fmt(ctx.ema_21)}
 نظام السوق H1: {ctx.regime or 'N/A'}
 قرار الوكلاء: {ctx.agent_direction or 'N/A'} (ثقة: {_fmt(ctx.agent_confidence, 2) if ctx.agent_confidence else 'N/A'})
 آخر إشارة APEX: {ctx.latest_signal_direction or 'لا إشارة'}
-اكتمال البيانات: {'نعم' if ctx.data_complete else 'ناقص — لا تستخدم سعر APEX القديم'}
+اكتمال البيانات: {'نعم' if ctx.data_complete else 'لا — بيانات APEX غير متوفرة'}
 """
         blocks.append(block.strip())
     return "\n\n".join(blocks)
@@ -279,9 +258,9 @@ async def _build_user_prompt(
 الوقت: {now_utc}
 الأفق الزمني: 15–60 دقيقة فقط (تداول لحظي H1)
 تجاهل: أي توقع يومي/أسبوعي/شهري
-الدخول: ضمن ±0.5% من السعر المرجعي الحالي (ليس سعر APEX إن كان >10 دقائق)
+الدخول: ضمن ±0.5% من سعر APEX الحالي
 SL/TP: واقعيان لـ H1 (قريبان — ليس بعيدين)
-سعر APEX: ممنوع إذا أقدم من 10 دقائق — ابحث Investing.com + TradingView + Yahoo Finance
+مصدر البيانات: APEX الداخلي فقط — لا مصادر خارجية
 
 --- بيانات APEX (JSON) ---
 {apex_json}
@@ -295,6 +274,13 @@ SL/TP: واقعيان لـ H1 (قريبان — ليس بعيدين)
 --- سؤال المستخدم ---
 {message}
 """
+
+
+def _apex_data_available(contexts: list[AdvisorAssetContext], focus_symbol: str | None) -> bool:
+    if focus_symbol:
+        ctx = next((c for c in contexts if c.symbol == focus_symbol), None)
+        return bool(ctx and ctx.data_complete)
+    return any(c.data_complete for c in contexts)
 
 
 async def get_advisor_context() -> AdvisorContextResponse:
@@ -318,11 +304,24 @@ async def advisor_chat(
         raise LLMClientError("OpenAI API key not configured")
 
     contexts = await build_all_advisor_context()
+
+    if not _apex_data_available(contexts, symbol):
+        logger.info("advisor_chat_data_unavailable", symbol=symbol)
+        return AdvisorChatResponse(
+            reply=DATA_UNAVAILABLE_MSG,
+            symbol=symbol,
+            model=llm_client.model,
+            latency_ms=0.0,
+            web_search_used=False,
+            apex_context=contexts,
+            timestamp=datetime.now(timezone.utc),
+        )
+
     user_prompt = await _build_user_prompt(message, contexts, symbol)
 
     conv_history = [{"role": m["role"], "content": m["content"]} for m in (history or [])][-10:]
 
-    response = await llm_client.advisor_chat_with_web_search(
+    response = await llm_client.advisor_chat(
         ADVISOR_SYSTEM_PROMPT,
         user_prompt,
         conversation_history=conv_history,
@@ -334,7 +333,6 @@ async def advisor_chat(
         "advisor_chat_complete",
         symbol=symbol,
         latency_ms=round(response.latency_ms, 1),
-        web_search=response.provider == "openai_web",
     )
 
     return AdvisorChatResponse(
@@ -342,7 +340,7 @@ async def advisor_chat(
         symbol=symbol,
         model=response.model,
         latency_ms=response.latency_ms,
-        web_search_used=response.provider == "openai_web",
+        web_search_used=False,
         apex_context=contexts,
         timestamp=datetime.now(timezone.utc),
     )

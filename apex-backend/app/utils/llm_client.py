@@ -229,6 +229,91 @@ class LLMClient:
             return str(data["output_text"]).strip()
         raise LLMClientError("Empty response from OpenAI Responses API")
 
+    async def advisor_chat(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        *,
+        conversation_history: list[dict[str, str]] | None = None,
+        temperature: float = 0.3,
+    ) -> LLMResponse:
+        """Advisor chat via OpenAI Chat Completions — APEX data only, no web search."""
+        if not self.is_configured:
+            raise LLMClientError("OpenAI API key not configured")
+
+        if not self.circuit_breaker.can_execute():
+            raise LLMCircuitOpenError("LLM circuit breaker is open")
+
+        messages: list[dict[str, str]] = [{"role": "system", "content": system_prompt}]
+        if conversation_history:
+            for item in conversation_history:
+                if item.get("role") in ("user", "assistant") and item.get("content"):
+                    messages.append({"role": item["role"], "content": item["content"]})
+        messages.append({"role": "user", "content": user_prompt})
+
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+        }
+        payload = {
+            "model": self.model,
+            "temperature": temperature,
+            "messages": messages,
+        }
+
+        advisor_timeout = float(getattr(settings, "advisor_timeout_seconds", 90))
+        last_error: Exception | None = None
+        start = time.monotonic()
+        max_attempts = self.max_retries + 1
+
+        for attempt in range(1, max_attempts + 1):
+            await _enforce_rate_limit()
+            try:
+                timeout = httpx.Timeout(advisor_timeout, connect=10.0)
+                async with httpx.AsyncClient(timeout=timeout) as client:
+                    response = await client.post(
+                        self.OPENAI_CHAT_URL,
+                        headers=headers,
+                        json=payload,
+                    )
+                    if response.status_code == 429:
+                        wait = settings.llm_429_backoff_seconds * (2 ** (attempt - 1))
+                        logger.warning("advisor_rate_limited", attempt=attempt, wait_seconds=wait)
+                        await asyncio.sleep(wait)
+                        continue
+                    response.raise_for_status()
+                    data = response.json()
+
+                content = data["choices"][0]["message"]["content"]
+                latency_ms = (time.monotonic() - start) * 1000
+                usage = data.get("usage", {})
+                self.circuit_breaker.record_success()
+                return LLMResponse(
+                    content=content,
+                    model=self.model,
+                    latency_ms=latency_ms,
+                    usage={
+                        "prompt_tokens": usage.get("prompt_tokens", 0),
+                        "completion_tokens": usage.get("completion_tokens", 0),
+                    },
+                    provider="openai",
+                )
+            except httpx.HTTPStatusError as exc:
+                last_error = exc
+                if exc.response.status_code == 429:
+                    continue
+                self.circuit_breaker.record_failure()
+                logger.warning("advisor_chat_failed", attempt=attempt, error=str(exc))
+            except Exception as exc:
+                last_error = exc
+                self.circuit_breaker.record_failure()
+                logger.warning("advisor_chat_failed", attempt=attempt, error=str(exc))
+
+            if attempt < max_attempts:
+                await asyncio.sleep(min(2**attempt, 8))
+
+        raise LLMClientError(f"Advisor chat failed after retries: {last_error}")
+
     async def advisor_chat_with_web_search(
         self,
         system_prompt: str,

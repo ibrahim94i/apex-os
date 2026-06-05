@@ -14,7 +14,6 @@ interface Props {
 interface ChatEntry {
   role: "user" | "assistant";
   content: string;
-  webSearch?: boolean;
   latencyMs?: number;
 }
 
@@ -26,11 +25,8 @@ function ContextCard({ ctx }: { ctx: AdvisorAssetContext }) {
         <span className="mono advisor-context-price">
           {ctx.price != null ? ctx.price.toFixed(ctx.symbol === "XAUUSD" ? 2 : 5) : "—"}
         </span>
-        {ctx.price_requires_web && (
-          <span className="advisor-stale-badge">بحث ويب</span>
-        )}
-        {ctx.apex_price_stale && !ctx.price_requires_web && ctx.price_source?.startsWith("live_fallback") && (
-          <span className="advisor-stale-badge">APEX قديم</span>
+        {!ctx.data_complete && (
+          <span className="advisor-stale-badge">غير متوفرة</span>
         )}
       </div>
       <div className="advisor-context-meta">
@@ -124,7 +120,6 @@ export default function SmartAdvisorPanel({ symbols, dashboardState }: Props) {
         {
           role: "assistant",
           content: response.reply,
-          webSearch: response.web_search_used,
           latencyMs: response.latency_ms,
         },
       ]);
@@ -188,12 +183,9 @@ export default function SmartAdvisorPanel({ symbols, dashboardState }: Props) {
           {messages.map((msg, idx) => (
             <div key={idx} className={`advisor-msg advisor-msg-${msg.role}`}>
               <div className="advisor-msg-content">{msg.content}</div>
-              {msg.role === "assistant" && (
+              {msg.role === "assistant" && msg.latencyMs != null && msg.latencyMs > 0 && (
                 <div className="advisor-msg-meta">
-                  {msg.webSearch && <span>{t.advisorWebSearch} ✓</span>}
-                  {msg.latencyMs != null && (
-                    <span className="mono">{Math.round(msg.latencyMs)}ms</span>
-                  )}
+                  <span className="mono">{Math.round(msg.latencyMs)}ms</span>
                 </div>
               )}
             </div>

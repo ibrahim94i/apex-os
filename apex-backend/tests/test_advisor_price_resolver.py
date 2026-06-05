@@ -7,7 +7,6 @@ import pytest
 
 from app.services.advisor_price_resolver import (
     APEX_PRICE_MAX_AGE_SECONDS,
-    AdvisorPriceInfo,
     resolve_advisor_price,
 )
 
@@ -27,50 +26,24 @@ async def test_resolve_fresh_apex_price() -> None:
     assert info.price == 4400.0
     assert info.apex_price_stale is False
     assert info.price_source == "apex"
-    assert info.price_requires_web is False
 
 
 @pytest.mark.asyncio
-async def test_resolve_stale_apex_uses_live_fallback() -> None:
+async def test_resolve_stale_apex_price_rejected() -> None:
     stale_ts = datetime.now(timezone.utc) - timedelta(minutes=30)
     with patch(
         "app.services.advisor_price_resolver.get_latest_price",
         new=AsyncMock(return_value={"price": 4300.0, "timestamp": _iso(stale_ts)}),
     ):
-        with patch(
-            "app.services.advisor_price_resolver._fetch_live_fallback_price",
-            new=AsyncMock(return_value=(4410.0, "metals_live")),
-        ):
-            info = await resolve_advisor_price("XAUUSD")
-    assert info.price == 4410.0
-    assert info.apex_price == 4300.0
-    assert info.apex_price_stale is True
-    assert info.price_source == "live_fallback:metals_live"
-    assert info.price_requires_web is False
-
-
-@pytest.mark.asyncio
-async def test_resolve_stale_apex_requires_web_when_no_fallback() -> None:
-    stale_ts = datetime.now(timezone.utc) - timedelta(
-        seconds=APEX_PRICE_MAX_AGE_SECONDS + 60
-    )
-    with patch(
-        "app.services.advisor_price_resolver.get_latest_price",
-        new=AsyncMock(return_value={"price": 4300.0, "timestamp": _iso(stale_ts)}),
-    ):
-        with patch(
-            "app.services.advisor_price_resolver._fetch_live_fallback_price",
-            new=AsyncMock(return_value=(None, None)),
-        ):
-            info = await resolve_advisor_price("XAUUSD")
+        info = await resolve_advisor_price("XAUUSD")
     assert info.price is None
     assert info.apex_price == 4300.0
-    assert info.price_requires_web is True
-    assert info.price_source == "web_required"
+    assert info.apex_price_stale is True
+    assert info.price_source == "stale"
 
 
 @pytest.mark.asyncio
-async def test_resolve_missing_apex_requires_web() -> None:
+async def test_resolve_missing_apex_price() -> None:
     with patch(
         "app.services.advisor_price_resolver.get_latest_price",
         new=AsyncMock(return_value=None),
@@ -79,10 +52,21 @@ async def test_resolve_missing_apex_requires_web() -> None:
             "app.services.advisor_price_resolver.get_latest_price_from_db",
             new=AsyncMock(return_value=None),
         ):
-            with patch(
-                "app.services.advisor_price_resolver._fetch_live_fallback_price",
-                new=AsyncMock(return_value=(None, None)),
-            ):
-                info = await resolve_advisor_price("EURUSD")
+            info = await resolve_advisor_price("EURUSD")
     assert info.price is None
-    assert info.price_requires_web is True
+    assert info.apex_price_stale is True
+    assert info.price_source == "unavailable"
+
+
+@pytest.mark.asyncio
+async def test_resolve_stale_boundary() -> None:
+    stale_ts = datetime.now(timezone.utc) - timedelta(
+        seconds=APEX_PRICE_MAX_AGE_SECONDS + 1
+    )
+    with patch(
+        "app.services.advisor_price_resolver.get_latest_price",
+        new=AsyncMock(return_value={"price": 1.08, "timestamp": _iso(stale_ts)}),
+    ):
+        info = await resolve_advisor_price("EURUSD")
+    assert info.price is None
+    assert info.price_source == "stale"

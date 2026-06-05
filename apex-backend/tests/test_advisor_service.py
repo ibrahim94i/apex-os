@@ -6,14 +6,15 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from app.services.advisor_price_resolver import AdvisorPriceInfo
+from app.services.advisor_prompt import DATA_UNAVAILABLE_MSG, INTRADAY_DISCLAIMER
 from app.services.advisor_service import (
+    _apex_data_available,
     _build_user_prompt,
     _ensure_intraday_disclaimer,
     _format_apex_context,
     advisor_chat,
     build_asset_advisor_context,
 )
-from app.services.advisor_prompt import INTRADAY_DISCLAIMER
 from app.schemas.advisor import AdvisorAssetContext
 from app.utils.llm_client import LLMResponse
 
@@ -27,7 +28,6 @@ async def test_build_asset_advisor_context() -> None:
         price_age_minutes=1.0,
         apex_price_stale=False,
         price_source="apex",
-        price_requires_web=False,
     )
     with patch(
         "app.services.advisor_service.resolve_advisor_price",
@@ -64,6 +64,7 @@ async def test_build_asset_advisor_context() -> None:
     assert ctx.symbol == "XAUUSD"
     assert ctx.price == 4400.0
     assert ctx.rsi == 55.0
+    assert ctx.data_complete is True
 
 
 def test_format_apex_context_includes_symbol() -> None:
@@ -89,6 +90,17 @@ def test_ensure_intraday_disclaimer_not_duplicated() -> None:
     assert _ensure_intraday_disclaimer(text) == text
 
 
+def test_apex_data_available_focus_symbol() -> None:
+    complete = AdvisorAssetContext(
+        symbol="XAUUSD", display_name_ar="الذهب", data_complete=True
+    )
+    incomplete = AdvisorAssetContext(
+        symbol="EURUSD", display_name_ar="يورو", data_complete=False
+    )
+    assert _apex_data_available([complete, incomplete], "XAUUSD") is True
+    assert _apex_data_available([complete, incomplete], "EURUSD") is False
+
+
 @pytest.mark.asyncio
 async def test_build_user_prompt_includes_intraday_horizon() -> None:
     ctx = AdvisorAssetContext(
@@ -104,20 +116,44 @@ async def test_build_user_prompt_includes_intraday_horizon() -> None:
         prompt = await _build_user_prompt("ما توصيتك للذهب؟", [ctx], "XAUUSD")
     assert "15–60 دقيقة" in prompt
     assert "±0.5%" in prompt
-    assert "ما توصيتك للذهب؟" in prompt
+    assert "APEX الداخلي" in prompt
 
 
 @pytest.mark.asyncio
-async def test_advisor_chat_calls_llm_with_web_search() -> None:
+async def test_advisor_chat_returns_unavailable_when_no_apex_data() -> None:
+    with patch(
+        "app.services.advisor_service.build_all_advisor_context",
+        new=AsyncMock(
+            return_value=[
+                AdvisorAssetContext(
+                    symbol="XAUUSD",
+                    display_name_ar="الذهب",
+                    data_complete=False,
+                )
+            ]
+        ),
+    ):
+        with patch("app.services.advisor_service.llm_client") as mock_client:
+            mock_client.is_configured = True
+            mock_client.model = "gpt-4o-mini"
+            result = await advisor_chat("ما رأيك في الذهب؟", symbol="XAUUSD")
+    assert result.reply == DATA_UNAVAILABLE_MSG
+    assert result.web_search_used is False
+    mock_client.advisor_chat.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_advisor_chat_calls_llm_without_web_search() -> None:
     mock_response = LLMResponse(
         content="توصية: انتظار — الثقة 65%",
         model="gpt-4o-mini",
         latency_ms=1200.0,
-        provider="openai_web",
+        provider="openai",
     )
     mock_client = MagicMock()
     mock_client.is_configured = True
-    mock_client.advisor_chat_with_web_search = AsyncMock(return_value=mock_response)
+    mock_client.model = "gpt-4o-mini"
+    mock_client.advisor_chat = AsyncMock(return_value=mock_response)
     with patch(
         "app.services.advisor_service.build_all_advisor_context",
         new=AsyncMock(
@@ -134,5 +170,5 @@ async def test_advisor_chat_calls_llm_with_web_search() -> None:
                 result = await advisor_chat("ما رأيك في الذهب؟", symbol="XAUUSD")
     assert "توصية" in result.reply
     assert INTRADAY_DISCLAIMER in result.reply
-    assert result.web_search_used is True
-    mock_client.advisor_chat_with_web_search.assert_awaited_once()
+    assert result.web_search_used is False
+    mock_client.advisor_chat.assert_awaited_once()

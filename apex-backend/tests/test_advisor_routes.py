@@ -17,7 +17,7 @@ async def test_advisor_chat_endpoint() -> None:
         symbol="XAUUSD",
         model="gpt-4o-mini",
         latency_ms=1500.0,
-        web_search_used=True,
+        web_search_used=False,
         apex_context=[],
         timestamp=datetime.now(timezone.utc),
     )

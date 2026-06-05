@@ -28,7 +28,6 @@ class AdvisorAssetContext(BaseModel):
     price_age_minutes: float | None = None
     apex_price_stale: bool = False
     price_source: str | None = None
-    price_requires_web: bool = False
     feed_type: str | None = None
     regime: str | None = None
     regime_confidence: float | None = None
@@ -54,7 +53,7 @@ class AdvisorChatResponse(BaseModel):
     symbol: str | None = None
     model: str
     latency_ms: float
-    web_search_used: bool = True
+    web_search_used: bool = False
     apex_context: list[AdvisorAssetContext] = Field(default_factory=list)
     timestamp: datetime
 
