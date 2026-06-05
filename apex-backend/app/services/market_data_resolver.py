@@ -1,19 +1,31 @@
-"""Live market data resolution: TwelveData → Finnhub → DB."""
+"""Live market data resolution — strict source priority.
+
+1. TwelveData (primary) — attempted every poll (5 min)
+2. Finnhub (fallback) — only when TwelveData fails or returns 429
+3. DB (last resort) — only when both APIs fail
+
+When TwelveData succeeds again after fallback, the monitor switches back automatically.
+"""
 
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Literal
 
 import httpx
 
 from app.config import settings
 from app.config.assets import get_asset
 from app.feeds.finnhub_market import fetch_finnhub_latest_bar
-from app.feeds.twelvedata_limiter import is_feed_recovery_paused, throttled_get
+from app.feeds.twelvedata_limiter import throttled_get
 from app.logging_config import logger
 from app.services.data_source_monitor import report_live_bar_source
 from app.services.market_data_store import fetch_bars_from_db
+
+LiveDataSource = Literal["twelvedata", "finnhub", "db"]
+PRIMARY_LIVE_SOURCE: LiveDataSource = "twelvedata"
+FALLBACK_LIVE_SOURCE: LiveDataSource = "finnhub"
+LAST_RESORT_LIVE_SOURCE: LiveDataSource = "db"
 
 TWELVEDATA_URL = "https://api.twelvedata.com/time_series"
 
@@ -24,12 +36,6 @@ async def _fetch_twelvedata_latest(
     interval: str,
 ) -> dict[str, Any] | None:
     if not settings.twelvedata_api_key or settings.twelvedata_api_key == "your_key_here":
-        return None
-    if is_feed_recovery_paused():
-        logger.debug(
-            "twelvedata_live_skipped_rate_limit",
-            symbol=apex_symbol,
-        )
         return None
 
     params = {
@@ -102,15 +108,17 @@ async def fetch_live_bar_with_fallback(
     td_symbol: str,
     *,
     interval: str = "1h",
-) -> tuple[dict[str, Any] | None, str | None]:
-    """Resolve latest bar using TwelveData → Finnhub → DB chain."""
+) -> tuple[dict[str, Any] | None, LiveDataSource | None]:
+    """Resolve latest bar: TwelveData → Finnhub → DB (in that order)."""
     asset = get_asset(apex_symbol)
 
+    # 1. Primary — always try TwelveData first (even after a prior 429)
     bar = await _fetch_twelvedata_latest(apex_symbol, td_symbol, interval)
     if bar:
-        await report_live_bar_source(apex_symbol, "twelvedata")
-        return bar, "twelvedata"
+        await report_live_bar_source(apex_symbol, PRIMARY_LIVE_SOURCE)
+        return bar, PRIMARY_LIVE_SOURCE
 
+    # 2. Fallback — Finnhub only when TwelveData failed
     if asset and asset.finnhub_symbol:
         bar = await fetch_finnhub_latest_bar(
             apex_symbol,
@@ -118,15 +126,16 @@ async def fetch_live_bar_with_fallback(
             interval=interval,
         )
         if bar:
-            await report_live_bar_source(apex_symbol, "finnhub")
+            await report_live_bar_source(apex_symbol, FALLBACK_LIVE_SOURCE)
             logger.info("live_bar_finnhub_fallback", symbol=apex_symbol)
-            return bar, "finnhub"
+            return bar, FALLBACK_LIVE_SOURCE
 
+    # 3. Last resort — cached DB bar
     bar = await _fetch_db_latest(apex_symbol)
     if bar:
-        await report_live_bar_source(apex_symbol, "db")
+        await report_live_bar_source(apex_symbol, LAST_RESORT_LIVE_SOURCE)
         logger.info("live_bar_db_fallback", symbol=apex_symbol)
-        return bar, "db"
+        return bar, LAST_RESORT_LIVE_SOURCE
 
     logger.error("live_bar_all_sources_failed", symbol=apex_symbol)
     return None, None

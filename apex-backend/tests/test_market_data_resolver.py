@@ -99,3 +99,59 @@ async def test_resolver_falls_back_to_db() -> None:
                     bar, source = await fetch_live_bar_with_fallback("GBPUSD", "GBP/USD")
     assert source == "db"
     assert bar == db_bar
+
+
+@pytest.mark.asyncio
+async def test_finnhub_not_called_when_twelvedata_succeeds() -> None:
+    td_bar = {
+        "symbol": "EURUSD",
+        "timestamp": "2026-06-01T12:00:00+00:00",
+        "open": 1.08,
+        "high": 1.09,
+        "low": 1.07,
+        "close": 1.085,
+        "volume": 0.0,
+        "source": "twelvedata",
+        "is_closed": True,
+    }
+    mock_fh = AsyncMock()
+    with patch(
+        "app.services.market_data_resolver._fetch_twelvedata_latest",
+        new=AsyncMock(return_value=td_bar),
+    ):
+        with patch(
+            "app.services.market_data_resolver.fetch_finnhub_latest_bar",
+            mock_fh,
+        ):
+            with patch(
+                "app.services.market_data_resolver.report_live_bar_source",
+                new=AsyncMock(),
+            ):
+                bar, source = await fetch_live_bar_with_fallback("EURUSD", "EUR/USD")
+    assert source == "twelvedata"
+    assert bar == td_bar
+    mock_fh.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_twelvedata_tried_every_poll_even_during_recovery_pause() -> None:
+    with patch("app.feeds.twelvedata_limiter.is_feed_recovery_paused", return_value=True):
+        mock_td = AsyncMock(return_value=None)
+        with patch(
+            "app.services.market_data_resolver._fetch_twelvedata_latest",
+            mock_td,
+        ):
+            with patch(
+                "app.services.market_data_resolver.fetch_finnhub_latest_bar",
+                new=AsyncMock(return_value=None),
+            ):
+                with patch(
+                    "app.services.market_data_resolver._fetch_db_latest",
+                    new=AsyncMock(return_value=None),
+                ):
+                    with patch(
+                        "app.services.market_data_resolver.report_live_bar_source",
+                        new=AsyncMock(),
+                    ):
+                        await fetch_live_bar_with_fallback("EURUSD", "EUR/USD")
+    mock_td.assert_awaited_once()

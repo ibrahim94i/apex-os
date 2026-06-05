@@ -1,4 +1,8 @@
-"""Track market data source health and alert on primary-source failover."""
+"""Track live data source priority and alert on primary-source failover.
+
+Priority: TwelveData (primary) → Finnhub (fallback) → DB (last resort).
+Auto-return to TwelveData when the next poll succeeds.
+"""
 
 from __future__ import annotations
 
