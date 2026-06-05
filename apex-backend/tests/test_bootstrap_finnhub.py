@@ -22,9 +22,22 @@ async def test_bootstrap_gold_uses_twelvedata() -> None:
 
 
 @pytest.mark.asyncio
-async def test_bootstrap_fx_uses_frankfurter() -> None:
+async def test_bootstrap_eurusd_uses_twelvedata() -> None:
     asset = ASSETS["EURUSD"]
-    ff_bars = [{"symbol": "EURUSD", "timestamp": "2026-06-01T12:00:00+00:00", "close": 1.08}] * 250
+    td_bars = [{"symbol": "EURUSD", "timestamp": "2026-06-01T12:00:00+00:00", "close": 1.08}] * 250
+    with patch(
+        "app.feeds.history_bootstrap.fetch_twelvedata_history",
+        new=AsyncMock(return_value=td_bars),
+    ) as mock_td:
+        bars = await fetch_bootstrap_history(asset, limit=250)
+    assert len(bars) == 250
+    mock_td.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_bootstrap_usdjpy_uses_frankfurter() -> None:
+    asset = ASSETS["USDJPY"]
+    ff_bars = [{"symbol": "USDJPY", "timestamp": "2026-06-01T12:00:00+00:00", "close": 156.0}] * 250
     with patch(
         "app.feeds.history_bootstrap.fetch_frankfurter_history",
         new=AsyncMock(return_value=ff_bars),

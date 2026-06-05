@@ -1,6 +1,6 @@
-"""Track TwelveData primary source for gold (XAUUSD).
+"""Track TwelveData primary source for XAUUSD and EURUSD.
 
-FX pairs use FrankfurterFeed directly. DB fallback is silent (no Telegram).
+USDJPY/GBPUSD use FrankfurterFeed directly. DB fallback is silent (no Telegram).
 """
 
 from __future__ import annotations

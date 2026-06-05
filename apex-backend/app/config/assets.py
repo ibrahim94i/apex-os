@@ -4,7 +4,9 @@ from dataclasses import dataclass
 from typing import Literal
 
 SIGNAL_TIMEFRAME = "1h"
-POLL_INTERVAL_SECONDS = 180  # 3 min — gold TwelveData ~480 calls/day; FX Frankfurter free
+POLL_INTERVAL_SECONDS = 180  # XAUUSD TwelveData — 480 calls/day (86400/180)
+EURUSD_POLL_INTERVAL_SECONDS = 300  # EURUSD TwelveData — 288 calls/day (86400/300)
+# TwelveData total: 480 + 288 = 768 calls/day (free tier 800)
 
 MarketSchedule = Literal["24_7", "xauusd", "forex_24_5"]
 
@@ -56,13 +58,12 @@ ASSETS: dict[str, AssetConfig] = {
     "EURUSD": AssetConfig(
         symbol="EURUSD",
         display_name_ar="يورو/دولار",
-        feed_type="frankfurter",
+        feed_type="twelvedata",
         market_schedule="forex_24_5",
-        frankfurter_from_symbol="EUR",
-        frankfurter_to_symbol="USD",
+        twelvedata_symbol="EUR/USD",
         finnhub_symbol="OANDA:EUR_USD",
         candle_interval="1h",
-        poll_interval=POLL_INTERVAL_SECONDS,
+        poll_interval=EURUSD_POLL_INTERVAL_SECONDS,
         min_price_move=0.00050,
         default_spread=0.00015,
         price_decimals=5,

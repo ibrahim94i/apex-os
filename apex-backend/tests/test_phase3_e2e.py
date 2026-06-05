@@ -29,8 +29,9 @@ def test_multi_asset_config() -> None:
     assert "XAGUSD" not in ASSETS
     assert "BTCUSDT" not in ACTIVE_SYMBOLS
     assert ASSETS["XAUUSD"].feed_type == "twelvedata"
-    assert ASSETS["EURUSD"].feed_type == "frankfurter"
-    assert ASSETS["EURUSD"].frankfurter_from_symbol == "EUR"
+    assert ASSETS["EURUSD"].feed_type == "twelvedata"
+    assert ASSETS["EURUSD"].twelvedata_symbol == "EUR/USD"
+    assert ASSETS["EURUSD"].poll_interval == 300
     assert ASSETS["EURUSD"].market_schedule == "forex_24_5"
     assert ASSETS["BTCUSDT"].feed_type == "twelvedata"
 

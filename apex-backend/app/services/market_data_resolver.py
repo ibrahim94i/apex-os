@@ -1,7 +1,7 @@
-"""Live market data resolution for TwelveData assets (gold only).
+"""Live market data resolution for TwelveData assets (XAUUSD, EURUSD).
 
-TwelveData (primary, every 3 min) → DB (silent last resort).
-FX pairs use FrankfurterFeed directly — not this resolver.
+TwelveData (primary) → DB (silent last resort).
+USDJPY/GBPUSD use FrankfurterFeed directly — not this resolver.
 """
 
 from __future__ import annotations

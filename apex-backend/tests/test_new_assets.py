@@ -11,9 +11,14 @@ def test_active_symbols_four_assets() -> None:
     assert "BTCUSDT" not in ACTIVE_SYMBOLS
 
 
-def test_fx_active_assets_poll_three_minutes() -> None:
-    for symbol in ("EURUSD", "USDJPY", "GBPUSD"):
+def test_fx_frankfurter_pairs_poll_three_minutes() -> None:
+    for symbol in ("USDJPY", "GBPUSD"):
         assert ASSETS[symbol].poll_interval == POLL_INTERVAL_SECONDS
+
+
+def test_eurusd_twelvedata_poll_five_minutes() -> None:
+    assert ASSETS["EURUSD"].poll_interval == 300
+    assert ASSETS["EURUSD"].feed_type == "twelvedata"
 
 
 def test_gbpusd_frankfurter_config() -> None:
@@ -31,6 +36,16 @@ def test_telegram_label_gbpusd() -> None:
 
 def test_schedule_label_gbpusd() -> None:
     assert "GBPUSD" in SCHEDULE_LABELS
+
+
+def test_feed_manager_creates_eurusd_twelvedata_feed() -> None:
+    eur = ASSETS["EURUSD"]
+    feed = feed_manager._create_feed(eur)
+    assert feed is not None
+    from app.feeds.twelvedata import TwelveDataFeed
+
+    assert isinstance(feed, TwelveDataFeed)
+    assert feed.poll_interval == 300
 
 
 def test_feed_manager_creates_gbpusd_feed() -> None:
