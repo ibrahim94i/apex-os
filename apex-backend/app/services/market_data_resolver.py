@@ -1,30 +1,31 @@
 """Live market data resolution — strict source priority.
 
-1. TwelveData (primary) — attempted every poll (5 min)
-2. Finnhub (fallback) — only when TwelveData fails or returns 429
-3. DB (last resort) — only when both APIs fail
+1. TwelveData (primary) — every poll (5 min)
+2. Free fallbacks when TwelveData fails (429/credits): Frankfurter → Alpha Vantage → metals.live (XAU)
+3. Finnhub (premium forex OHLC — skipped on free tier 403)
+4. DB (last resort)
 
-When TwelveData succeeds again after fallback, the monitor switches back automatically.
+Auto-return to TwelveData when the next poll succeeds.
 """
 
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 import httpx
 
 from app.config import settings
 from app.config.assets import get_asset
-from app.feeds.finnhub_market import fetch_finnhub_latest_bar
+from app.feeds.live_price_fallback import fetch_live_fallback_bar
 from app.feeds.twelvedata_limiter import throttled_get
 from app.logging_config import logger
 from app.services.data_source_monitor import report_live_bar_source
 from app.services.market_data_store import fetch_bars_from_db
 
-LiveDataSource = Literal["twelvedata", "finnhub", "db"]
+LiveDataSource = Literal["twelvedata", "frankfurter", "alphavantage", "metals_live", "finnhub", "db"]
 PRIMARY_LIVE_SOURCE: LiveDataSource = "twelvedata"
-FALLBACK_LIVE_SOURCE: LiveDataSource = "finnhub"
+FALLBACK_LIVE_SOURCES = ("frankfurter", "alphavantage", "metals_live", "finnhub")
 LAST_RESORT_LIVE_SOURCE: LiveDataSource = "db"
 
 TWELVEDATA_URL = "https://api.twelvedata.com/time_series"
@@ -109,7 +110,7 @@ async def fetch_live_bar_with_fallback(
     *,
     interval: str = "1h",
 ) -> tuple[dict[str, Any] | None, LiveDataSource | None]:
-    """Resolve latest bar: TwelveData → Finnhub → DB (in that order)."""
+    """Resolve latest bar: TwelveData → free fallbacks → DB."""
     asset = get_asset(apex_symbol)
 
     # 1. Primary — always try TwelveData first (even after a prior 429)
@@ -118,17 +119,13 @@ async def fetch_live_bar_with_fallback(
         await report_live_bar_source(apex_symbol, PRIMARY_LIVE_SOURCE)
         return bar, PRIMARY_LIVE_SOURCE
 
-    # 2. Fallback — Finnhub only when TwelveData failed
-    if asset and asset.finnhub_symbol:
-        bar = await fetch_finnhub_latest_bar(
-            apex_symbol,
-            asset.finnhub_symbol,
-            interval=interval,
-        )
-        if bar:
-            await report_live_bar_source(apex_symbol, FALLBACK_LIVE_SOURCE)
-            logger.info("live_bar_finnhub_fallback", symbol=apex_symbol)
-            return bar, FALLBACK_LIVE_SOURCE
+    # 2. Fallback — Frankfurter → Alpha Vantage → metals (XAU) → Finnhub (premium)
+    if asset:
+        bar, fallback_source = await fetch_live_fallback_bar(asset)
+        if bar and fallback_source:
+            await report_live_bar_source(apex_symbol, fallback_source)
+            logger.info("live_bar_fallback_active", symbol=apex_symbol, source=fallback_source)
+            return bar, cast(LiveDataSource, fallback_source)
 
     # 3. Last resort — cached DB bar
     bar = await _fetch_db_latest(apex_symbol)

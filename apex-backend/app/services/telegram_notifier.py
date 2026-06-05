@@ -163,6 +163,9 @@ class TelegramNotifier:
         asset = ASSET_AR.get(symbol, symbol)
         fallback_ar = {
             "finnhub": "Finnhub",
+            "frankfurter": "Frankfurter (ECB)",
+            "alphavantage": "Alpha Vantage",
+            "metals_live": "Metals.live (ذهب)",
             "db": "قاعدة البيانات (آخر بيانات محفوظة)",
             "twelvedata": "TwelveData",
         }.get(fallback, fallback)

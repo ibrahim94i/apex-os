@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from app.services.data_source_monitor import clear_failover_state
+from app.services.data_source_monitor import clear_failover_state, report_live_bar_source
 from app.services.market_data_resolver import fetch_live_bar_with_fallback
 
 
@@ -38,33 +38,33 @@ async def test_resolver_uses_twelvedata_when_available() -> None:
 
 
 @pytest.mark.asyncio
-async def test_resolver_falls_back_to_finnhub() -> None:
-    fh_bar = {
-        "symbol": "XAUUSD",
+async def test_resolver_falls_back_to_frankfurter() -> None:
+    ff_bar = {
+        "symbol": "EURUSD",
         "timestamp": "2026-06-01T12:00:00+00:00",
-        "open": 3300.0,
-        "high": 3310.0,
-        "low": 3295.0,
-        "close": 3305.0,
+        "open": 1.08,
+        "high": 1.08,
+        "low": 1.08,
+        "close": 1.08,
         "volume": 0.0,
-        "source": "finnhub",
-        "is_closed": True,
+        "source": "frankfurter",
+        "is_closed": False,
     }
     with patch(
         "app.services.market_data_resolver._fetch_twelvedata_latest",
         new=AsyncMock(return_value=None),
     ):
         with patch(
-            "app.services.market_data_resolver.fetch_finnhub_latest_bar",
-            new=AsyncMock(return_value=fh_bar),
+            "app.services.market_data_resolver.fetch_live_fallback_bar",
+            new=AsyncMock(return_value=(ff_bar, "frankfurter")),
         ):
             with patch(
                 "app.services.market_data_resolver.report_live_bar_source",
                 new=AsyncMock(),
             ):
-                bar, source = await fetch_live_bar_with_fallback("XAUUSD", "XAU/USD")
-    assert source == "finnhub"
-    assert bar == fh_bar
+                bar, source = await fetch_live_bar_with_fallback("EURUSD", "EUR/USD")
+    assert source == "frankfurter"
+    assert bar == ff_bar
 
 
 @pytest.mark.asyncio
@@ -85,8 +85,8 @@ async def test_resolver_falls_back_to_db() -> None:
         new=AsyncMock(return_value=None),
     ):
         with patch(
-            "app.services.market_data_resolver.fetch_finnhub_latest_bar",
-            new=AsyncMock(return_value=None),
+            "app.services.market_data_resolver.fetch_live_fallback_bar",
+            new=AsyncMock(return_value=(None, None)),
         ):
             with patch(
                 "app.services.market_data_resolver._fetch_db_latest",
@@ -102,7 +102,7 @@ async def test_resolver_falls_back_to_db() -> None:
 
 
 @pytest.mark.asyncio
-async def test_finnhub_not_called_when_twelvedata_succeeds() -> None:
+async def test_fallback_not_called_when_twelvedata_succeeds() -> None:
     td_bar = {
         "symbol": "EURUSD",
         "timestamp": "2026-06-01T12:00:00+00:00",
@@ -114,36 +114,32 @@ async def test_finnhub_not_called_when_twelvedata_succeeds() -> None:
         "source": "twelvedata",
         "is_closed": True,
     }
-    mock_fh = AsyncMock()
+    mock_fallback = AsyncMock()
     with patch(
         "app.services.market_data_resolver._fetch_twelvedata_latest",
         new=AsyncMock(return_value=td_bar),
     ):
         with patch(
-            "app.services.market_data_resolver.fetch_finnhub_latest_bar",
-            mock_fh,
+            "app.services.market_data_resolver.fetch_live_fallback_bar",
+            mock_fallback,
         ):
-            with patch(
-                "app.services.market_data_resolver.report_live_bar_source",
-                new=AsyncMock(),
-            ):
-                bar, source = await fetch_live_bar_with_fallback("EURUSD", "EUR/USD")
+            bar, source = await fetch_live_bar_with_fallback("EURUSD", "EUR/USD")
     assert source == "twelvedata"
     assert bar == td_bar
-    mock_fh.assert_not_awaited()
+    mock_fallback.assert_not_awaited()
 
 
 @pytest.mark.asyncio
 async def test_twelvedata_tried_every_poll_even_during_recovery_pause() -> None:
+    mock_td = AsyncMock(return_value=None)
     with patch("app.feeds.twelvedata_limiter.is_feed_recovery_paused", return_value=True):
-        mock_td = AsyncMock(return_value=None)
         with patch(
             "app.services.market_data_resolver._fetch_twelvedata_latest",
             mock_td,
         ):
             with patch(
-                "app.services.market_data_resolver.fetch_finnhub_latest_bar",
-                new=AsyncMock(return_value=None),
+                "app.services.market_data_resolver.fetch_live_fallback_bar",
+                new=AsyncMock(return_value=(None, None)),
             ):
                 with patch(
                     "app.services.market_data_resolver._fetch_db_latest",
@@ -154,12 +150,12 @@ async def test_twelvedata_tried_every_poll_even_during_recovery_pause() -> None:
                         new=AsyncMock(),
                     ):
                         await fetch_live_bar_with_fallback("EURUSD", "EUR/USD")
-@pytest.mark.asyncio
-async def test_auto_return_to_twelvedata_after_finnhub() -> None:
-    """Finnhub stays active until the next poll succeeds on TwelveData."""
-    from app.services.data_source_monitor import report_live_bar_source
+    mock_td.assert_awaited_once()
 
-    fh_bar = {
+
+@pytest.mark.asyncio
+async def test_auto_return_to_twelvedata_after_fallback() -> None:
+    ff_bar = {
         "symbol": "EURUSD",
         "timestamp": "2026-06-01T11:00:00+00:00",
         "open": 1.08,
@@ -167,7 +163,7 @@ async def test_auto_return_to_twelvedata_after_finnhub() -> None:
         "low": 1.07,
         "close": 1.085,
         "volume": 0.0,
-        "source": "finnhub",
+        "source": "frankfurter",
         "is_closed": True,
     }
     td_bar = {
@@ -187,15 +183,15 @@ async def test_auto_return_to_twelvedata_after_finnhub() -> None:
         new=AsyncMock(return_value=None),
     ):
         with patch(
-            "app.services.market_data_resolver.fetch_finnhub_latest_bar",
-            new=AsyncMock(return_value=fh_bar),
+            "app.services.market_data_resolver.fetch_live_fallback_bar",
+            new=AsyncMock(return_value=(ff_bar, "frankfurter")),
         ):
             with patch(
                 "app.services.market_data_resolver.report_live_bar_source",
                 new=AsyncMock(wraps=report_live_bar_source),
             ):
                 bar, source = await fetch_live_bar_with_fallback("EURUSD", "EUR/USD")
-    assert source == "finnhub"
+    assert source == "frankfurter"
 
     with patch(
         "app.services.market_data_resolver._fetch_twelvedata_latest",
@@ -208,4 +204,3 @@ async def test_auto_return_to_twelvedata_after_finnhub() -> None:
             bar, source = await fetch_live_bar_with_fallback("EURUSD", "EUR/USD")
     assert source == "twelvedata"
     assert bar == td_bar
-

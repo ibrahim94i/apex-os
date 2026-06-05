@@ -20,8 +20,8 @@ async def test_failover_sends_telegram_once() -> None:
         "app.services.telegram_notifier.telegram_notifier.send_data_source_failover_alert",
         new=AsyncMock(return_value=True),
     ) as mock_alert:
-        await report_live_bar_source("XAUUSD", "finnhub")
-        await report_live_bar_source("XAUUSD", "finnhub")
+        await report_live_bar_source("XAUUSD", "frankfurter")
+        await report_live_bar_source("XAUUSD", "frankfurter")
     mock_alert.assert_awaited_once()
 
 
@@ -35,6 +35,6 @@ async def test_primary_recovery_clears_failover_state() -> None:
             "app.services.telegram_notifier.telegram_notifier.send_data_source_recovery_alert",
             new=AsyncMock(return_value=True),
         ) as mock_recovery:
-            await report_live_bar_source("EURUSD", "finnhub")
+            await report_live_bar_source("EURUSD", "frankfurter")
             await report_live_bar_source("EURUSD", "twelvedata")
     mock_recovery.assert_awaited_once()

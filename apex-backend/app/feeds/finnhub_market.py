@@ -126,8 +126,32 @@ async def fetch_finnhub_history(
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
             response = await _throttled_get(client, FINNHUB_CANDLE_URL, params)
+            if response.status_code == 403:
+                logger.warning(
+                    "finnhub_premium_required",
+                    symbol=apex_symbol,
+                    finnhub_symbol=finnhub_symbol,
+                    endpoint="forex/candle",
+                )
+                return []
             response.raise_for_status()
             data = response.json()
+    except httpx.HTTPStatusError as exc:
+        if exc.response.status_code == 403:
+            logger.warning(
+                "finnhub_premium_required",
+                symbol=apex_symbol,
+                finnhub_symbol=finnhub_symbol,
+                endpoint="forex/candle",
+            )
+            return []
+        logger.warning(
+            "finnhub_history_fetch_failed",
+            symbol=apex_symbol,
+            finnhub_symbol=finnhub_symbol,
+            error=str(exc),
+        )
+        return []
     except Exception as exc:
         logger.warning(
             "finnhub_history_fetch_failed",
@@ -178,8 +202,29 @@ async def fetch_finnhub_latest_bar(
     try:
         async with httpx.AsyncClient(timeout=15.0) as client:
             response = await _throttled_get(client, FINNHUB_QUOTE_URL, params)
+            if response.status_code == 403:
+                logger.warning(
+                    "finnhub_premium_required",
+                    symbol=apex_symbol,
+                    endpoint="quote",
+                )
+                return None
             response.raise_for_status()
             data = response.json()
+    except httpx.HTTPStatusError as exc:
+        if exc.response.status_code == 403:
+            logger.warning(
+                "finnhub_premium_required",
+                symbol=apex_symbol,
+                endpoint="quote",
+            )
+            return None
+        logger.warning(
+            "finnhub_quote_fetch_failed",
+            symbol=apex_symbol,
+            error=str(exc),
+        )
+        return None
     except Exception as exc:
         logger.warning(
             "finnhub_quote_fetch_failed",
