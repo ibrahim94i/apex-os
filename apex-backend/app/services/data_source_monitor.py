@@ -9,6 +9,7 @@ from __future__ import annotations
 from app.logging_config import logger
 
 PRIMARY_SOURCE = "twelvedata"
+FALLBACK_SOURCE = "finnhub"
 
 _failover_active: dict[str, str] = {}
 
@@ -26,12 +27,15 @@ async def report_live_bar_source(symbol: str, source: str) -> None:
                 primary=PRIMARY_SOURCE,
                 was_on=fallback,
             )
-            if telegram_notifier.enabled:
+            if telegram_notifier.enabled and fallback == FALLBACK_SOURCE:
                 await telegram_notifier.send_data_source_recovery_alert(
                     symbol,
                     primary=PRIMARY_SOURCE,
                     fallback=fallback,
                 )
+        return
+
+    if source != FALLBACK_SOURCE:
         return
 
     previous = _failover_active.get(symbol)

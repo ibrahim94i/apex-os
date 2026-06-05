@@ -14,6 +14,7 @@ from app.logging_config import logger
 
 FINNHUB_CANDLE_URL = "https://finnhub.io/api/v1/forex/candle"
 FINNHUB_QUOTE_URL = "https://finnhub.io/api/v1/quote"
+FINNHUB_RATES_URL = "https://finnhub.io/api/v1/forex/rates"
 
 _lock = asyncio.Lock()
 _last_request_at: float = 0.0
@@ -33,15 +34,36 @@ def _is_configured() -> bool:
     return bool(key and key not in ("", "your_key_here"))
 
 
-async def _throttled_get(client: httpx.AsyncClient, url: str, params: dict) -> httpx.Response:
+def _auth_headers() -> dict[str, str]:
+    return {"X-Finnhub-Token": settings.finnhub_api_key}
+
+
+def _parse_oanda_pair(finnhub_symbol: str) -> tuple[str, str] | None:
+    if ":" not in finnhub_symbol:
+        return None
+    pair = finnhub_symbol.split(":", 1)[1]
+    parts = pair.split("_")
+    if len(parts) != 2:
+        return None
+    return parts[0], parts[1]
+
+
+async def _throttled_get(
+    client: httpx.AsyncClient,
+    url: str,
+    params: dict,
+    *,
+    headers: dict[str, str] | None = None,
+) -> httpx.Response:
     global _last_request_at
     min_gap = settings.finnhub_market_min_gap_seconds
+    request_headers = headers or _auth_headers()
     async with _lock:
         now = time.monotonic()
         wait = min_gap - (now - _last_request_at)
         if wait > 0:
             await asyncio.sleep(wait)
-        response = await client.get(url, params=params)
+        response = await client.get(url, params=params, headers=request_headers)
         _last_request_at = time.monotonic()
         return response
 
@@ -185,7 +207,10 @@ async def fetch_finnhub_latest_bar(
     *,
     interval: str = "1h",
 ) -> dict[str, Any] | None:
-    """Fetch the latest H1 candle from Finnhub for live updates."""
+    """Fetch live price from Finnhub: candle → forex/rates → quote."""
+    if not _is_configured():
+        return None
+
     bars = await fetch_finnhub_history(
         apex_symbol,
         finnhub_symbol,
@@ -195,8 +220,51 @@ async def fetch_finnhub_latest_bar(
     if bars:
         return bars[-1]
 
-    if not _is_configured():
-        return None
+    pair = _parse_oanda_pair(finnhub_symbol)
+    if pair:
+        base, quote = pair
+        params = {"base": base, "token": settings.finnhub_api_key}
+        try:
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                response = await _throttled_get(client, FINNHUB_RATES_URL, params)
+                if response.status_code == 403:
+                    logger.warning(
+                        "finnhub_premium_required",
+                        symbol=apex_symbol,
+                        endpoint="forex/rates",
+                    )
+                else:
+                    response.raise_for_status()
+                    data = response.json()
+                    rate = (data.get("quote") or {}).get(quote)
+                    if rate is not None:
+                        px = float(rate)
+                        now = datetime.now(timezone.utc).replace(minute=0, second=0, microsecond=0)
+                        logger.info(
+                            "finnhub_rates_bar",
+                            symbol=apex_symbol,
+                            base=base,
+                            quote=quote,
+                            price=px,
+                        )
+                        return _normalize_bar(
+                            symbol=apex_symbol,
+                            timestamp=now,
+                            open_=px,
+                            high=px,
+                            low=px,
+                            close=px,
+                            volume=0.0,
+                        )
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code != 403:
+                logger.warning(
+                    "finnhub_rates_fetch_failed",
+                    symbol=apex_symbol,
+                    error=str(exc),
+                )
+        except Exception as exc:
+            logger.warning("finnhub_rates_fetch_failed", symbol=apex_symbol, error=str(exc))
 
     params = {"symbol": finnhub_symbol, "token": settings.finnhub_api_key}
     try:
