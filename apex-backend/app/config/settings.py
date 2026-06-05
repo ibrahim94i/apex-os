@@ -90,6 +90,8 @@ class Settings(BaseSettings):
     alphavantage_poll_interval_seconds: int = 3600
     alphavantage_min_gap_seconds: float = 12.0
     frankfurter_poll_interval_seconds: int = 180
+    fixer_api_key: str = ""
+    currencyapi_key: str = ""
     llm_primary_provider: str = "openai"
     emergency_signal_confidence_threshold: float = 0.75
     signal_emission_interval_hours: float = 1.0

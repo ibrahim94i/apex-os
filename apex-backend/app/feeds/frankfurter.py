@@ -8,7 +8,7 @@ from typing import Any, Awaitable, Callable
 
 from app.config import settings
 from app.core.cache import set_feed_last_update, set_latest_price
-from app.feeds.frankfurter_client import build_hourly_bar, fetch_latest_rate
+from app.feeds.frankfurter_client import build_hourly_bar, fetch_latest_rate_with_source
 from app.logging_config import logger
 from app.services.feed_status import FeedConnectionState, set_feed_status
 from app.services.market_data_store import fetch_bars_from_db
@@ -55,8 +55,11 @@ class FrankfurterFeed:
         }
 
     async def _poll_once(self) -> bool:
-        rate = await fetch_latest_rate(self.from_symbol, self.to_symbol)
-        source = "frankfurter"
+        rate, live_source = await fetch_latest_rate_with_source(
+            self.from_symbol,
+            self.to_symbol,
+        )
+        source = live_source or "db"
         now = datetime.now(timezone.utc)
 
         if rate is None:
@@ -68,7 +71,12 @@ class FrankfurterFeed:
             source = "db"
             logger.info("live_bar_db_fallback", symbol=self.apex_symbol)
         else:
-            bar = build_hourly_bar(apex_symbol=self.apex_symbol, price=rate, at=now)
+            bar = build_hourly_bar(
+                apex_symbol=self.apex_symbol,
+                price=rate,
+                at=now,
+                source=source,
+            )
             if self._last_price is not None:
                 bar["open"] = self._last_price
                 bar["high"] = max(self._last_price, rate)

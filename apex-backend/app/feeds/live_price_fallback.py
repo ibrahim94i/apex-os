@@ -14,24 +14,32 @@ import httpx
 from app.config.assets import AssetConfig
 from app.feeds.alphavantage_client import fetch_fx_intraday_bars
 from app.feeds.finnhub_market import fetch_finnhub_latest_bar
-from app.feeds.frankfurter_client import build_hourly_bar, fetch_latest_rate
+from app.feeds.frankfurter_client import build_hourly_bar, fetch_latest_rate_with_source
 from app.logging_config import logger
 
 METALS_LIVE_GOLD_URL = "https://api.metals.live/v1/spot/gold"
 
 
-async def fetch_frankfurter_live_bar(asset: AssetConfig) -> dict[str, Any] | None:
+async def fetch_fx_live_bar(asset: AssetConfig) -> tuple[dict[str, Any] | None, str | None]:
     if not asset.frankfurter_from_symbol or not asset.frankfurter_to_symbol:
-        return None
+        return None, None
     try:
-        rate = await fetch_latest_rate(asset.frankfurter_from_symbol, asset.frankfurter_to_symbol)
+        rate, source = await fetch_latest_rate_with_source(
+            asset.frankfurter_from_symbol,
+            asset.frankfurter_to_symbol,
+        )
     except Exception as exc:
-        logger.warning("frankfurter_live_fetch_failed", symbol=asset.symbol, error=str(exc))
-        return None
-    if rate is None:
-        return None
-    bar = build_hourly_bar(apex_symbol=asset.symbol, price=rate)
-    logger.info("frankfurter_live_bar", symbol=asset.symbol, price=rate)
+        logger.warning("fx_live_fetch_failed", symbol=asset.symbol, error=str(exc))
+        return None, None
+    if rate is None or not source:
+        return None, None
+    bar = build_hourly_bar(apex_symbol=asset.symbol, price=rate, source=source)
+    logger.info("fx_live_bar", symbol=asset.symbol, source=source, price=rate)
+    return bar, source
+
+
+async def fetch_frankfurter_live_bar(asset: AssetConfig) -> dict[str, Any] | None:
+    bar, _ = await fetch_fx_live_bar(asset)
     return bar
 
 
@@ -102,9 +110,9 @@ async def fetch_finnhub_live_bar(asset: AssetConfig) -> dict[str, Any] | None:
 async def fetch_live_fallback_bar(asset: AssetConfig) -> tuple[dict[str, Any] | None, str | None]:
     """Try free fallbacks first, then Finnhub (premium), in priority order."""
     if asset.frankfurter_from_symbol and asset.frankfurter_to_symbol:
-        bar = await fetch_frankfurter_live_bar(asset)
-        if bar:
-            return bar, "frankfurter"
+        bar, source = await fetch_fx_live_bar(asset)
+        if bar and source:
+            return bar, source
 
     if asset.alphavantage_from_symbol and asset.alphavantage_to_symbol:
         bar = await fetch_alphavantage_live_bar(asset)

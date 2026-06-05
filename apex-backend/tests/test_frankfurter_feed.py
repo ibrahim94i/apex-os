@@ -25,8 +25,8 @@ async def test_frankfurter_falls_back_to_db() -> None:
     feed.on_bar = on_bar
 
     with patch(
-        "app.feeds.frankfurter.fetch_latest_rate",
-        new=AsyncMock(return_value=None),
+        "app.feeds.frankfurter.fetch_latest_rate_with_source",
+        new=AsyncMock(return_value=(None, None)),
     ):
         with patch(
             "app.feeds.frankfurter.fetch_bars_from_db",
