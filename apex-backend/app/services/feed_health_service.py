@@ -9,6 +9,10 @@ from app.config import settings
 from app.config.assets import ACTIVE_SYMBOLS, get_asset
 from app.core.cache import get_feed_last_update, get_latest_price, get_latest_regime
 from app.feeds.manager import feed_manager
+from app.feeds.twelvedata_limiter import (
+    feed_recovery_pause_remaining_seconds,
+    is_feed_recovery_paused,
+)
 from app.logging_config import logger
 from app.services.feed_status import FeedConnectionState, get_all_feed_statuses, set_feed_status
 from app.services.market_hours import is_market_open
@@ -155,6 +159,14 @@ async def recover_feed(symbol: str, reason: str) -> bool:
         logger.info("feed_recovery_skipped_cooldown", symbol=symbol)
         return False
 
+    if is_feed_recovery_paused():
+        logger.info(
+            "feed_recovery_skipped_twelvedata_429",
+            symbol=symbol,
+            remaining_seconds=feed_recovery_pause_remaining_seconds(),
+        )
+        return False
+
     await set_feed_status(
         symbol,
         FeedConnectionState.RECONNECTING,
@@ -254,6 +266,12 @@ async def recover_feed(symbol: str, reason: str) -> bool:
 async def run_recovery_cycle(*, force: bool = False) -> FeedHealthReport:
     """Check all feeds; auto-reconnect if disconnected > threshold."""
     report = FeedHealthReport()
+    recovery_paused = is_feed_recovery_paused()
+    if recovery_paused:
+        logger.info(
+            "feed_recovery_paused_twelvedata_429",
+            remaining_seconds=feed_recovery_pause_remaining_seconds(),
+        )
 
     for symbol in ACTIVE_SYMBOLS:
         status = await check_feed_health(symbol)
@@ -282,10 +300,13 @@ async def run_recovery_cycle(*, force: bool = False) -> FeedHealthReport:
                 reason = "forced_recovery"
 
         if needs_recovery and status.market_open and not status.in_cooldown:
-            recovered = await recover_feed(symbol, reason)
-            status.recovered = recovered
-            status = await check_feed_health(symbol)
-            report.actions.append(f"{symbol}:{reason}:{'ok' if recovered else 'fail'}")
+            if recovery_paused:
+                report.actions.append(f"{symbol}:twelvedata_429_pause")
+            else:
+                recovered = await recover_feed(symbol, reason)
+                status.recovered = recovered
+                status = await check_feed_health(symbol)
+                report.actions.append(f"{symbol}:{reason}:{'ok' if recovered else 'fail'}")
         elif needs_recovery and status.in_cooldown:
             report.actions.append(f"{symbol}:cooldown_wait")
         elif not status.market_open:

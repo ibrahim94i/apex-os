@@ -14,14 +14,14 @@ def test_eurusd_uses_twelvedata_feed() -> None:
     asset = ASSETS["EURUSD"]
     assert asset.feed_type == "twelvedata"
     assert asset.twelvedata_symbol == "EUR/USD"
-    assert asset.poll_interval == 300
+    assert asset.poll_interval == 480
 
 
 def test_xauusd_uses_twelvedata_feed() -> None:
     asset = ASSETS["XAUUSD"]
     assert asset.feed_type == "twelvedata"
     assert asset.twelvedata_symbol == "XAU/USD"
-    assert asset.poll_interval == 60
+    assert asset.poll_interval == 480
 
 
 def test_rejection_reason_ar() -> None:
