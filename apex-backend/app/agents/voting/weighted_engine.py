@@ -114,7 +114,7 @@ class AdaptiveWeightedEngine:
         else:
             final_direction = SignalDirection.NEUTRAL
 
-        reasoning_summary = self._build_summary(verdicts, final_direction)
+        reasoning_summary = self._build_summary(verdicts, final_direction, final_confidence)
         if weight_reasons:
             reasoning_summary.extend(weight_reasons[:3])
 
@@ -148,10 +148,16 @@ class AdaptiveWeightedEngine:
         await session.flush()
 
     def _build_summary(
-        self, verdicts: list[AgentVerdict], direction: SignalDirection
+        self,
+        verdicts: list[AgentVerdict],
+        direction: SignalDirection,
+        confidence: float,
     ) -> list[str]:
         dir_ar = {"LONG": "شراء", "SHORT": "بيع", "NEUTRAL": "محايد"}
-        summary = [f"القرار الجماعي: {dir_ar.get(direction.value, direction.value)}"]
+        summary = [
+            f"القرار الجماعي: {dir_ar.get(direction.value, direction.value)} "
+            f"({confidence:.0%} موزونة)"
+        ]
         for v in verdicts:
             summary.append(
                 f"{v.agent_name_ar}: {dir_ar.get(v.direction.value, v.direction.value)} "

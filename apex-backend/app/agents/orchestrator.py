@@ -78,10 +78,11 @@ class AgentOrchestrator:
                 update={
                     "team_discussion": team_discussion,
                     "discussion_summary_ar": team_discussion.discussion_summary,
-                    "final_direction": team_discussion.round3_final.direction,
-                    "final_confidence": team_discussion.round3_final.confidence,
+                    # Keep final_direction/final_confidence from weighted voting — do not
+                    # overwrite with round3 LLM synthesis (avoids 70% display vs 61.5% math).
                     "reasoning_summary": (
-                        team_discussion.discussion_summary
+                        consensus.reasoning_summary
+                        + team_discussion.discussion_summary
                         + [f"اتفاق: {a}" for a in team_discussion.agreements[:3]]
                         + [f"خلاف: {d}" for d in team_discussion.disagreements[:3]]
                     ),
