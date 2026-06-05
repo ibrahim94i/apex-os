@@ -103,9 +103,9 @@ async def check_feed_health(symbol: str) -> FeedHealthStatus:
     has_warm_data = price_data is not None and regime_data is not None
 
     if last_raw:
-        bar_ts = last_raw.get("timestamp")
-        if bar_ts:
-            last_dt = _parse_ts(bar_ts)
+        poll_ts_raw = last_raw.get("received_at") or last_raw.get("timestamp")
+        if poll_ts_raw:
+            last_dt = _parse_ts(poll_ts_raw)
         age = feed_poll_age_seconds(last_raw)
         limit = feed_staleness_limit_seconds(symbol)
         if open_now and age is not None and age > limit:
@@ -320,6 +320,7 @@ async def run_recovery_cycle(*, force: bool = False) -> FeedHealthReport:
                 symbol,
                 FeedConnectionState.CONNECTED,
                 last_update=status.last_update,
+                poll_received_at=status.last_update,
                 age_seconds=status.age_seconds,
             )
 

@@ -95,7 +95,8 @@ class BinanceRestFeed:
         await set_feed_status(
             self.apex_symbol,
             FeedConnectionState.CONNECTED,
-            last_update=self._last_success_at,
+            last_update=now,
+            poll_received_at=now,
             detail=f"source={source}",
         )
         if self.on_bar:

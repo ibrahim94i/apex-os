@@ -25,6 +25,25 @@ async def test_get_all_feed_statuses_clamps_future_age_to_zero() -> None:
 
 
 @pytest.mark.asyncio
+async def test_get_all_feed_statuses_uses_poll_received_at() -> None:
+    poll_at = datetime.now(timezone.utc).isoformat()
+    bar_at = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
+    cached = {
+        "symbol": "BTCUSDT",
+        "status": "connected",
+        "status_ar": "متصل",
+        "last_update": bar_at,
+        "poll_received_at": poll_at,
+        "age_seconds": 9999,
+        "consecutive_failures": 0,
+    }
+    with patch("app.services.feed_status.get_feed_status", new_callable=AsyncMock, return_value=cached):
+        out = await get_all_feed_statuses(["BTCUSDT"])
+    assert out["BTCUSDT"]["age_seconds"] is not None
+    assert out["BTCUSDT"]["age_seconds"] < 10
+
+
+@pytest.mark.asyncio
 async def test_get_all_feed_statuses_recomputes_stale_age() -> None:
     past = (datetime.now(timezone.utc) - timedelta(minutes=10)).isoformat()
     cached = {
@@ -32,6 +51,7 @@ async def test_get_all_feed_statuses_recomputes_stale_age() -> None:
         "status": "connected",
         "status_ar": "متصل",
         "last_update": past,
+        "poll_received_at": past,
         "age_seconds": 0,
         "consecutive_failures": 0,
     }

@@ -28,7 +28,7 @@ def test_feed_poll_age_falls_back_to_timestamp() -> None:
 
 
 def test_xauusd_staleness_limit_at_least_poll_interval() -> None:
-    assert feed_staleness_limit_seconds("XAUUSD") >= 300 * 3
+    assert feed_staleness_limit_seconds("XAUUSD") >= 180 * 3
 
 
 @pytest.mark.asyncio

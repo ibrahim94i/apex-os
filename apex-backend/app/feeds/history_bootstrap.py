@@ -12,6 +12,15 @@ from app.config import settings
 from app.config.assets import ACTIVE_SYMBOLS, ASSETS, AssetConfig
 from app.logging_config import logger
 
+BINANCE_BOOTSTRAP_BARS = 200
+DEFAULT_BOOTSTRAP_BARS = 250
+
+
+def bootstrap_limit_for(asset: AssetConfig) -> int:
+    if asset.feed_type == "binance":
+        return BINANCE_BOOTSTRAP_BARS
+    return DEFAULT_BOOTSTRAP_BARS
+
 
 def _normalize_bar(
     symbol: str,
@@ -191,7 +200,7 @@ async def fetch_frankfurter_history(
 
 
 async def fetch_bootstrap_history(asset: AssetConfig, limit: int = 250) -> list[dict[str, Any]]:
-    """Bootstrap: TwelveData (gold) or Frankfurter (FX) → DB fallback."""
+    """Bootstrap: primary feed history → DB fallback."""
     bars = await fetch_history_for_asset(asset, limit)
     if len(bars) >= limit:
         logger.info(
@@ -238,8 +247,9 @@ async def fetch_history_for_asset(asset: AssetConfig, limit: int = 100) -> list[
 async def _mark_feed_warmed(symbol: str, bar: dict[str, Any]) -> None:
     from app.core.cache import set_feed_last_update, set_latest_price
 
-    await set_latest_price(symbol, bar["close"], bar["timestamp"])
-    await set_feed_last_update(symbol, bar["timestamp"])
+    now_iso = datetime.now(timezone.utc).isoformat()
+    await set_latest_price(symbol, bar["close"], now_iso)
+    await set_feed_last_update(symbol, bar["timestamp"], received_at=now_iso)
 
 
 async def refresh_dashboard_cache() -> None:
@@ -251,9 +261,10 @@ async def refresh_dashboard_cache() -> None:
         await set_dashboard_state(symbol, dashboard.model_dump(mode="json"))
 
 
-async def bootstrap_asset(symbol: str, limit: int = 250) -> bool:
-    """Fetch H1 history and warm pipeline for one symbol. Returns True on success."""
+async def bootstrap_asset(symbol: str, limit: int | None = None) -> bool:
+    """Fetch H1 history, persist to DB, and warm pipeline. Returns True on success."""
     from app.services.market_hours import is_market_open
+    from app.services.market_data_store import persist_bars_batch
     from app.services.pipeline import process_bar, seed_bars_to_buffer
 
     asset = ASSETS.get(symbol)
@@ -262,27 +273,48 @@ async def bootstrap_asset(symbol: str, limit: int = 250) -> bool:
     if not is_market_open(symbol):
         logger.info("history_bootstrap_skipped_closed", symbol=symbol)
         return False
+
+    bar_limit = limit if limit is not None else bootstrap_limit_for(asset)
     try:
-        bars = await fetch_bootstrap_history(asset, limit)
+        bars = await fetch_bootstrap_history(asset, bar_limit)
         if not bars:
             logger.warning("history_bootstrap_empty", symbol=symbol)
             return False
+
+        if asset.feed_type == "binance" and len(bars) < BINANCE_BOOTSTRAP_BARS:
+            logger.warning(
+                "history_bootstrap_insufficient_bars",
+                symbol=symbol,
+                bars=len(bars),
+                required=BINANCE_BOOTSTRAP_BARS,
+            )
+
+        persisted = await persist_bars_batch(bars)
+        logger.info(
+            "history_bootstrap_persisted",
+            symbol=symbol,
+            bars=len(bars),
+            persisted=persisted,
+        )
+
         seed_bars_to_buffer(bars)
         last_bar = bars[-1]
         await process_bar(last_bar, skip_agents=True)
         await _mark_feed_warmed(symbol, last_bar)
         logger.info("history_bootstrap_complete", symbol=symbol, bars=len(bars))
-        return True
+        return len(bars) >= min(bar_limit, BINANCE_BOOTSTRAP_BARS if asset.feed_type == "binance" else 50)
     except Exception as exc:
         logger.error("history_bootstrap_failed", symbol=symbol, error=str(exc))
         return False
 
 
-async def bootstrap_all_assets(limit: int = 250) -> None:
+async def bootstrap_all_assets(limit: int | None = None) -> None:
     failed: list[str] = []
 
     for symbol in ACTIVE_SYMBOLS:
-        ok = await bootstrap_asset(symbol, limit)
+        asset = ASSETS[symbol]
+        sym_limit = limit if limit is not None else bootstrap_limit_for(asset)
+        ok = await bootstrap_asset(symbol, sym_limit)
         if not ok:
             failed.append(symbol)
         await asyncio.sleep(1)
@@ -295,13 +327,15 @@ async def bootstrap_all_assets(limit: int = 250) -> None:
         still_failed: list[str] = []
         for symbol in failed:
             asset = ASSETS[symbol]
-            ok = await bootstrap_asset(symbol, limit)
+            sym_limit = limit if limit is not None else bootstrap_limit_for(asset)
+            ok = await bootstrap_asset(symbol, sym_limit)
             if ok:
                 continue
             from app.services.market_data_store import fetch_bars_from_db
 
-            db_bars = await fetch_bars_from_db(symbol, limit)
-            if len(db_bars) >= 200:
+            db_bars = await fetch_bars_from_db(symbol, sym_limit)
+            required = BINANCE_BOOTSTRAP_BARS if asset.feed_type == "binance" else 200
+            if len(db_bars) >= required:
                 from app.services.pipeline import process_bar, seed_bars_to_buffer
 
                 seed_bars_to_buffer(db_bars)
@@ -315,7 +349,7 @@ async def bootstrap_all_assets(limit: int = 250) -> None:
                     "history_bootstrap_db_insufficient_bars",
                     symbol=symbol,
                     bars=len(db_bars),
-                    required=200,
+                    required=required,
                 )
             still_failed.append(symbol)
             await asyncio.sleep(1)

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import timezone
+from datetime import datetime, timezone
 from typing import Any
 
 from sqlalchemy import desc, select
@@ -38,6 +38,43 @@ async def fetch_bars_from_db(symbol: str, limit: int = 250) -> list[dict[str, An
         )
         rows = list(reversed(result.scalars().all()))
     return [_bar_to_dict(row) for row in rows]
+
+
+async def persist_bars_batch(bars: list[dict[str, Any]]) -> int:
+    """Insert historical bars; skip duplicates. Returns rows attempted."""
+    if not bars:
+        return 0
+    from sqlalchemy.dialects.postgresql import insert
+
+    from app.models import PriceBar
+
+    values = []
+    for bar in bars:
+        ts = bar["timestamp"]
+        if isinstance(ts, str):
+            ts = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+        if ts.tzinfo is None:
+            ts = ts.replace(tzinfo=timezone.utc)
+        values.append(
+            {
+                "symbol": bar["symbol"],
+                "source": bar.get("source", "unknown"),
+                "timestamp": ts,
+                "open": bar["open"],
+                "high": bar["high"],
+                "low": bar["low"],
+                "close": bar["close"],
+                "volume": bar.get("volume", 0.0),
+            }
+        )
+
+    async with AsyncSessionLocal() as session:
+        stmt = insert(PriceBar).values(values).on_conflict_do_nothing(
+            index_elements=["symbol", "timestamp"]
+        )
+        await session.execute(stmt)
+        await session.commit()
+    return len(values)
 
 
 async def get_latest_price_from_db(symbol: str) -> dict[str, Any] | None:
