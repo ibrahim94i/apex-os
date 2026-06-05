@@ -34,6 +34,7 @@ from app.services.dashboard_builder import build_asset_dashboard_state
 from app.services.market_hours import is_market_open
 from app.services.market_snapshot import bind_indicator_regime_to_symbol, build_market_snapshot
 from app.services.market_status_service import build_market_status
+from app.services.selectivity import selectivity_confidence_floor
 from app.services.signal_filters import apply_high_selectivity_filters
 from app.services.signal_gate import should_emit_new_signal
 from app.services.economic_calendar_gate import check_economic_calendar_gate
@@ -192,6 +193,7 @@ async def process_bar(raw_bar: dict[str, Any], *, skip_agents: bool = False) -> 
                         regime,
                         kill_switch_active=kill_switch.is_active,
                         require_min_confidence=True,
+                        min_confidence=selectivity_confidence_floor(),
                         account_balance=balance,
                     )
                     if signal:

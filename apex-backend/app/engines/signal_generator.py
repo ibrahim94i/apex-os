@@ -117,11 +117,13 @@ class SignalGenerator:
         account_balance: float | None = None,
         *,
         require_min_confidence: bool = True,
+        min_confidence: float | None = None,
     ) -> TradingSignalSchema | None:
         if direction == SignalDirection.NEUTRAL or kill_switch_active:
             return None
 
-        if require_min_confidence and confidence < self._min_confidence:
+        floor = min_confidence if min_confidence is not None else self._min_confidence
+        if require_min_confidence and confidence < floor:
             return None
 
         entry_price = self._entry_price(symbol, bars[-1].close, direction)
@@ -152,7 +154,7 @@ class SignalGenerator:
             signal, regime, indicators, ks_schema, feed_stale
         )
 
-        if require_min_confidence and signal.confidence < self._min_confidence:
+        if require_min_confidence and signal.confidence < floor:
             return None
 
         return signal

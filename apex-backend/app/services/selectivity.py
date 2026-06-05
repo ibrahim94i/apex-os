@@ -25,3 +25,13 @@ def effective_min_confidence_pct(at: datetime | None = None) -> float:
 
 def effective_min_confidence(at: datetime | None = None) -> float:
     return effective_min_confidence_pct(at) / 100.0
+
+
+def selectivity_confidence_floor() -> float:
+    """Hard minimum for agent-driven signals (below = no signal)."""
+    return settings.selectivity_confidence_floor_pct / 100.0
+
+
+def strong_agent_bypass_threshold() -> float:
+    """Market analyst + risk agent must exceed this to skip RSI/ATR filters."""
+    return settings.strong_agent_bypass_threshold_pct / 100.0

@@ -10,7 +10,7 @@ from app.engines.indicator_engine import IndicatorEngine, OHLCVBar
 from app.schemas import IndicatorSnapshotSchema, RegimeSnapshotSchema, RegimeType, SignalDirection
 from app.schemas.agent import AgentConsensus, AgentRole
 from app.services.market_hours import is_gold_trading_session
-from app.services.selectivity import effective_min_confidence
+from app.services.selectivity import selectivity_confidence_floor
 
 
 NEWS_BLOCK_KEY = "apex:news_block:{symbol}"
@@ -49,6 +49,8 @@ def detect_high_impact_news(consensus: AgentConsensus | None) -> bool:
 def check_confluence(
     direction: SignalDirection,
     indicators: IndicatorSnapshotSchema,
+    *,
+    skip_rsi: bool = False,
 ) -> tuple[bool, str | None]:
     if direction == SignalDirection.NEUTRAL:
         return False, "neutral_direction"
@@ -61,10 +63,11 @@ def check_confluence(
     if direction == SignalDirection.SHORT and indicators.ema_50 >= indicators.ema_200:
         return False, "ema_confluence_short"
 
-    if indicators.rsi is None:
-        return False, "missing_rsi"
-    if not (settings.rsi_filter_min <= indicators.rsi <= settings.rsi_filter_max):
-        return False, "rsi_out_of_range"
+    if not skip_rsi:
+        if indicators.rsi is None:
+            return False, "missing_rsi"
+        if not (settings.rsi_filter_min <= indicators.rsi <= settings.rsi_filter_max):
+            return False, "rsi_out_of_range"
 
     if indicators.macd is None or indicators.macd_signal is None:
         return False, "missing_macd"
@@ -74,6 +77,31 @@ def check_confluence(
         return False, "macd_confluence_short"
 
     return True, None
+
+
+def get_agent_confidences(consensus: AgentConsensus | None) -> tuple[float | None, float | None]:
+    if not consensus:
+        return None, None
+    market: float | None = None
+    risk: float | None = None
+    for verdict in consensus.verdicts:
+        if verdict.agent_id == AgentRole.MARKET_ANALYST:
+            market = verdict.confidence
+        elif verdict.agent_id == AgentRole.RISK:
+            risk = verdict.confidence
+    return market, risk
+
+
+def should_bypass_rsi_atr_filters(consensus: AgentConsensus | None) -> bool:
+    """Both market analyst and risk agent above threshold → skip RSI/ATR only."""
+    market, risk = get_agent_confidences(consensus)
+    threshold = settings.strong_agent_bypass_threshold_pct / 100.0
+    return (
+        market is not None
+        and risk is not None
+        and market > threshold
+        and risk > threshold
+    )
 
 
 def check_regime_filter(
@@ -149,11 +177,13 @@ async def apply_high_selectivity_filters(
     consensus: AgentConsensus | None = None,
 ) -> tuple[bool, str | None]:
     """Return (allowed, rejection_reason). False = WAIT."""
-    min_conf = effective_min_confidence()
-    if confidence < min_conf:
+    floor = selectivity_confidence_floor()
+    if confidence < floor:
         return False, "confidence_below_threshold"
 
-    ok, reason = check_confluence(direction, indicators)
+    bypass_rsi_atr = should_bypass_rsi_atr_filters(consensus)
+
+    ok, reason = check_confluence(direction, indicators, skip_rsi=bypass_rsi_atr)
     if not ok:
         return False, reason
 
@@ -164,9 +194,10 @@ async def apply_high_selectivity_filters(
     if symbol == "XAUUSD" and not is_gold_trading_session():
         return False, "gold_session_closed"
 
-    ok, reason = check_atr_volatility(indicators, bars)
-    if not ok:
-        return False, reason
+    if not bypass_rsi_atr:
+        ok, reason = check_atr_volatility(indicators, bars)
+        if not ok:
+            return False, reason
 
     if await check_news_block(symbol):
         return False, "high_impact_news_window"

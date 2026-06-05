@@ -33,6 +33,9 @@ class Settings(BaseSettings):
     signal_timeframe: str = "1h"
     min_signal_confidence_pct: float = 70.0
     min_signal_confidence_pct_post_learning: float = 80.0
+    selectivity_confidence_floor_pct: float = 70.0
+    selectivity_filter_band_max_pct: float = 75.0
+    strong_agent_bypass_threshold_pct: float = 75.0
     learning_period_days: int = 14
     high_selectivity_learning_start: str = "2026-05-29"
     signal_cooldown_hours: float = 2.0
