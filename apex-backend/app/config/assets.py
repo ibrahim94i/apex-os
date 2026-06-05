@@ -45,7 +45,7 @@ ASSETS: dict[str, AssetConfig] = {
         market_schedule="xauusd",
         twelvedata_symbol="XAU/USD",
         candle_interval="1h",
-        poll_interval=240,
+        poll_interval=60,
         min_price_move=0.50,
         default_spread=0.30,
     ),
@@ -56,7 +56,7 @@ ASSETS: dict[str, AssetConfig] = {
         market_schedule="forex_24_5",
         twelvedata_symbol="EUR/USD",
         candle_interval="1h",
-        poll_interval=240,
+        poll_interval=300,
         min_price_move=0.00050,
         default_spread=0.00015,
         price_decimals=5,
@@ -68,7 +68,7 @@ ASSETS: dict[str, AssetConfig] = {
         market_schedule="forex_24_5",
         twelvedata_symbol="USD/JPY",
         candle_interval="1h",
-        poll_interval=240,
+        poll_interval=300,
         min_price_move=0.02,
         default_spread=0.01,
         price_decimals=3,
@@ -80,14 +80,14 @@ ASSETS: dict[str, AssetConfig] = {
         market_schedule="forex_24_5",
         twelvedata_symbol="GBP/USD",
         candle_interval="1h",
-        poll_interval=240,
+        poll_interval=300,
         min_price_move=0.00050,
         default_spread=0.00015,
         price_decimals=5,
     ),
 }
 
-# Active trading universe (BTCUSDT excluded until further notice)
+# Active trading universe
 ACTIVE_SYMBOLS: list[str] = ["XAUUSD", "EURUSD", "USDJPY", "GBPUSD"]
 
 
