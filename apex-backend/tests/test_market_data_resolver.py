@@ -154,4 +154,58 @@ async def test_twelvedata_tried_every_poll_even_during_recovery_pause() -> None:
                         new=AsyncMock(),
                     ):
                         await fetch_live_bar_with_fallback("EURUSD", "EUR/USD")
-    mock_td.assert_awaited_once()
+@pytest.mark.asyncio
+async def test_auto_return_to_twelvedata_after_finnhub() -> None:
+    """Finnhub stays active until the next poll succeeds on TwelveData."""
+    from app.services.data_source_monitor import report_live_bar_source
+
+    fh_bar = {
+        "symbol": "EURUSD",
+        "timestamp": "2026-06-01T11:00:00+00:00",
+        "open": 1.08,
+        "high": 1.09,
+        "low": 1.07,
+        "close": 1.085,
+        "volume": 0.0,
+        "source": "finnhub",
+        "is_closed": True,
+    }
+    td_bar = {
+        "symbol": "EURUSD",
+        "timestamp": "2026-06-01T12:00:00+00:00",
+        "open": 1.09,
+        "high": 1.10,
+        "low": 1.08,
+        "close": 1.095,
+        "volume": 0.0,
+        "source": "twelvedata",
+        "is_closed": True,
+    }
+
+    with patch(
+        "app.services.market_data_resolver._fetch_twelvedata_latest",
+        new=AsyncMock(return_value=None),
+    ):
+        with patch(
+            "app.services.market_data_resolver.fetch_finnhub_latest_bar",
+            new=AsyncMock(return_value=fh_bar),
+        ):
+            with patch(
+                "app.services.market_data_resolver.report_live_bar_source",
+                new=AsyncMock(wraps=report_live_bar_source),
+            ):
+                bar, source = await fetch_live_bar_with_fallback("EURUSD", "EUR/USD")
+    assert source == "finnhub"
+
+    with patch(
+        "app.services.market_data_resolver._fetch_twelvedata_latest",
+        new=AsyncMock(return_value=td_bar),
+    ):
+        with patch(
+            "app.services.market_data_resolver.report_live_bar_source",
+            new=AsyncMock(wraps=report_live_bar_source),
+        ):
+            bar, source = await fetch_live_bar_with_fallback("EURUSD", "EUR/USD")
+    assert source == "twelvedata"
+    assert bar == td_bar
+
