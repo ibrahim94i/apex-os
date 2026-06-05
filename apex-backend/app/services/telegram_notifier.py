@@ -153,5 +153,48 @@ class TelegramNotifier:
 
         return await self._send(text)
 
+    async def send_data_source_failover_alert(
+        self,
+        symbol: str,
+        *,
+        primary: str,
+        fallback: str,
+    ) -> bool:
+        asset = ASSET_AR.get(symbol, symbol)
+        fallback_ar = {
+            "finnhub": "Finnhub",
+            "db": "قاعدة البيانات (آخر بيانات محفوظة)",
+            "twelvedata": "TwelveData",
+        }.get(fallback, fallback)
+        primary_ar = {
+            "twelvedata": "TwelveData",
+            "finnhub": "Finnhub",
+        }.get(primary, primary)
+        text = (
+            f"⚠️ <b>انقطاع مصدر البيانات</b>\n\n"
+            f"📌 الأصل: <b>{asset}</b>\n"
+            f"❌ المصدر الأساسي ({primary_ar}) غير متاح\n"
+            f"🔄 التبديل التلقائي إلى: <b>{fallback_ar}</b>\n"
+            f"⏰ {datetime.now(BAGHDAD).strftime('%Y-%m-%d %H:%M')} (العراق)"
+        )
+        return await self._send(text)
+
+    async def send_data_source_recovery_alert(
+        self,
+        symbol: str,
+        *,
+        primary: str,
+        fallback: str,
+    ) -> bool:
+        asset = ASSET_AR.get(symbol, symbol)
+        primary_ar = {"twelvedata": "TwelveData", "finnhub": "Finnhub"}.get(primary, primary)
+        text = (
+            f"✅ <b>عودة مصدر البيانات</b>\n\n"
+            f"📌 الأصل: <b>{asset}</b>\n"
+            f"🔗 {primary_ar} يعمل مجدداً\n"
+            f"⏰ {datetime.now(BAGHDAD).strftime('%Y-%m-%d %H:%M')} (العراق)"
+        )
+        return await self._send(text)
+
 
 telegram_notifier = TelegramNotifier()

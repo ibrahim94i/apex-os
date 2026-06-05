@@ -28,7 +28,7 @@ def test_feed_poll_age_falls_back_to_timestamp() -> None:
 
 
 def test_xauusd_staleness_limit_at_least_poll_interval() -> None:
-    assert feed_staleness_limit_seconds("XAUUSD") >= 480 * 3
+    assert feed_staleness_limit_seconds("XAUUSD") >= 300 * 3
 
 
 @pytest.mark.asyncio
@@ -54,7 +54,7 @@ async def test_feed_not_stale_when_market_closed() -> None:
 
 @pytest.mark.asyncio
 async def test_feed_stale_when_no_recent_poll() -> None:
-    old_received = (datetime.now(timezone.utc) - timedelta(minutes=30)).isoformat()
+    old_received = (datetime.now(timezone.utc) - timedelta(minutes=20)).isoformat()
     with patch(
         "app.services.feed_freshness.get_feed_last_update",
         new=AsyncMock(

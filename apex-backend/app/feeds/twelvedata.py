@@ -1,4 +1,4 @@
-"""TwelveData REST polling feed with error backoff and auto-recovery."""
+"""TwelveData REST polling feed with Finnhub/DB fallback chain."""
 
 from __future__ import annotations
 
@@ -6,29 +6,18 @@ import asyncio
 from datetime import datetime, timezone
 from typing import Any, Awaitable, Callable
 
-import httpx
-
 from app.config import settings
 from app.core.cache import set_feed_last_update, set_latest_price
+from app.feeds.twelvedata_limiter import is_feed_recovery_paused
 from app.logging_config import logger
 from app.services.feed_status import FeedConnectionState, set_feed_status
+from app.services.market_data_resolver import fetch_live_bar_with_fallback
 from app.utils.time_utils import compute_age_seconds, parse_utc_timestamp
 
 BarCallback = Callable[[dict[str, Any]], Awaitable[None]]
 
-# Max age for latest bar before considered stale (interval-aware)
-_INTERVAL_MAX_BAR_AGE: dict[str, float] = {
-    "1h": 3900.0,    # current H1 bar can be up to ~60 min old
-    "30min": 2100.0,
-    "15min": 1200.0,
-    "5min": 600.0,
-    "1min": 180.0,
-}
-
 
 class TwelveDataFeed:
-    BASE_URL = "https://api.twelvedata.com/time_series"
-
     def __init__(
         self,
         api_key: str | None = None,
@@ -39,8 +28,10 @@ class TwelveDataFeed:
         on_bar: BarCallback | None = None,
         stagger_seconds: int = 0,
     ) -> None:
-        self.api_key = api_key or settings.twelvedata_api_key
-        self.symbol = symbol or settings.twelvedata_symbol
+        from app.config import settings as app_settings
+
+        self.api_key = api_key or app_settings.twelvedata_api_key
+        self.symbol = symbol or app_settings.twelvedata_symbol
         self.apex_symbol = apex_symbol or self.symbol.replace("/", "")
         self.interval = interval
         self.poll_interval = poll_interval
@@ -49,6 +40,7 @@ class TwelveDataFeed:
         self._running = False
         self._task: asyncio.Task[None] | None = None
         self._last_success_at: datetime | None = None
+        self._last_source: str | None = None
         self._error_count = 0
         self._reconnect_count = 0
 
@@ -64,126 +56,40 @@ class TwelveDataFeed:
             "running": self._running,
             "task_alive": self._task is not None and not self._task.done(),
             "last_success_at": self._last_success_at.isoformat() if self._last_success_at else None,
+            "last_source": self._last_source,
+            "twelvedata_rate_limited": is_feed_recovery_paused(),
             "error_count": self._error_count,
             "reconnect_count": self._reconnect_count,
         }
 
-    def _bar_age_seconds(self, bar: dict[str, Any]) -> float:
-        ts = bar["timestamp"]
-        if isinstance(ts, datetime):
-            return float(compute_age_seconds(ts))
-        return float(compute_age_seconds(str(ts)))
-
-    def _max_bar_age_seconds(self) -> float:
-        return _INTERVAL_MAX_BAR_AGE.get(
-            self.interval, float(settings.feed_staleness_limit_seconds)
+    async def _publish_bar(self, bar: dict[str, Any], source: str) -> None:
+        self._last_success_at = datetime.now(timezone.utc)
+        self._last_source = source
+        self._error_count = 0
+        bar_dt = parse_utc_timestamp(bar["timestamp"])
+        bar_age = compute_age_seconds(bar_dt)
+        await set_latest_price(bar["symbol"], bar["close"], bar["timestamp"])
+        await set_feed_last_update(bar["symbol"], bar["timestamp"])
+        await set_feed_status(
+            self.apex_symbol,
+            FeedConnectionState.CONNECTED,
+            last_update=bar_dt,
+            age_seconds=bar_age,
+            detail=f"source={source}",
         )
+        if self.on_bar:
+            await self.on_bar(bar)
 
-    def _is_bar_stale(self, bar: dict[str, Any]) -> bool:
-        # Hourly candles are NOT stale just because the bar opened <1h ago
-        return self._bar_age_seconds(bar) > self._max_bar_age_seconds()
-
-    async def _fetch_latest_bar(self) -> dict[str, Any] | None:
-        if not self.api_key or self.api_key == "your_key_here":
-            logger.warning("twelvedata_api_key_not_configured", symbol=self.apex_symbol)
-            return None
-
-        params = {
-            "symbol": self.symbol,
-            "interval": self.interval,
-            "outputsize": 1,
-            "apikey": self.api_key,
-        }
-
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            from app.feeds.twelvedata_limiter import throttled_get
-
-            response = await throttled_get(client, self.BASE_URL, params=params)
-            if response.status_code == 404:
-                logger.warning(
-                    "twelvedata_symbol_unavailable",
-                    symbol=self.apex_symbol,
-                    td_symbol=self.symbol,
-                    hint="symbol may require a paid TwelveData plan",
-                )
-                return None
-            response.raise_for_status()
-            data = response.json()
-
-        if data.get("status") == "error":
-            raise RuntimeError(data.get("message", "twelvedata error"))
-
-        if "values" not in data or not data["values"]:
-            logger.warning("twelvedata_no_data", symbol=self.apex_symbol, response=data)
-            return None
-
-        row = data["values"][0]
-        ts = datetime.strptime(row["datetime"], "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
-
-        return {
-            "symbol": self.apex_symbol,
-            "timestamp": ts.isoformat(),
-            "open": float(row["open"]),
-            "high": float(row["high"]),
-            "low": float(row["low"]),
-            "close": float(row["close"]),
-            "volume": float(row.get("volume", 0)),
-            "source": "twelvedata",
-            "is_closed": True,
-        }
-
-    async def _fetch_latest_bar_with_retry(self) -> dict[str, Any] | None:
-        """Fetch latest bar; retry automatically when TwelveData returns stale data."""
-        max_retries = settings.twelvedata_stale_retry_count
-        delay = settings.twelvedata_stale_retry_delay_seconds
-        last_bar: dict[str, Any] | None = None
-
-        for attempt in range(1, max_retries + 2):
-            try:
-                bar = await self._fetch_latest_bar()
-            except httpx.HTTPStatusError as exc:
-                if exc.response.status_code in (404, 429):
-                    logger.warning(
-                        "twelvedata_fetch_skipped",
-                        symbol=self.apex_symbol,
-                        status=exc.response.status_code,
-                        attempt=attempt,
-                    )
-                    return None
-                raise
-            if bar is None:
-                if attempt <= max_retries:
-                    logger.info(
-                        "twelvedata_empty_retry",
-                        symbol=self.apex_symbol,
-                        attempt=attempt,
-                        delay=delay,
-                    )
-                    await asyncio.sleep(delay)
-                    continue
-                return None
-
-            last_bar = bar
-            if not self._is_bar_stale(bar):
-                if attempt > 1:
-                    logger.info(
-                        "twelvedata_stale_retry_success",
-                        symbol=self.apex_symbol,
-                        attempt=attempt,
-                    )
-                return bar
-
-            logger.warning(
-                "twelvedata_stale_data_retry",
-                symbol=self.apex_symbol,
-                bar_age_seconds=round(self._bar_age_seconds(bar), 1),
-                attempt=attempt,
-                max_retries=max_retries,
-            )
-            if attempt <= max_retries:
-                await asyncio.sleep(delay)
-
-        return last_bar
+    async def _poll_once(self) -> bool:
+        bar, source = await fetch_live_bar_with_fallback(
+            self.apex_symbol,
+            self.symbol,
+            interval=self.interval,
+        )
+        if not bar or not source:
+            return False
+        await self._publish_bar(bar, source)
+        return True
 
     async def _poll_loop(self) -> None:
         from app.services.market_hours import is_market_open
@@ -200,48 +106,20 @@ class TwelveDataFeed:
                     await asyncio.sleep(min(self.poll_interval, 60))
                     continue
 
-                bar = await self._fetch_latest_bar_with_retry()
-                if bar:
-                    self._last_success_at = datetime.now(timezone.utc)
-                    self._error_count = 0
-                    error_backoff = 5
-                    bar_dt = parse_utc_timestamp(bar["timestamp"])
-                    bar_age = compute_age_seconds(bar_dt)
-                    await set_latest_price(bar["symbol"], bar["close"], bar["timestamp"])
-                    await set_feed_last_update(bar["symbol"], bar["timestamp"])
-                    await set_feed_status(
-                        self.apex_symbol,
-                        FeedConnectionState.CONNECTED,
-                        last_update=bar_dt,
-                        age_seconds=bar_age,
-                    )
-                    if self.on_bar:
-                        await self.on_bar(bar)
+                if await self._poll_once():
                     await asyncio.sleep(self.poll_interval)
                 else:
+                    self._error_count += 1
+                    await set_feed_status(
+                        self.apex_symbol,
+                        FeedConnectionState.RECONNECTING,
+                        consecutive_failures=self._error_count,
+                    )
                     await asyncio.sleep(min(error_backoff, 60))
+                    error_backoff = min(error_backoff * 2, 120)
 
             except asyncio.CancelledError:
                 raise
-            except httpx.HTTPStatusError as exc:
-                self._error_count += 1
-                self._reconnect_count += 1
-                await set_feed_status(
-                    self.apex_symbol,
-                    FeedConnectionState.RECONNECTING,
-                    consecutive_failures=self._error_count,
-                )
-                if exc.response.status_code == 429:
-                    error_backoff = max(error_backoff, 90)
-                logger.error(
-                    "twelvedata_poll_error",
-                    symbol=self.apex_symbol,
-                    status=exc.response.status_code,
-                    error=str(exc),
-                    backoff=error_backoff,
-                )
-                await asyncio.sleep(error_backoff)
-                error_backoff = min(error_backoff * 2, 180)
             except Exception as exc:
                 self._error_count += 1
                 self._reconnect_count += 1
@@ -282,23 +160,7 @@ class TwelveDataFeed:
     async def fetch_now(self) -> bool:
         """Immediate poll — used during recovery."""
         try:
-            bar = await self._fetch_latest_bar_with_retry()
-            if not bar:
-                return False
-            self._last_success_at = datetime.now(timezone.utc)
-            bar_dt = parse_utc_timestamp(bar["timestamp"])
-            bar_age = compute_age_seconds(bar_dt)
-            await set_latest_price(bar["symbol"], bar["close"], bar["timestamp"])
-            await set_feed_last_update(bar["symbol"], bar["timestamp"])
-            await set_feed_status(
-                self.apex_symbol,
-                FeedConnectionState.CONNECTED,
-                last_update=bar_dt,
-                age_seconds=bar_age,
-            )
-            if self.on_bar:
-                await self.on_bar(bar)
-            return True
+            return await self._poll_once()
         except Exception as exc:
             logger.error("twelvedata_fetch_now_error", symbol=self.apex_symbol, error=str(exc))
             return False

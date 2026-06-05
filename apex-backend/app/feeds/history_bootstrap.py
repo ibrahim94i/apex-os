@@ -210,6 +210,28 @@ async def fetch_frankfurter_history(
     return merged[-limit:] if merged else []
 
 
+async def fetch_bootstrap_history(asset: AssetConfig, limit: int = 250) -> list[dict[str, Any]]:
+    """Bootstrap: Finnhub history first, then DB (no TwelveData credits on startup)."""
+    if asset.finnhub_symbol:
+        from app.feeds.finnhub_market import fetch_finnhub_history
+
+        bars = await fetch_finnhub_history(
+            asset.symbol,
+            asset.finnhub_symbol,
+            limit=limit,
+            interval=asset.candle_interval,
+        )
+        if bars:
+            return bars
+
+    from app.services.market_data_store import fetch_bars_from_db
+
+    db_bars = await fetch_bars_from_db(asset.symbol, limit)
+    if db_bars:
+        logger.info("history_bootstrap_db_fallback", symbol=asset.symbol, bars=len(db_bars))
+    return db_bars
+
+
 async def fetch_history_for_asset(asset: AssetConfig, limit: int = 100) -> list[dict[str, Any]]:
     if asset.feed_type == "binance":
         return await fetch_binance_history(asset.symbol, limit, asset.candle_interval)
@@ -255,13 +277,7 @@ async def bootstrap_asset(symbol: str, limit: int = 250) -> bool:
         logger.info("history_bootstrap_skipped_closed", symbol=symbol)
         return False
     try:
-        bars = await fetch_history_for_asset(asset, limit)
-        if not bars:
-            from app.services.market_data_store import fetch_bars_from_db
-
-            bars = await fetch_bars_from_db(symbol, limit)
-            if bars:
-                logger.info("history_bootstrap_db_fallback", symbol=symbol, bars=len(bars))
+        bars = await fetch_bootstrap_history(asset, limit)
         if not bars:
             logger.warning("history_bootstrap_empty", symbol=symbol)
             return False
@@ -280,16 +296,10 @@ async def bootstrap_all_assets(limit: int = 250) -> None:
     failed: list[str] = []
 
     for symbol in ACTIVE_SYMBOLS:
-        asset = ASSETS[symbol]
         ok = await bootstrap_asset(symbol, limit)
         if not ok:
             failed.append(symbol)
-        if asset.feed_type == "twelvedata":
-            await asyncio.sleep(15)
-        elif asset.feed_type == "alphavantage":
-            await asyncio.sleep(2)
-        elif asset.feed_type == "frankfurter":
-            await asyncio.sleep(2)
+        await asyncio.sleep(1)
 
     for attempt in range(1, 4):
         if not failed:
@@ -322,10 +332,7 @@ async def bootstrap_all_assets(limit: int = 250) -> None:
                     required=200,
                 )
             still_failed.append(symbol)
-            if asset.feed_type == "twelvedata":
-                await asyncio.sleep(15)
-            elif asset.feed_type == "alphavantage":
-                await asyncio.sleep(2)
+            await asyncio.sleep(1)
         failed = still_failed
 
     if failed:

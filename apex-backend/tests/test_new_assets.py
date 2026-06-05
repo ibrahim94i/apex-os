@@ -5,7 +5,7 @@ from app.feeds.manager import feed_manager
 from app.services.market_hours import SCHEDULE_LABELS
 from app.services.telegram_notifier import ASSET_AR
 
-POLL_INTERVAL_SECONDS = 480
+POLL_INTERVAL_SECONDS = 300
 
 
 def test_active_symbols_four_assets() -> None:
@@ -13,7 +13,7 @@ def test_active_symbols_four_assets() -> None:
     assert "BTCUSDT" not in ACTIVE_SYMBOLS
 
 
-def test_fx_active_assets_poll_eight_minutes() -> None:
+def test_fx_active_assets_poll_five_minutes() -> None:
     for symbol in ("EURUSD", "USDJPY", "GBPUSD"):
         assert ASSETS[symbol].poll_interval == POLL_INTERVAL_SECONDS
 
