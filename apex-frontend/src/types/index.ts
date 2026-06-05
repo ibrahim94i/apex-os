@@ -330,6 +330,12 @@ export interface AdvisorAssetContext {
   symbol: string;
   display_name_ar: string;
   price?: number | null;
+  apex_price?: number | null;
+  price_timestamp?: string | null;
+  price_age_minutes?: number | null;
+  apex_price_stale?: boolean;
+  price_source?: string | null;
+  price_requires_web?: boolean;
   feed_type?: string | null;
   regime?: string | null;
   regime_confidence?: number | null;

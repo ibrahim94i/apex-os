@@ -1241,6 +1241,15 @@ body {
   font-size: 0.8rem;
 }
 
+.advisor-stale-badge {
+  font-size: 0.65rem;
+  color: var(--gold);
+  border: 1px solid var(--gold);
+  border-radius: 3px;
+  padding: 0.1rem 0.35rem;
+  margin-inline-start: 0.35rem;
+}
+
 .advisor-context-meta {
   display: flex;
   flex-wrap: wrap;

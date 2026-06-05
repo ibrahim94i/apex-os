@@ -1,9 +1,11 @@
 """Tests for Smart Advisor service."""
 
+from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from app.services.advisor_price_resolver import AdvisorPriceInfo
 from app.services.advisor_service import (
     _build_user_prompt,
     _ensure_intraday_disclaimer,
@@ -18,9 +20,18 @@ from app.utils.llm_client import LLMResponse
 
 @pytest.mark.asyncio
 async def test_build_asset_advisor_context() -> None:
+    fresh_info = AdvisorPriceInfo(
+        price=4400.0,
+        apex_price=4400.0,
+        price_timestamp=datetime.now(timezone.utc),
+        price_age_minutes=1.0,
+        apex_price_stale=False,
+        price_source="apex",
+        price_requires_web=False,
+    )
     with patch(
-        "app.services.advisor_service.get_latest_price",
-        new=AsyncMock(return_value={"price": 4400.0, "timestamp": "2026-06-01T12:00:00+00:00"}),
+        "app.services.advisor_service.resolve_advisor_price",
+        new=AsyncMock(return_value=fresh_info),
     ):
         with patch(
             "app.services.advisor_service.get_latest_regime",

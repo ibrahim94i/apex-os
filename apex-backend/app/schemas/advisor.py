@@ -23,6 +23,12 @@ class AdvisorAssetContext(BaseModel):
     symbol: str
     display_name_ar: str
     price: float | None = None
+    apex_price: float | None = None
+    price_timestamp: datetime | None = None
+    price_age_minutes: float | None = None
+    apex_price_stale: bool = False
+    price_source: str | None = None
+    price_requires_web: bool = False
     feed_type: str | None = None
     regime: str | None = None
     regime_confidence: float | None = None

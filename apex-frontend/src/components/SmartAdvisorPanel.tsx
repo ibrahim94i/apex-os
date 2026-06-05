@@ -26,6 +26,12 @@ function ContextCard({ ctx }: { ctx: AdvisorAssetContext }) {
         <span className="mono advisor-context-price">
           {ctx.price != null ? ctx.price.toFixed(ctx.symbol === "XAUUSD" ? 2 : 5) : "—"}
         </span>
+        {ctx.price_requires_web && (
+          <span className="advisor-stale-badge">بحث ويب</span>
+        )}
+        {ctx.apex_price_stale && !ctx.price_requires_web && ctx.price_source?.startsWith("live_fallback") && (
+          <span className="advisor-stale-badge">APEX قديم</span>
+        )}
       </div>
       <div className="advisor-context-meta">
         {ctx.regime && <span>{translateRegime(ctx.regime)}</span>}

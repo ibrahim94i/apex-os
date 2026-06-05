@@ -10,17 +10,17 @@ from app.config.assets import ACTIVE_SYMBOLS, ASSETS, get_asset
 from app.core.cache import (
     get_agent_consensus,
     get_latest_indicators,
-    get_latest_price,
     get_latest_regime,
     get_latest_signal,
 )
 from app.logging_config import logger
 from app.schemas.advisor import AdvisorAssetContext, AdvisorChatResponse, AdvisorContextResponse
-from app.services.market_data_store import get_latest_price_from_db, get_latest_regime_from_db
+from app.services.market_data_store import get_latest_regime_from_db
 from app.services.market_snapshot import redis_snapshot_matches_symbol
 from app.services.news_aggregator import fetch_news_for_symbol
 from app.utils.llm_client import LLMClientError, llm_client
 
+from app.services.advisor_price_resolver import resolve_advisor_price
 from app.services.advisor_prompt import ADVISOR_SYSTEM_PROMPT, INTRADAY_DISCLAIMER
 
 
@@ -48,8 +48,26 @@ async def _build_intraday_block(symbol: str, ctx: AdvisorAssetContext) -> str:
     if ctx.price is not None:
         dec = 2 if symbol == "XAUUSD" else (3 if symbol == "USDJPY" else 5)
         lo, hi = _entry_band(ctx.price)
-        lines.append(f"السعر الحالي APEX: {_fmt(ctx.price, dec)}")
+        source_label = ctx.price_source or "apex"
+        lines.append(f"السعر المرجعي ({source_label}): {_fmt(ctx.price, dec)}")
         lines.append(f"نطاق الدخول المسموح (±0.5%): {_fmt_band(lo, hi, dec)}")
+        if ctx.price_age_minutes is not None and ctx.price_age_minutes > 0:
+            lines.append(f"عمر السعر: {ctx.price_age_minutes:.1f} دقيقة")
+    elif ctx.price_requires_web:
+        lines.append(
+            "⛔ سعر APEX قديم/غير متاح — ابحث في Investing.com + TradingView + Yahoo Finance "
+            "واستخدم أدق سعر لحظي (لا تستخدم APEX القديم)"
+        )
+        if ctx.apex_price is not None and ctx.apex_price_stale:
+            dec = 2 if symbol == "XAUUSD" else (3 if symbol == "USDJPY" else 5)
+            age_note = (
+                f" (أقدم من {ctx.price_age_minutes:.0f} د)"
+                if ctx.price_age_minutes is not None
+                else ""
+            )
+            lines.append(
+                f"سعر APEX القديم ⛔ ممنوع: {_fmt(ctx.apex_price, dec)}{age_note}"
+            )
 
     bars = await fetch_bars_from_db(symbol, limit=8)
     if bars:
@@ -87,9 +105,9 @@ async def _build_intraday_block(symbol: str, ctx: AdvisorAssetContext) -> str:
     else:
         lines.append("شموع H1: غير متوفرة — اعتمد على البحث اللحظي فقط")
 
-    if not ctx.data_complete:
+    if not ctx.data_complete or ctx.price_requires_web:
         lines.append(
-            "⚠️ بيانات APEX ناقصة — ابحث في الويب عن السعر اللحظي وتحليل الجلسة الحالية فقط"
+            "⚠️ بيانات APEX ناقصة أو السعر قديم — ابحث في Investing.com وTradingView وYahoo Finance"
         )
 
     return "\n".join(lines)
@@ -123,10 +141,7 @@ async def build_asset_advisor_context(symbol: str) -> AdvisorAssetContext:
     display = asset.display_name_ar if asset else symbol
     feed_type = asset.feed_type if asset else None
 
-    price_data = await get_latest_price(symbol)
-    if not price_data:
-        price_data = await get_latest_price_from_db(symbol)
-    price = float(price_data["price"]) if price_data else None
+    price_info = await resolve_advisor_price(symbol)
 
     regime_data = await get_latest_regime(symbol)
     if not regime_data:
@@ -157,12 +172,23 @@ async def build_asset_advisor_context(symbol: str) -> AdvisorAssetContext:
         signal_direction = signal_data.get("direction")
         signal_confidence = signal_data.get("confidence")
 
-    data_complete = bool(price and ind_data and regime_data)
+    data_complete = bool(
+        price_info.price is not None
+        and not price_info.price_requires_web
+        and ind_data
+        and regime_data
+    )
 
     return AdvisorAssetContext(
         symbol=symbol,
         display_name_ar=display,
-        price=price,
+        price=price_info.price,
+        apex_price=price_info.apex_price,
+        price_timestamp=price_info.price_timestamp,
+        price_age_minutes=price_info.price_age_minutes,
+        apex_price_stale=price_info.apex_price_stale,
+        price_source=price_info.price_source,
+        price_requires_web=price_info.price_requires_web,
         feed_type=feed_type,
         regime=regime_data.get("regime") if regime_data else None,
         regime_confidence=regime_data.get("confidence") if regime_data else None,
@@ -205,16 +231,26 @@ def _format_apex_context(contexts: list[AdvisorAssetContext]) -> str:
     blocks: list[str] = []
     for ctx in contexts:
         headlines_note = f"{ctx.news_count} عنوان خبر جلسة" if ctx.news_count else "لا أخبار عاجلة"
+        dec = 2 if ctx.symbol == "XAUUSD" else 5
+        if ctx.price is not None:
+            price_line = f"السعر المرجعي ({ctx.price_source}): {_fmt(ctx.price, dec)}"
+        elif ctx.price_requires_web:
+            stale_note = ""
+            if ctx.apex_price is not None and ctx.apex_price_stale:
+                stale_note = f" | APEX قديم ⛔: {_fmt(ctx.apex_price, dec)}"
+            price_line = f"السعر: يتطلب بحث الويب (Investing/TradingView/Yahoo){stale_note}"
+        else:
+            price_line = "السعر: غير متاح"
         block = f"""
 === {ctx.symbol} ({ctx.display_name_ar}) ===
 مصدر البيانات: {ctx.feed_type or 'غير معروف'}
-السعر APEX: {_fmt(ctx.price, 2 if ctx.symbol == 'XAUUSD' else 5)}
+{price_line}
 مؤشرات H1 (زخم لحظي): RSI {_fmt(ctx.rsi, 1)} | MACD {_fmt(ctx.macd, 4)} | ADX {_fmt(ctx.adx, 1)}
 EMA9/21 (قصير): {_fmt(ctx.ema_9)} / {_fmt(ctx.ema_21)}
 نظام السوق H1: {ctx.regime or 'N/A'}
 قرار الوكلاء: {ctx.agent_direction or 'N/A'} (ثقة: {_fmt(ctx.agent_confidence, 2) if ctx.agent_confidence else 'N/A'})
 آخر إشارة APEX: {ctx.latest_signal_direction or 'لا إشارة'}
-اكتمال البيانات: {'نعم' if ctx.data_complete else 'ناقص — اعتمد على الويب للسعر اللحظي'}
+اكتمال البيانات: {'نعم' if ctx.data_complete else 'ناقص — لا تستخدم سعر APEX القديم'}
 """
         blocks.append(block.strip())
     return "\n\n".join(blocks)
@@ -243,8 +279,9 @@ async def _build_user_prompt(
 الوقت: {now_utc}
 الأفق الزمني: 15–60 دقيقة فقط (تداول لحظي H1)
 تجاهل: أي توقع يومي/أسبوعي/شهري
-الدخول: ضمن ±0.5% من السعر الحالي
+الدخول: ضمن ±0.5% من السعر المرجعي الحالي (ليس سعر APEX إن كان >10 دقائق)
 SL/TP: واقعيان لـ H1 (قريبان — ليس بعيدين)
+سعر APEX: ممنوع إذا أقدم من 10 دقائق — ابحث Investing.com + TradingView + Yahoo Finance
 
 --- بيانات APEX (JSON) ---
 {apex_json}
