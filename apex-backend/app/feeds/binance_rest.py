@@ -60,17 +60,38 @@ class BinanceRestFeed:
         if bar is None:
             bars = await fetch_bars_from_db(self.apex_symbol, limit=1)
             if not bars:
+                await set_feed_status(
+                    self.apex_symbol,
+                    FeedConnectionState.DISCONNECTED,
+                    detail="binance_unreachable",
+                )
                 return False
+            from app.utils.time_utils import compute_age_seconds
+
             bar = dict(bars[-1])
+            age_sec = compute_age_seconds(bar["timestamp"])
+            if age_sec > self.poll_interval * 2:
+                logger.warning(
+                    "binance_rest_db_fallback_rejected_stale",
+                    symbol=self.apex_symbol,
+                    age_seconds=age_sec,
+                )
+                await set_feed_status(
+                    self.apex_symbol,
+                    FeedConnectionState.DISCONNECTED,
+                    detail=f"binance_unreachable_db_stale_{age_sec}s",
+                )
+                return False
             bar["source"] = "db"
             source = "db"
             logger.info("live_bar_db_fallback", symbol=self.apex_symbol)
 
         now = datetime.now(timezone.utc)
+        now_iso = now.isoformat()
         self._last_success_at = now
         self._error_count = 0
-        await set_latest_price(bar["symbol"], bar["close"], bar["timestamp"])
-        await set_feed_last_update(bar["symbol"], bar["timestamp"])
+        await set_latest_price(bar["symbol"], bar["close"], now_iso)
+        await set_feed_last_update(bar["symbol"], bar["timestamp"], received_at=now_iso)
         await set_feed_status(
             self.apex_symbol,
             FeedConnectionState.CONNECTED,
