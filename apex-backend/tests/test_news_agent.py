@@ -29,8 +29,8 @@ def _snapshot(headlines: list[NewsHeadline]) -> MarketSnapshot:
     )
 
 
-def test_news_agent_weight_is_35_percent() -> None:
-    assert WEIGHT == 0.35
+def test_news_agent_weight_is_25_percent() -> None:
+    assert WEIGHT == 0.25
 
 
 def test_rule_based_includes_asset_impacts() -> None:

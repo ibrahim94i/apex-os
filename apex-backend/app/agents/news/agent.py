@@ -15,7 +15,7 @@ from app.utils.llm_client import LLMClient, LLMClientError, llm_client
 
 
 AGENT_NAME_AR = "وكيل الأخبار"
-WEIGHT = 0.35
+WEIGHT = 0.25
 
 _ASSETS = ("XAUUSD", "EURUSD", "USDJPY", "GBPUSD")
 

@@ -9,7 +9,7 @@ from app.utils.llm_client import LLMClient, LLMClientError, llm_client
 
 
 AGENT_NAME_AR = "وكيل المخاطر"
-WEIGHT = 0.35
+WEIGHT = 0.40
 
 
 def _rule_based(snapshot: MarketSnapshot) -> AgentLLMOutput:
