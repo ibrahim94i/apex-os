@@ -12,7 +12,12 @@ from app.feeds.manager import feed_manager
 from app.logging_config import logger
 from app.services.feed_status import FeedConnectionState, get_all_feed_statuses, set_feed_status
 from app.services.market_hours import is_market_open
-from app.utils.time_utils import compute_age_seconds, parse_utc_timestamp
+from app.services.feed_freshness import (
+    feed_poll_age_seconds,
+    feed_staleness_limit_seconds,
+    is_feed_poll_stale,
+)
+from app.utils.time_utils import parse_utc_timestamp
 
 _recovery_trackers: dict[str, "_RecoveryTracker"] = {}
 _app_started_at: datetime = datetime.now(timezone.utc)
@@ -65,16 +70,14 @@ def _tracker(symbol: str) -> _RecoveryTracker:
 
 async def _feed_data_age_seconds(symbol: str) -> int | None:
     last_raw = await get_feed_last_update(symbol)
-    if not last_raw or not last_raw.get("timestamp"):
-        return None
-    return compute_age_seconds(last_raw["timestamp"])
+    return feed_poll_age_seconds(last_raw)
 
 
 async def _is_feed_data_fresh(symbol: str) -> bool:
     age = await _feed_data_age_seconds(symbol)
     if age is None:
         return False
-    return age <= settings.feed_staleness_limit_seconds
+    return age <= feed_staleness_limit_seconds(symbol)
 
 
 async def check_feed_health(symbol: str) -> FeedHealthStatus:
@@ -95,12 +98,15 @@ async def check_feed_health(symbol: str) -> FeedHealthStatus:
     regime_data = await get_latest_regime(symbol)
     has_warm_data = price_data is not None and regime_data is not None
 
-    if last_raw and last_raw.get("timestamp"):
-        last_dt = _parse_ts(last_raw["timestamp"])
-        age = compute_age_seconds(last_dt)
-        if open_now and age > settings.feed_staleness_limit_seconds:
+    if last_raw:
+        bar_ts = last_raw.get("timestamp")
+        if bar_ts:
+            last_dt = _parse_ts(bar_ts)
+        age = feed_poll_age_seconds(last_raw)
+        limit = feed_staleness_limit_seconds(symbol)
+        if open_now and age is not None and age > limit:
             stale = True
-        elif open_now and age > settings.feed_disconnect_threshold_seconds:
+        elif open_now and age is not None and age > settings.feed_disconnect_threshold_seconds:
             stale = True
     elif open_now and not in_startup_grace and not has_warm_data:
         stale = True
@@ -202,11 +208,18 @@ async def recover_feed(symbol: str, reason: str) -> bool:
                 age_seconds=await _feed_data_age_seconds(symbol),
                 consecutive_failures=0,
             )
-            from app.core.cache import get_agent_consensus
-            from app.services.agent_analysis_service import run_agent_analysis
+            try:
+                from app.core.cache import get_agent_consensus
+                from app.services.agent_analysis_service import run_agent_analysis
 
-            if not await get_agent_consensus(symbol):
-                await run_agent_analysis(symbol)
+                if not await get_agent_consensus(symbol):
+                    await run_agent_analysis(symbol)
+            except Exception as agent_exc:
+                logger.warning(
+                    "feed_recovery_agent_refresh_failed",
+                    symbol=symbol,
+                    error=str(agent_exc),
+                )
             logger.info("feed_recovery_complete", symbol=symbol)
             return True
 
@@ -258,7 +271,7 @@ async def run_recovery_cycle(*, force: bool = False) -> FeedHealthReport:
             and status.market_open
             and not status.in_cooldown
             and status.age_seconds is not None
-            and status.age_seconds > settings.feed_staleness_limit_seconds
+            and status.age_seconds > feed_staleness_limit_seconds(symbol)
         ):
             needs_recovery = True
             reason = "data_stale_over_limit"

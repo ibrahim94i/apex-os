@@ -28,6 +28,8 @@ from app.schemas import (
     RegimeSnapshotSchema,
 )
 from app.services.market_hours import is_market_open
+from app.services.feed_freshness import is_feed_poll_stale
+from app.services.feed_health_service import recover_feed
 from app.services.market_data_store import (
     fetch_bars_from_db,
     get_latest_price_from_db,
@@ -161,6 +163,10 @@ async def run_agent_analysis(symbol: str, *, force: bool = False) -> AgentConsen
             indicators = IndicatorSnapshotSchema(**{**ind_data, "symbol": symbol})
             regime = RegimeSnapshotSchema(**{**regime_data, "symbol": symbol})
             indicators, regime = bind_indicator_regime_to_symbol(symbol, indicators, regime)
+
+            if await is_feed_poll_stale(symbol):
+                logger.warning("agent_analysis_feed_stale_recovering", symbol=symbol)
+                await recover_feed(symbol, "pre_agent_recovery")
 
             async with AsyncSessionLocal() as session:
                 try:

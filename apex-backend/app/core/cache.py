@@ -1,5 +1,6 @@
 """Redis caching utilities."""
 
+from datetime import datetime, timezone
 from typing import Any
 
 from app.core.redis_client import (
@@ -61,8 +62,19 @@ async def get_kill_switch_status() -> dict[str, Any] | None:
     return await cache_get(CacheKeys.KILL_SWITCH)
 
 
-async def set_feed_last_update(source: str, timestamp: str) -> None:
-    await cache_set(CacheKeys.FEED_LAST_UPDATE.format(source=source), {"timestamp": timestamp}, ttl=600)
+async def set_feed_last_update(
+    source: str,
+    bar_timestamp: str,
+    *,
+    received_at: str | None = None,
+) -> None:
+    """Record feed activity. `received_at` is used for staleness; bar_timestamp is the candle time."""
+    now = received_at or datetime.now(timezone.utc).isoformat()
+    await cache_set(
+        CacheKeys.FEED_LAST_UPDATE.format(source=source),
+        {"timestamp": bar_timestamp, "received_at": now},
+        ttl=7200,
+    )
 
 
 async def get_feed_last_update(source: str) -> dict[str, Any] | None:

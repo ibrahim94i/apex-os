@@ -4,15 +4,14 @@ from datetime import datetime, timezone
 from typing import Any
 
 from app.config import settings
-from app.core.cache import get_feed_last_update
 from app.logging_config import logger
 from app.schemas import IndicatorSnapshotSchema, KillSwitchStatusSchema, RegimeSnapshotSchema
 from app.schemas.agent import CandlestickPatternSchema, EconomicEventSchema, MarketSnapshot
 from app.services.account_service import account_service
 from app.services.finnhub_calendar import fetch_upcoming_high_impact_events
-from app.services.news_aggregator import fetch_news_for_symbol
+from app.services.feed_freshness import is_feed_poll_stale
 from app.services.memory_engine import memory_engine
-from app.utils.time_utils import compute_age_seconds, parse_utc_timestamp
+from app.services.news_aggregator import fetch_news_for_symbol
 
 
 def redis_snapshot_matches_symbol(symbol: str, data: dict[str, Any] | None) -> bool:
@@ -94,10 +93,6 @@ async def build_market_snapshot(
 
 async def _is_feed_stale(symbol: str) -> bool:
     try:
-        last = await get_feed_last_update(symbol)
+        return await is_feed_poll_stale(symbol)
     except Exception:
         return True
-    if not last or not last.get("timestamp"):
-        return True
-    age = compute_age_seconds(parse_utc_timestamp(last["timestamp"]))
-    return age > settings.feed_staleness_limit_seconds

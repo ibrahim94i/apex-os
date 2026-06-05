@@ -45,16 +45,15 @@ def check_feed_staleness() -> dict:
         now = datetime.now(timezone.utc)
 
         for symbol in ACTIVE_SYMBOLS:
-            last_update = await get_feed_last_update(symbol)
-            if not last_update:
-                stale_symbols.append(symbol)
+            from app.services.feed_freshness import feed_poll_age_seconds, is_feed_poll_stale
+            from app.services.market_hours import is_market_open
+
+            if not is_market_open(symbol):
                 continue
-            ts = datetime.fromisoformat(last_update["timestamp"])
-            if ts.tzinfo is None:
-                ts = ts.replace(tzinfo=timezone.utc)
-            age = (now - ts).total_seconds()
-            if age > settings.feed_staleness_limit_seconds:
-                stale_symbols.append(symbol)
+            if not await is_feed_poll_stale(symbol):
+                continue
+            last_update = await get_feed_last_update(symbol)
+            stale_symbols.append(symbol)
 
         if stale_symbols:
             await set_kill_switch_status({

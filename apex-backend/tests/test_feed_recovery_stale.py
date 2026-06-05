@@ -21,7 +21,7 @@ async def test_recover_feed_bootstraps_when_regime_exists_but_data_stale() -> No
             with patch(
                 "app.services.feed_health_service.get_feed_last_update",
                 new_callable=AsyncMock,
-                return_value={"timestamp": stale_ts},
+                return_value={"timestamp": stale_ts, "received_at": stale_ts},
             ):
                 with patch(
                     "app.services.feed_health_service.get_latest_price",
@@ -51,12 +51,17 @@ async def test_recover_feed_skips_bootstrap_when_data_fresh() -> None:
             with patch(
                 "app.services.feed_health_service.get_feed_last_update",
                 new_callable=AsyncMock,
-                return_value={"timestamp": fresh_ts},
+                return_value={"timestamp": fresh_ts, "received_at": fresh_ts},
             ):
                 with patch(
                     "app.feeds.history_bootstrap.bootstrap_asset",
                     new_callable=AsyncMock,
                 ) as mock_bootstrap:
-                    ok = await recover_feed("XAUUSD", "test")
+                    with patch(
+                        "app.core.cache.get_agent_consensus",
+                        new_callable=AsyncMock,
+                        return_value={"symbol": "XAUUSD"},
+                    ):
+                        ok = await recover_feed("XAUUSD", "test")
     assert ok is True
     mock_bootstrap.assert_not_awaited()
