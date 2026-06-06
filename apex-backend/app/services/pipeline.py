@@ -52,22 +52,28 @@ signal_generator = SignalGenerator()
 
 
 def _parse_bar(raw: dict[str, Any]) -> OHLCVBar:
+    from app.utils.volume_policy import apply_volume_policy
+
     ts = raw["timestamp"]
     if isinstance(ts, str):
         ts = datetime.fromisoformat(ts)
     if ts.tzinfo is None:
         ts = ts.replace(tzinfo=timezone.utc)
+    symbol = raw["symbol"]
     return OHLCVBar(
         timestamp=ts,
         open=raw["open"],
         high=raw["high"],
         low=raw["low"],
         close=raw["close"],
-        volume=raw.get("volume", 0.0),
+        volume=apply_volume_policy(symbol, raw.get("volume", 0.0)),
     )
 
 
 async def _persist_bar(session: Any, bar: dict[str, Any]) -> None:
+    from app.utils.volume_policy import apply_volume_policy_to_bar
+
+    bar = apply_volume_policy_to_bar(bar)
     ts = bar["timestamp"]
     if isinstance(ts, str):
         ts = datetime.fromisoformat(ts)

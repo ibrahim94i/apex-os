@@ -29,6 +29,7 @@ class AssetConfig:
     min_price_move: float | None = None
     default_spread: float | None = None
     price_decimals: int = 2
+    volume_reliable: bool = True
 
 
 # BTCUSDT: Binance REST (free, no TwelveData credits). FX/metals: TwelveData + Frankfurter.
@@ -56,6 +57,7 @@ ASSETS: dict[str, AssetConfig] = {
         poll_interval=POLL_INTERVAL_SECONDS,
         min_price_move=0.50,
         default_spread=0.30,
+        volume_reliable=False,
     ),
     "EURUSD": AssetConfig(
         symbol="EURUSD",

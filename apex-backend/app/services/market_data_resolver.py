@@ -75,17 +75,21 @@ async def _fetch_twelvedata_latest(
 
     row = data["values"][0]
     ts = datetime.strptime(row["datetime"], "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
-    return {
-        "symbol": apex_symbol,
-        "timestamp": ts.isoformat(),
-        "open": float(row["open"]),
-        "high": float(row["high"]),
-        "low": float(row["low"]),
-        "close": float(row["close"]),
-        "volume": float(row.get("volume", 0)),
-        "source": "twelvedata",
-        "is_closed": True,
-    }
+    from app.utils.volume_policy import apply_volume_policy_to_bar
+
+    return apply_volume_policy_to_bar(
+        {
+            "symbol": apex_symbol,
+            "timestamp": ts.isoformat(),
+            "open": float(row["open"]),
+            "high": float(row["high"]),
+            "low": float(row["low"]),
+            "close": float(row["close"]),
+            "volume": float(row.get("volume", 0)),
+            "source": "twelvedata",
+            "is_closed": True,
+        }
+    )
 
 
 async def _fetch_db_latest(apex_symbol: str) -> dict[str, Any] | None:
