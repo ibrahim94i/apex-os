@@ -21,6 +21,7 @@ import type {
   PositionManagerStatus,
   PerformanceSummary,
   PriceBar,
+  SNRLevels,
 } from "@/types";
 
 const ACCOUNT_MODE_KEY = "apex_account_mode";
@@ -67,7 +68,7 @@ export async function setAccountBalance(balance: number): Promise<AccountMode> {
 export async function fetchPriceBars(
   symbol: string,
   limit = 200
-): Promise<{ symbol: string; bars: PriceBar[] }> {
+): Promise<{ symbol: string; bars: PriceBar[]; snr: SNRLevels | null }> {
   const res = await fetch(
     `${API_URL}/api/v1/market/bars?symbol=${symbol}&limit=${limit}`,
     { cache: "no-store" }

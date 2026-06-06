@@ -5,13 +5,16 @@ import {
   createChart,
   ColorType,
   CrosshairMode,
+  LineStyle,
   type IChartApi,
   type ISeriesApi,
   type CandlestickData,
   type Time,
+  type IPriceLine,
 } from "lightweight-charts";
 import { t } from "@/lib/i18n";
 import { fetchPriceBars } from "@/lib/api";
+import type { SNRLevels } from "@/types";
 
 interface Props {
   currentPrice: number | null;
@@ -33,11 +36,42 @@ function normalizeCandles(raw: CandlestickData[]): CandlestickData[] {
     .map(([, bar]) => bar);
 }
 
+const SUPPORT_COLOR = "#3fb950";
+const RESISTANCE_COLOR = "#f85149";
+
+function applySnrLines(series: ISeriesApi<"Candlestick">, snr: SNRLevels | null) {
+  const lines: IPriceLine[] = [];
+  if (!snr) return lines;
+
+  const add = (price: number | null, color: string, title: string) => {
+    if (price == null) return;
+    lines.push(
+      series.createPriceLine({
+        price,
+        color,
+        lineWidth: 1,
+        lineStyle: LineStyle.Dashed,
+        axisLabelVisible: true,
+        title,
+      })
+    );
+  };
+
+  add(snr.support_1, SUPPORT_COLOR, "S1");
+  add(snr.support_2, SUPPORT_COLOR, "S2");
+  add(snr.support_3, SUPPORT_COLOR, "S3");
+  add(snr.resistance_1, RESISTANCE_COLOR, "R1");
+  add(snr.resistance_2, RESISTANCE_COLOR, "R2");
+  add(snr.resistance_3, RESISTANCE_COLOR, "R3");
+  return lines;
+}
+
 export default function PriceChart({ currentPrice, symbol }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const seriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
   const lastBarRef = useRef<CandlestickData | null>(null);
+  const snrLinesRef = useRef<IPriceLine[]>([]);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -83,6 +117,7 @@ export default function PriceChart({ currentPrice, symbol }: Props) {
       chartRef.current = null;
       seriesRef.current = null;
       lastBarRef.current = null;
+      snrLinesRef.current = [];
     };
   }, []);
 
@@ -90,7 +125,7 @@ export default function PriceChart({ currentPrice, symbol }: Props) {
     if (!seriesRef.current || !symbol) return;
 
     let cancelled = false;
-    fetchPriceBars(symbol)
+    fetchPriceBars(symbol, 200)
       .then((data) => {
         if (cancelled || !seriesRef.current || !data.bars.length) return;
         const candles = normalizeCandles(
@@ -105,6 +140,14 @@ export default function PriceChart({ currentPrice, symbol }: Props) {
         try {
           seriesRef.current.setData(candles);
           lastBarRef.current = candles[candles.length - 1] ?? null;
+          snrLinesRef.current.forEach((line) => {
+            try {
+              seriesRef.current?.removePriceLine(line);
+            } catch {
+              /* ignore */
+            }
+          });
+          snrLinesRef.current = applySnrLines(seriesRef.current, data.snr);
           chartRef.current?.timeScale().fitContent();
         } catch {
           /* ignore invalid bar ordering from chart library */
@@ -123,7 +166,6 @@ export default function PriceChart({ currentPrice, symbol }: Props) {
     const hourSec = Math.floor(Date.now() / 3600000) * 3600;
     const lastTime = lastBarRef.current.time as number;
 
-    // lightweight-charts throws if update time is older than the last bar
     if (hourSec < lastTime) return;
 
     try {
@@ -154,6 +196,10 @@ export default function PriceChart({ currentPrice, symbol }: Props) {
     <div className="card col-8">
       <div className="card-title">
         {t.livePriceChart} — <span className="mono">{symbol}</span>
+        <span className="chart-snr-legend">
+          <span className="snr-legend-item support">S1–S3</span>
+          <span className="snr-legend-item resistance">R1–R3</span>
+        </span>
       </div>
       <div ref={containerRef} className="chart-container" />
     </div>

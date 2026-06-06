@@ -7,6 +7,7 @@ from app.config import settings
 from app.logging_config import logger
 from app.schemas import IndicatorSnapshotSchema, KillSwitchStatusSchema, RegimeSnapshotSchema
 from app.schemas.agent import CandlestickPatternSchema, EconomicEventSchema, MarketSnapshot
+from app.schemas.snr import SNRSnapshotSchema
 from app.services.account_service import account_service
 from app.services.finnhub_calendar import fetch_upcoming_high_impact_events
 from app.services.feed_freshness import is_feed_poll_stale
@@ -54,6 +55,7 @@ async def build_market_snapshot(
     kill_switch: KillSwitchStatusSchema,
     candlestick_patterns: list[CandlestickPatternSchema] | None = None,
     upcoming_events: list[EconomicEventSchema] | None = None,
+    snr: SNRSnapshotSchema | None = None,
 ) -> MarketSnapshot:
     indicators, regime = bind_indicator_regime_to_symbol(symbol, indicators, regime)
     feed_stale = await _is_feed_stale(symbol)
@@ -65,6 +67,26 @@ async def build_market_snapshot(
 
         bars = await get_symbol_ohlcv_bars(symbol)
         candlestick_patterns = candlestick_engine.detect(bars)
+
+    if snr is None:
+        from app.engines.indicator_engine import OHLCVBar
+        from app.engines.snr_engine import snr_engine
+        from app.services.market_data_store import fetch_bars_from_db
+
+        raw = await fetch_bars_from_db(symbol, limit=500)
+        if raw:
+            ohlcv = [
+                OHLCVBar(
+                    timestamp=datetime.fromisoformat(b["timestamp"].replace("Z", "+00:00")),
+                    open=b["open"],
+                    high=b["high"],
+                    low=b["low"],
+                    close=b["close"],
+                    volume=b.get("volume", 0.0),
+                )
+                for b in raw
+            ]
+            snr = snr_engine.compute(ohlcv, symbol)
 
     balance = await account_service.get_balance()
     news_headlines = await fetch_news_for_symbol(symbol)
@@ -88,6 +110,7 @@ async def build_market_snapshot(
         candlestick_patterns=candlestick_patterns,
         news_headlines=news_headlines,
         upcoming_events=upcoming_events,
+        snr=snr,
     )
 
 

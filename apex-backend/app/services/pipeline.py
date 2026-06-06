@@ -12,12 +12,14 @@ from app.core.cache import (
     set_latest_indicators,
     set_latest_regime,
     set_latest_signal,
+    set_latest_snr,
 )
 from app.database import AsyncSessionLocal
 from app.engines.candlestick_engine import candlestick_engine
 from app.engines.indicator_engine import OHLCVBar
 from app.engines.kill_switch import kill_switch
 from app.engines.signal_generator import SignalGenerator
+from app.engines.snr_engine import snr_engine
 from app.logging_config import logger
 from app.models import IndicatorSnapshot, PriceBar, RegimeSnapshot, TradingSignal
 from app.schemas import (
@@ -28,6 +30,7 @@ from app.schemas import (
     KillSwitchStatusSchema,
     TradingSignalSchema,
 )
+from app.schemas.snr import SNRSnapshotSchema
 from app.services.signal_rejection_i18n import rejection_reason_ar
 from app.services.alert_service import alert_service
 from app.services.dashboard_builder import build_asset_dashboard_state
@@ -49,6 +52,16 @@ from app.websocket.manager import broadcaster
 _bar_buffer: dict[str, list[OHLCVBar]] = {}
 MAX_BUFFER = 250
 signal_generator = SignalGenerator()
+
+
+async def compute_snr_for_symbol(symbol: str) -> SNRSnapshotSchema | None:
+    from app.services.market_data_store import fetch_bars_from_db
+
+    raw = await fetch_bars_from_db(symbol, limit=500)
+    if len(raw) < 7:
+        return None
+    bars = [_parse_bar(b) for b in raw]
+    return snr_engine.compute(bars, symbol)
 
 
 def _parse_bar(raw: dict[str, Any]) -> OHLCVBar:
@@ -155,6 +168,10 @@ async def process_bar(raw_bar: dict[str, Any], *, skip_agents: bool = False) -> 
 
             indicators, regime = signal_generator.analyze(_bar_buffer[symbol], symbol)
 
+            snr_snapshot = await compute_snr_for_symbol(symbol)
+            if snr_snapshot:
+                await set_latest_snr(symbol, snr_snapshot.model_dump(mode="json"))
+
             agent_consensus = None
             if indicators and regime and not skip_agents:
                 indicators, regime = bind_indicator_regime_to_symbol(symbol, indicators, regime)
@@ -166,6 +183,7 @@ async def process_bar(raw_bar: dict[str, Any], *, skip_agents: bool = False) -> 
                     regime=regime,
                     kill_switch=ks_status,
                     candlestick_patterns=candle_patterns,
+                    snr=snr_snapshot,
                 )
                 agent_consensus = await agent_orchestrator.run(snapshot, session=session)
 
@@ -189,12 +207,36 @@ async def process_bar(raw_bar: dict[str, Any], *, skip_agents: bool = False) -> 
 
                     proposed_direction = agent_consensus.final_direction
                     proposed_confidence = agent_consensus.final_confidence
+                    final_confidence = agent_consensus.final_confidence
+                    if snr_snapshot and agent_consensus.final_direction != SignalDirection.NEUTRAL:
+                        prev_close = (
+                            _bar_buffer[symbol][-2].close
+                            if len(_bar_buffer[symbol]) >= 2
+                            else float(raw_bar["close"])
+                        )
+                        snr_adj = snr_engine.adjust_confidence(
+                            price=float(raw_bar["close"]),
+                            prev_close=float(prev_close),
+                            direction=agent_consensus.final_direction,
+                            confidence=final_confidence,
+                            snr=snr_snapshot,
+                        )
+                        if snr_adj.reasons:
+                            logger.info(
+                                "snr_confidence_adjusted",
+                                symbol=symbol,
+                                reasons=snr_adj.reasons,
+                                before=final_confidence,
+                                after=snr_adj.confidence,
+                            )
+                        final_confidence = snr_adj.confidence
+                        proposed_confidence = final_confidence
                     balance = await account_service.get_balance()
                     signal = signal_generator.build_trading_signal(
                         _bar_buffer[symbol],
                         symbol,
                         agent_consensus.final_direction,
-                        agent_consensus.final_confidence,
+                        final_confidence,
                         indicators,
                         regime,
                         kill_switch_active=kill_switch.is_active,

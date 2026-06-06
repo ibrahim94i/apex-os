@@ -1,6 +1,7 @@
 """Prompts for Market Analyst Agent."""
 
 from app.agents.market_analyst.candlestick_format import candlestick_block_from_snapshot
+from app.agents.market_analyst.snr_format import snr_block_from_snapshot
 from app.agents.prompt_utils import AGENT_JSON_RULES, AGENT_JSON_SCHEMA, asset_header
 from app.schemas.agent import MarketSnapshot
 
@@ -46,4 +47,4 @@ ATR: {ind.atr}, ADX: {ind.adx}
 حالة السوق: {regime.regime.value}
 ثقة النظام: {regime.confidence}
 التذبذب: {regime.volatility_pct}%
-{candlestick_block_from_snapshot(snapshot)}{patterns_text}"""
+{candlestick_block_from_snapshot(snapshot)}{snr_block_from_snapshot(snapshot.snr)}{patterns_text}"""

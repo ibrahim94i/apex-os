@@ -103,3 +103,11 @@ async def set_hourly_report(data: dict[str, Any]) -> None:
 
 async def get_hourly_report() -> dict[str, Any] | None:
     return await cache_get(CacheKeys.HOURLY_REPORT)
+
+
+async def set_latest_snr(symbol: str, data: dict[str, Any]) -> None:
+    await cache_set(CacheKeys.LATEST_SNR.format(symbol=symbol), data, ttl=1800)
+
+
+async def get_latest_snr(symbol: str) -> dict[str, Any] | None:
+    return await cache_get(CacheKeys.LATEST_SNR.format(symbol=symbol))

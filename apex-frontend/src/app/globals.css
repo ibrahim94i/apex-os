@@ -228,6 +228,23 @@ body {
   height: 400px;
 }
 
+.chart-snr-legend {
+  float: inline-end;
+  display: inline-flex;
+  gap: 10px;
+  font-size: 0.75rem;
+  font-weight: normal;
+  margin-inline-start: 12px;
+}
+
+.snr-legend-item.support {
+  color: #3fb950;
+}
+
+.snr-legend-item.resistance {
+  color: #f85149;
+}
+
 .metric-value {
   font-family: var(--font-mono);
   font-size: 1.1rem;

@@ -191,11 +191,34 @@ async def get_regime_from_db(
 async def get_market_bars(symbol: str = "XAUUSD", limit: int = 200) -> dict:
     from app.config.assets import ACTIVE_SYMBOLS
     from app.services.market_data_store import fetch_bars_from_db
+    from app.services.pipeline import compute_snr_for_symbol
 
     if symbol not in ACTIVE_SYMBOLS:
         raise HTTPException(status_code=404, detail="Symbol not active")
     bars = await fetch_bars_from_db(symbol, min(limit, 500))
-    return {"symbol": symbol, "bars": bars}
+    snr = await compute_snr_for_symbol(symbol)
+    return {
+        "symbol": symbol,
+        "bars": bars,
+        "snr": snr.model_dump(mode="json") if snr else None,
+    }
+
+
+@router.get("/market/snr")
+async def get_market_snr(symbol: str = "XAUUSD") -> dict:
+    from app.config.assets import ACTIVE_SYMBOLS
+    from app.core.cache import get_latest_snr
+    from app.services.pipeline import compute_snr_for_symbol
+
+    if symbol not in ACTIVE_SYMBOLS:
+        raise HTTPException(status_code=404, detail="Symbol not active")
+    cached = await get_latest_snr(symbol)
+    if cached:
+        return cached
+    snr = await compute_snr_for_symbol(symbol)
+    if not snr:
+        raise HTTPException(status_code=404, detail="SNR data unavailable")
+    return snr.model_dump(mode="json")
 
 
 @router.get("/price/current")

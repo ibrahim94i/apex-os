@@ -87,6 +87,22 @@ export interface PriceBar {
   source: string;
 }
 
+export interface SNRLevels {
+  symbol: string;
+  timestamp: string;
+  price: number;
+  support_1: number | null;
+  support_2: number | null;
+  support_3: number | null;
+  resistance_1: number | null;
+  resistance_2: number | null;
+  resistance_3: number | null;
+  distance_to_support_pct: number | null;
+  distance_to_resistance_pct: number | null;
+  pivot_high_count?: number;
+  pivot_low_count?: number;
+}
+
 export interface MarketStatus {
   symbol: string;
   is_open: boolean;

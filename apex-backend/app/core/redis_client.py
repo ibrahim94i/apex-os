@@ -47,6 +47,7 @@ class CacheKeys:
     DASHBOARD_STATE = "apex:dashboard_state:{symbol}"
     AGENT_CONSENSUS = "apex:agent_consensus:{symbol}"
     HOURLY_REPORT = "apex:hourly_report"
+    LATEST_SNR = "apex:snr:{symbol}"
 
 
 async def cache_set(key: str, value: Any, ttl: int | None = None) -> None:

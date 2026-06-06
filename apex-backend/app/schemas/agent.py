@@ -7,6 +7,7 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 from app.schemas.enums import SignalDirection
+from app.schemas.snr import SNRSnapshotSchema
 from app.schemas.snapshots import (
     IndicatorSnapshotSchema,
     KillSwitchStatusSchema,
@@ -117,6 +118,7 @@ class MarketSnapshot(BaseModel):
     candlestick_patterns: list[CandlestickPatternSchema] = Field(default_factory=list)
     news_headlines: list[NewsHeadline] = Field(default_factory=list)
     upcoming_events: list[EconomicEventSchema] = Field(default_factory=list)
+    snr: SNRSnapshotSchema | None = None
 
 
 class AgentVerdict(BaseModel):
