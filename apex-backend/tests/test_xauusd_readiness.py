@@ -99,13 +99,27 @@ async def test_pipeline_skips_gold_when_market_closed() -> None:
 
 
 @pytest.mark.asyncio
-async def test_bootstrap_skips_gold_on_sunday() -> None:
+async def test_bootstrap_runs_gold_even_when_market_closed() -> None:
     from app.feeds.history_bootstrap import bootstrap_asset
 
-    sun = _iraq(2026, 5, 31, 10)
+    bars = [{"symbol": "XAUUSD", "timestamp": "2026-06-01T12:00:00+00:00", "close": 4400.0}] * 200
     with patch("app.services.market_hours.is_market_open", return_value=False):
-        ok = await bootstrap_asset("XAUUSD")
-    assert ok is False
+        with patch(
+            "app.feeds.history_bootstrap.fetch_bootstrap_history",
+            new=AsyncMock(return_value=bars),
+        ):
+            with patch(
+                "app.services.market_data_store.persist_bars_batch",
+                new=AsyncMock(return_value=200),
+            ):
+                with patch("app.services.pipeline.seed_bars_to_buffer"):
+                    with patch("app.services.pipeline.process_bar", new=AsyncMock()):
+                        with patch(
+                            "app.feeds.history_bootstrap._mark_feed_warmed",
+                            new=AsyncMock(),
+                        ):
+                            ok = await bootstrap_asset("XAUUSD")
+    assert ok is True
 
 
 def test_signal_generator_rejects_low_confidence() -> None:

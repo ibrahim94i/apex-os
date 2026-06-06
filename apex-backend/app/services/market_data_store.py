@@ -40,6 +40,29 @@ async def fetch_bars_from_db(symbol: str, limit: int = 250) -> list[dict[str, An
     return [_bar_to_dict(row) for row in rows]
 
 
+async def count_bars_in_db(symbol: str) -> int:
+    from sqlalchemy import func
+
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            select(func.count())
+            .select_from(PriceBar)
+            .where(PriceBar.symbol == symbol)
+        )
+        return int(result.scalar_one())
+
+
+async def get_oldest_bar_timestamp(symbol: str) -> datetime | None:
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            select(PriceBar.timestamp)
+            .where(PriceBar.symbol == symbol)
+            .order_by(PriceBar.timestamp.asc())
+            .limit(1)
+        )
+        return result.scalar_one_or_none()
+
+
 async def persist_bars_batch(bars: list[dict[str, Any]]) -> int:
     """Insert historical bars; skip duplicates. Returns rows attempted."""
     if not bars:

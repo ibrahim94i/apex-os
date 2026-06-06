@@ -194,7 +194,7 @@ async def get_market_bars(symbol: str = "XAUUSD", limit: int = 200) -> dict:
 
     if symbol not in ACTIVE_SYMBOLS:
         raise HTTPException(status_code=404, detail="Symbol not active")
-    bars = await fetch_bars_from_db(symbol, min(limit, 250))
+    bars = await fetch_bars_from_db(symbol, min(limit, 500))
     return {"symbol": symbol, "bars": bars}
 
 

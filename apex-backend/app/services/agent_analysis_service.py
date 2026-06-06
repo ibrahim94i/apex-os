@@ -46,7 +46,7 @@ from app.websocket.manager import broadcaster
 
 _signal_generator = SignalGenerator()
 _MIN_INDICATOR_BARS = IndicatorEngine().min_bars
-_DB_BAR_LIMIT = 250
+_DB_BAR_LIMIT = 500
 _agent_analysis_lock = asyncio.Lock()
 _last_agent_run_finished_at: float = 0.0
 

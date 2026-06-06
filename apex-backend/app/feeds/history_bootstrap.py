@@ -14,12 +14,24 @@ from app.logging_config import logger
 
 BINANCE_BOOTSTRAP_BARS = 200
 DEFAULT_BOOTSTRAP_BARS = 250
+XAUUSD_BOOTSTRAP_BARS = 500
 
 
 def bootstrap_limit_for(asset: AssetConfig) -> int:
     if asset.feed_type == "binance":
         return BINANCE_BOOTSTRAP_BARS
+    if asset.symbol == "XAUUSD":
+        return XAUUSD_BOOTSTRAP_BARS
     return DEFAULT_BOOTSTRAP_BARS
+
+
+def bootstrap_success_threshold(asset: AssetConfig, bar_limit: int) -> int:
+    """Minimum bars required to treat bootstrap as successful."""
+    if asset.feed_type == "binance":
+        return min(bar_limit, BINANCE_BOOTSTRAP_BARS)
+    if asset.symbol == "XAUUSD":
+        return min(bar_limit, 200)
+    return min(bar_limit, 50)
 
 
 def _normalize_bar(
@@ -45,6 +57,12 @@ def _normalize_bar(
         "source": source,
         "is_closed": True,
     }
+
+
+def _finalize_bar(bar: dict[str, Any]) -> dict[str, Any]:
+    from app.utils.volume_policy import apply_volume_policy_to_bar
+
+    return apply_volume_policy_to_bar(bar)
 
 
 async def fetch_binance_history(
@@ -126,15 +144,17 @@ async def fetch_twelvedata_history(
             tzinfo=timezone.utc
         )
         bars.append(
-            _normalize_bar(
-                symbol=apex_symbol,
-                timestamp=ts,
-                open_=float(row["open"]),
-                high=float(row["high"]),
-                low=float(row["low"]),
-                close=float(row["close"]),
-                volume=float(row.get("volume", 0)),
-                source="twelvedata",
+            _finalize_bar(
+                _normalize_bar(
+                    symbol=apex_symbol,
+                    timestamp=ts,
+                    open_=float(row["open"]),
+                    high=float(row["high"]),
+                    low=float(row["low"]),
+                    close=float(row["close"]),
+                    volume=float(row.get("volume", 0)),
+                    source="twelvedata",
+                )
             )
         )
     return bars
@@ -200,7 +220,9 @@ async def fetch_frankfurter_history(
 
 
 async def fetch_bootstrap_history(asset: AssetConfig, limit: int = 250) -> list[dict[str, Any]]:
-    """Bootstrap: primary feed history → DB fallback."""
+    """Bootstrap: primary feed history → merge DB → DB-only fallback."""
+    from app.services.market_data_store import fetch_bars_from_db
+
     bars = await fetch_history_for_asset(asset, limit)
     if len(bars) >= limit:
         logger.info(
@@ -210,18 +232,26 @@ async def fetch_bootstrap_history(asset: AssetConfig, limit: int = 250) -> list[
             bars=len(bars),
         )
         return bars[-limit:]
-    if bars:
-        logger.info(
-            "history_bootstrap_partial",
-            symbol=asset.symbol,
-            source=asset.feed_type,
-            bars=len(bars),
-        )
-        return bars
-
-    from app.services.market_data_store import fetch_bars_from_db
 
     db_bars = await fetch_bars_from_db(asset.symbol, limit)
+    if bars or db_bars:
+        seen = {b["timestamp"] for b in bars}
+        merged = list(bars)
+        for bar in db_bars:
+            if bar["timestamp"] not in seen:
+                merged.append(bar)
+        merged.sort(key=lambda b: b["timestamp"])
+        merged = merged[-limit:] if merged else []
+        logger.info(
+            "history_bootstrap_merged",
+            symbol=asset.symbol,
+            source=asset.feed_type,
+            api_bars=len(bars),
+            db_bars=len(db_bars),
+            merged=len(merged),
+        )
+        return merged
+
     if db_bars:
         logger.info("history_bootstrap_db_fallback", symbol=asset.symbol, bars=len(db_bars))
     return db_bars
@@ -263,15 +293,11 @@ async def refresh_dashboard_cache() -> None:
 
 async def bootstrap_asset(symbol: str, limit: int | None = None) -> bool:
     """Fetch H1 history, persist to DB, and warm pipeline. Returns True on success."""
-    from app.services.market_hours import is_market_open
     from app.services.market_data_store import persist_bars_batch
     from app.services.pipeline import process_bar, seed_bars_to_buffer
 
     asset = ASSETS.get(symbol)
     if asset is None:
-        return False
-    if not is_market_open(symbol):
-        logger.info("history_bootstrap_skipped_closed", symbol=symbol)
         return False
 
     bar_limit = limit if limit is not None else bootstrap_limit_for(asset)
@@ -302,7 +328,7 @@ async def bootstrap_asset(symbol: str, limit: int | None = None) -> bool:
         await process_bar(last_bar, skip_agents=True)
         await _mark_feed_warmed(symbol, last_bar)
         logger.info("history_bootstrap_complete", symbol=symbol, bars=len(bars))
-        return len(bars) >= min(bar_limit, BINANCE_BOOTSTRAP_BARS if asset.feed_type == "binance" else 50)
+        return len(bars) >= bootstrap_success_threshold(asset, bar_limit)
     except Exception as exc:
         logger.error("history_bootstrap_failed", symbol=symbol, error=str(exc))
         return False
@@ -334,7 +360,7 @@ async def bootstrap_all_assets(limit: int | None = None) -> None:
             from app.services.market_data_store import fetch_bars_from_db
 
             db_bars = await fetch_bars_from_db(symbol, sym_limit)
-            required = BINANCE_BOOTSTRAP_BARS if asset.feed_type == "binance" else 200
+            required = bootstrap_success_threshold(asset, sym_limit)
             if len(db_bars) >= required:
                 from app.services.pipeline import process_bar, seed_bars_to_buffer
 
