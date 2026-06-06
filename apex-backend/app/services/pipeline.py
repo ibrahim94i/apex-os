@@ -208,114 +208,145 @@ async def process_bar(raw_bar: dict[str, Any], *, skip_agents: bool = False) -> 
                     proposed_direction = agent_consensus.final_direction
                     proposed_confidence = agent_consensus.final_confidence
                     final_confidence = agent_consensus.final_confidence
+                    snr_explain_ar: str | None = None
+                    snr_category: str | None = None
+                    snr_blocked = False
+                    signal = None
+
                     if snr_snapshot and agent_consensus.final_direction != SignalDirection.NEUTRAL:
-                        prev_close = (
-                            _bar_buffer[symbol][-2].close
-                            if len(_bar_buffer[symbol]) >= 2
-                            else float(raw_bar["close"])
-                        )
-                        snr_adj = snr_engine.adjust_confidence(
-                            price=float(raw_bar["close"]),
-                            prev_close=float(prev_close),
+                        bars_for_snr = _bar_buffer[symbol]
+                        if len(bars_for_snr) < 2:
+                            from app.services.market_data_store import fetch_bars_from_db
+
+                            raw_snr_bars = await fetch_bars_from_db(symbol, limit=500)
+                            bars_for_snr = [_parse_bar(b) for b in raw_snr_bars]
+
+                        snr_eval = snr_engine.evaluate_signal(
+                            bars=bars_for_snr,
                             direction=agent_consensus.final_direction,
                             confidence=final_confidence,
                             snr=snr_snapshot,
                         )
-                        if snr_adj.reasons:
+                        if snr_eval.block_signal:
+                            snr_blocked = True
+                            signal_decision = "wait"
+                            rejection_reason = snr_eval.block_reason
+                            proposed_confidence = snr_eval.confidence
                             logger.info(
-                                "snr_confidence_adjusted",
+                                "snr_no_trade_zone",
                                 symbol=symbol,
-                                reasons=snr_adj.reasons,
-                                before=final_confidence,
-                                after=snr_adj.confidence,
+                                reason=snr_eval.block_reason,
+                                explain=snr_eval.explain_ar,
                             )
-                        final_confidence = snr_adj.confidence
-                        proposed_confidence = final_confidence
-                    balance = await account_service.get_balance()
-                    signal = signal_generator.build_trading_signal(
-                        _bar_buffer[symbol],
-                        symbol,
-                        agent_consensus.final_direction,
-                        final_confidence,
-                        indicators,
-                        regime,
-                        kill_switch_active=kill_switch.is_active,
-                        require_min_confidence=True,
-                        min_confidence=selectivity_confidence_floor(),
-                        account_balance=balance,
-                    )
-                    if signal:
-                        safe, safety_reason = check_mandatory_safety_gate(
-                            agent_consensus.final_direction,
-                            regime,
-                            indicators,
-                            raw_bar["close"],
-                        )
-                        if not safe:
-                            logger.info(
-                                "safety_gate_blocked",
-                                symbol=symbol,
-                                reason=safety_reason,
-                            )
-                            signal_decision = "blocked"
-                            rejection_reason = safety_reason
-                            signal = None
+                        else:
+                            if snr_eval.reasons:
+                                logger.info(
+                                    "snr_confidence_adjusted",
+                                    symbol=symbol,
+                                    reasons=snr_eval.reasons,
+                                    category=snr_eval.category,
+                                    before=final_confidence,
+                                    after=snr_eval.confidence,
+                                )
+                            final_confidence = snr_eval.confidence
+                            proposed_confidence = final_confidence
+                            snr_explain_ar = snr_eval.explain_ar
+                            snr_category = snr_eval.category
 
-                    if signal:
-                        calendar_pool = await _load_high_impact_events()
-                        cal_safe, cal_reason = check_economic_calendar_gate(
-                            calendar_pool,
-                            snapshot.timestamp,
-                        )
-                        if not cal_safe:
-                            logger.info(
-                                "economic_calendar_gate_blocked",
-                                symbol=symbol,
-                                reason=cal_reason,
-                            )
-                            signal_decision = "blocked"
-                            rejection_reason = cal_reason
-                            signal = None
-
-                    if signal:
-                        allowed, reason = await apply_high_selectivity_filters(
+                    if not snr_blocked:
+                        balance = await account_service.get_balance()
+                        signal = signal_generator.build_trading_signal(
+                            _bar_buffer[symbol],
                             symbol,
                             agent_consensus.final_direction,
-                            signal.confidence,
+                            final_confidence,
                             indicators,
                             regime,
-                            _bar_buffer[symbol],
-                            agent_consensus,
+                            kill_switch_active=kill_switch.is_active,
+                            require_min_confidence=True,
+                            min_confidence=selectivity_confidence_floor(),
+                            account_balance=balance,
                         )
-                        if not allowed:
-                            logger.info(
-                                "selectivity_wait",
-                                symbol=symbol,
-                                reason=reason,
-                                confidence=signal.confidence,
+                        if signal and snr_explain_ar:
+                            signal = signal.model_copy(
+                                update={
+                                    "snr_explain_ar": snr_explain_ar,
+                                    "snr_category": snr_category,
+                                }
                             )
-                            signal_decision = "wait"
-                            rejection_reason = reason or "selectivity_wait"
-                            signal = None
 
-                    if signal:
-                        allowed, reason = await should_emit_new_signal(symbol, signal.entry_price)
-                        if not allowed:
-                            logger.info(
-                                "signal_suppressed",
-                                symbol=symbol,
-                                reason=reason,
-                                confidence=signal.confidence,
+                        if signal:
+                            safe, safety_reason = check_mandatory_safety_gate(
+                                agent_consensus.final_direction,
+                                regime,
+                                indicators,
+                                raw_bar["close"],
                             )
-                            signal_decision = "wait"
-                            rejection_reason = reason or "signal_suppressed"
-                            signal = None
+                            if not safe:
+                                logger.info(
+                                    "safety_gate_blocked",
+                                    symbol=symbol,
+                                    reason=safety_reason,
+                                )
+                                signal_decision = "blocked"
+                                rejection_reason = safety_reason
+                                signal = None
 
-                    if signal:
-                        signal_decision = "emitted"
-                    elif signal_decision == "none" and rejection_reason is None:
-                        signal_decision = "wait"
-                        rejection_reason = "selectivity_wait"
+                        if signal:
+                            calendar_pool = await _load_high_impact_events()
+                            cal_safe, cal_reason = check_economic_calendar_gate(
+                                calendar_pool,
+                                snapshot.timestamp,
+                            )
+                            if not cal_safe:
+                                logger.info(
+                                    "economic_calendar_gate_blocked",
+                                    symbol=symbol,
+                                    reason=cal_reason,
+                                )
+                                signal_decision = "blocked"
+                                rejection_reason = cal_reason
+                                signal = None
+
+                        if signal:
+                            allowed, reason = await apply_high_selectivity_filters(
+                                symbol,
+                                agent_consensus.final_direction,
+                                signal.confidence,
+                                indicators,
+                                regime,
+                                _bar_buffer[symbol],
+                                agent_consensus,
+                            )
+                            if not allowed:
+                                logger.info(
+                                    "selectivity_wait",
+                                    symbol=symbol,
+                                    reason=reason,
+                                    confidence=signal.confidence,
+                                )
+                                signal_decision = "wait"
+                                rejection_reason = reason or "selectivity_wait"
+                                signal = None
+
+                        if signal:
+                            allowed, reason = await should_emit_new_signal(symbol, signal.entry_price)
+                            if not allowed:
+                                logger.info(
+                                    "signal_suppressed",
+                                    symbol=symbol,
+                                    reason=reason,
+                                    confidence=signal.confidence,
+                                )
+                                signal_decision = "wait"
+                                rejection_reason = reason or "signal_suppressed"
+                                signal = None
+
+                        if signal:
+                            signal_decision = "emitted"
+                        elif signal_decision == "none" and rejection_reason is None:
+                            signal_decision = "wait"
+                            rejection_reason = "selectivity_wait"
 
             if agent_consensus and agent_consensus.is_llm_powered():
                 agent_consensus = agent_consensus.model_copy(

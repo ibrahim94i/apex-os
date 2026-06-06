@@ -57,6 +57,8 @@ class TradingSignalSchema(BaseModel):
     degraded: bool = False
     degradation_reason: str | None = None
     kill_switch_active: bool = False
+    snr_explain_ar: str | None = None
+    snr_category: str | None = None
 
 
 class DashboardStateSchema(BaseModel):

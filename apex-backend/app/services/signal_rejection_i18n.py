@@ -16,6 +16,8 @@ REJECTION_AR: dict[str, str] = {
     "ranging_market_wait": "السوق جانبي — انتظر",
     "economic_calendar_pre_event": "رفض Safety Gate: حدث اقتصادي عالي التأثير خلال 30 دقيقة",
     "economic_calendar_post_event": "رفض Safety Gate: انتظار 15 دقيقة بعد صدور حدث اقتصادي",
+    "snr_no_trade_zone_support": "انتظار — السعر في منطقة SNR بين S1 وS2 (No-Trade Zone)",
+    "snr_no_trade_zone_resistance": "انتظار — السعر في منطقة SNR بين R1 وR2 (No-Trade Zone)",
 }
 
 

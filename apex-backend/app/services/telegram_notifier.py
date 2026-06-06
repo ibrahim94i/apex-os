@@ -133,7 +133,11 @@ class TelegramNotifier:
         text = (
             f"🚨 <b>إشارة APEX — {asset}</b>\n\n"
             f"📊 الاتجاه: <b>{direction}</b>\n"
-            f"🎯 الثقة: <b>{signal.confidence * 100:.1f}%</b>\n"
+        )
+        if signal.snr_explain_ar:
+            text += f"🎯 سبب الإشارة: <b>{signal.snr_explain_ar}</b>\n"
+        text += (
+            f"📈 الثقة: <b>{signal.confidence * 100:.1f}%</b>\n"
             f"💰 الدخول: <code>{signal.entry_price}</code>\n"
             f"🛑 وقف الخسارة: <code>{signal.stop_loss}</code>\n"
             f"✅ هدف الربح: <code>{signal.take_profit}</code>\n"
