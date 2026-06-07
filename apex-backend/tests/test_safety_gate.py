@@ -40,15 +40,15 @@ def test_long_blocked_in_trending_down() -> None:
     assert reason == "safety_gate_long_trending_down"
 
 
-def test_long_blocked_adx_above_50() -> None:
+def test_long_allowed_adx_above_50_in_uptrend() -> None:
     ok, reason = check_mandatory_safety_gate(
         SignalDirection.LONG,
         _regime(RegimeType.TRENDING_UP),
         _indicators(adx=55.0),
         price=95000.0,
     )
-    assert ok is False
-    assert reason == "safety_gate_long_adx_extreme"
+    assert ok is True
+    assert reason is None
 
 
 def test_long_blocked_below_ema200() -> None:
@@ -73,15 +73,15 @@ def test_short_blocked_in_trending_up() -> None:
     assert reason == "safety_gate_short_trending_up"
 
 
-def test_short_blocked_adx_above_50() -> None:
+def test_short_allowed_adx_above_50_in_downtrend() -> None:
     ok, reason = check_mandatory_safety_gate(
         SignalDirection.SHORT,
         _regime(RegimeType.TRENDING_DOWN),
-        _indicators(adx=51.0),
+        _indicators(adx=51.0, ema_200=96000.0),
         price=95000.0,
     )
-    assert ok is False
-    assert reason == "safety_gate_short_adx_extreme"
+    assert ok is True
+    assert reason is None
 
 
 def test_short_blocked_above_ema200() -> None:

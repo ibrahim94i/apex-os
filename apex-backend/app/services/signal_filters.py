@@ -10,6 +10,7 @@ from app.engines.indicator_engine import IndicatorEngine, OHLCVBar
 from app.schemas import IndicatorSnapshotSchema, RegimeSnapshotSchema, RegimeType, SignalDirection
 from app.schemas.agent import AgentConsensus, AgentRole
 from app.services.market_hours import is_gold_trading_session
+from app.agents.base_weights import STRONG_CONSENSUS_THRESHOLD
 from app.services.selectivity import selectivity_confidence_floor
 
 
@@ -92,30 +93,41 @@ def get_agent_confidences(consensus: AgentConsensus | None) -> tuple[float | Non
     return market, risk
 
 
-def should_bypass_rsi_atr_filters(consensus: AgentConsensus | None) -> bool:
-    """Both market analyst and risk agent above threshold → skip RSI/ATR only."""
-    market, risk = get_agent_confidences(consensus)
-    threshold = settings.strong_agent_bypass_threshold_pct / 100.0
+def should_bypass_technical_filters(
+    direction: SignalDirection,
+    confidence: float,
+) -> bool:
+    """Strong collective decision (>70%) with clear direction → skip ADX/RSI/ATR only."""
     return (
-        market is not None
-        and risk is not None
-        and market > threshold
-        and risk > threshold
+        direction != SignalDirection.NEUTRAL
+        and confidence > STRONG_CONSENSUS_THRESHOLD
+    )
+
+
+def should_bypass_rsi_atr_filters(consensus: AgentConsensus | None) -> bool:
+    """Backward-compatible alias — prefer should_bypass_technical_filters."""
+    if not consensus:
+        return False
+    return should_bypass_technical_filters(
+        consensus.final_direction,
+        consensus.final_confidence,
     )
 
 
 def check_regime_filter(
     direction: SignalDirection,
     regime: RegimeSnapshotSchema,
+    *,
+    skip_adx: bool = False,
 ) -> tuple[bool, str | None]:
     r = regime.regime
 
     if r in (RegimeType.RANGING, RegimeType.UNKNOWN):
         return False, f"regime_blocked_{r.value.lower()}"
 
-    # CHOPPY / LOW_LIQUIDITY proxies without enum migration
-    if regime.adx_value is not None and regime.adx_value < 15:
-        return False, "regime_choppy"
+    if not skip_adx:
+        if regime.adx_value is not None and regime.adx_value < 15:
+            return False, "regime_choppy"
     if regime.volatility_pct is not None and regime.volatility_pct < 0.3:
         return False, "regime_low_liquidity"
 
@@ -124,9 +136,16 @@ def check_regime_filter(
 
     if r == RegimeType.VOLATILE:
         trend_clear = regime.trend_strength is not None and abs(regime.trend_strength) >= 0.25
-        adx_ok = regime.adx_value is not None and regime.adx_value >= settings.adx_trend_clear_threshold
-        if trend_clear and adx_ok:
-            return True, None
+        if skip_adx:
+            if trend_clear:
+                return True, None
+        else:
+            adx_ok = (
+                regime.adx_value is not None
+                and regime.adx_value >= settings.adx_trend_clear_threshold
+            )
+            if trend_clear and adx_ok:
+                return True, None
         return False, "regime_volatile_no_clear_trend"
 
     return False, "regime_blocked"
@@ -181,20 +200,20 @@ async def apply_high_selectivity_filters(
     if confidence < floor:
         return False, "confidence_below_threshold"
 
-    bypass_rsi_atr = should_bypass_rsi_atr_filters(consensus)
+    bypass_technical = should_bypass_technical_filters(direction, confidence)
 
-    ok, reason = check_confluence(direction, indicators, skip_rsi=bypass_rsi_atr)
+    ok, reason = check_confluence(direction, indicators, skip_rsi=bypass_technical)
     if not ok:
         return False, reason
 
-    ok, reason = check_regime_filter(direction, regime)
+    ok, reason = check_regime_filter(direction, regime, skip_adx=bypass_technical)
     if not ok:
         return False, reason
 
     if symbol == "XAUUSD" and not is_gold_trading_session():
         return False, "gold_session_closed"
 
-    if not bypass_rsi_atr:
+    if not bypass_technical:
         ok, reason = check_atr_volatility(indicators, bars)
         if not ok:
             return False, reason

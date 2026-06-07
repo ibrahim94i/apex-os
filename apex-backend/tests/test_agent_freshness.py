@@ -72,12 +72,32 @@ def test_reject_when_verdict_marked_stale() -> None:
     assert reason == "agent_stale:market_analyst"
 
 
-def test_stale_verdict_gets_reduced_weight() -> None:
+def test_stale_verdict_gets_reduced_weight_with_floor() -> None:
     snap = _snapshot()
     verdicts = [_verdict(is_stale=True, weight=0.40)]
     adjusted, reasons = apply_dynamic_weight_adjustments(verdicts, snap.indicators, snap)
-    assert adjusted[0].weight == pytest.approx(0.10, rel=0.01)
-    assert any("قديمة" in r for r in reasons)
+    assert adjusted[0].weight == pytest.approx(0.175, rel=0.01)
+    assert any("stale" in r for r in reasons)
+
+
+def test_no_weight_reduction_when_all_agents_high_confidence() -> None:
+    snap = _snapshot()
+    verdicts = [
+        _verdict(agent_id=AgentRole.MARKET_ANALYST, weight=0.35, confidence=0.75),
+        _verdict(agent_id=AgentRole.RISK, weight=0.40, confidence=0.80, agent_name_ar="مخاطr"),
+        _verdict(
+            agent_id=AgentRole.NEWS,
+            weight=0.25,
+            confidence=0.71,
+            agent_name_ar="أخبار",
+            direction=SignalDirection.NEUTRAL,
+        ),
+    ]
+    adjusted, reasons = apply_dynamic_weight_adjustments(verdicts, snap.indicators, snap)
+    assert adjusted[0].weight == 0.35
+    assert adjusted[1].weight == 0.40
+    assert adjusted[2].weight == 0.25
+    assert reasons == []
 
 
 def test_inconsistent_long_detected() -> None:

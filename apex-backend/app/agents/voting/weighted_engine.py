@@ -5,6 +5,12 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.agents.base_weights import (
+    AGENT_BASE_WEIGHTS,
+    MIN_WEIGHT_FLOOR_RATIO,
+    all_agents_high_confidence,
+    min_weight_floor,
+)
 from app.models.phase3 import AgentWeightLog
 from app.schemas import SignalDirection
 from app.schemas.agent import AgentConsensus, AgentRole, AgentVerdict
@@ -29,6 +35,15 @@ class AdaptiveWeightedEngine:
         regime: str,
         verdicts: list[AgentVerdict],
     ) -> dict[AgentRole, float]:
+        if all_agents_high_confidence(verdicts):
+            total = sum(AGENT_BASE_WEIGHTS.values())
+            weights = {
+                role: round(w / total, 4) for role, w in AGENT_BASE_WEIGHTS.items()
+            }
+            for v in verdicts:
+                v.weight = weights.get(v.agent_id, v.weight)
+            return weights
+
         market_acc = 0.5
         news_acc = 0.5
 
@@ -46,16 +61,25 @@ class AdaptiveWeightedEngine:
 
         if market_acc > 0.70:
             market_w = 0.40
-            reasons.append(f"محلل السوق دقة {market_acc:.0%} — رفع الوزن")
+            reasons.append(f"market accuracy {market_acc:.0%} — weight raised")
         if news_acc < 0.50:
-            news_w = 0.15
-            reasons.append(f"وكيل الأخبار دقة {news_acc:.0%} — خفض الوزن")
+            news_w = max(NEWS_BASE * MIN_WEIGHT_FLOOR_RATIO, 0.15)
+            reasons.append(f"news accuracy {news_acc:.0%} — weight reduced")
+
+        news_w = max(news_w, NEWS_BASE * MIN_WEIGHT_FLOOR_RATIO)
+        market_w = max(market_w, MARKET_BASE * MIN_WEIGHT_FLOOR_RATIO)
 
         risk_w = max(RISK_MIN_WEIGHT, 1.0 - market_w - news_w)
         if risk_w > RISK_MIN_WEIGHT and market_w + news_w + risk_w > 1.0:
             excess = market_w + news_w + risk_w - 1.0
-            market_w = max(0.15, market_w - excess / 2)
-            news_w = max(0.10, news_w - excess / 2)
+            market_w = max(
+                min_weight_floor(AgentRole.MARKET_ANALYST, market_w),
+                market_w - excess / 2,
+            )
+            news_w = max(
+                min_weight_floor(AgentRole.NEWS, news_w),
+                news_w - excess / 2,
+            )
             risk_w = 1.0 - market_w - news_w
 
         risk_w = max(RISK_MIN_WEIGHT, risk_w)

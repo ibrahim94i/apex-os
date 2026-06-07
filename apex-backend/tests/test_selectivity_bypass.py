@@ -1,4 +1,4 @@
-"""Tests for tiered selectivity and strong-agent RSI/ATR bypass."""
+"""Tests for tiered selectivity and strong-consensus technical bypass."""
 
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, patch
@@ -12,6 +12,7 @@ from app.services.signal_filters import (
     apply_high_selectivity_filters,
     check_confluence,
     should_bypass_rsi_atr_filters,
+    should_bypass_technical_filters,
 )
 
 
@@ -31,8 +32,8 @@ def _indicators(**kwargs) -> IndicatorSnapshotSchema:
     return IndicatorSnapshotSchema(**base)
 
 
-def _regime() -> RegimeSnapshotSchema:
-    return RegimeSnapshotSchema(
+def _regime(**kwargs) -> RegimeSnapshotSchema:
+    base = dict(
         symbol="XAUUSD",
         timestamp=datetime.now(timezone.utc),
         regime=RegimeType.TRENDING_UP,
@@ -41,21 +42,23 @@ def _regime() -> RegimeSnapshotSchema:
         volatility_pct=1.0,
         trend_strength=0.5,
     )
+    base.update(kwargs)
+    return RegimeSnapshotSchema(**base)
 
 
-def _consensus(market_conf: float, risk_conf: float) -> AgentConsensus:
+def _consensus(final_confidence: float = 0.72) -> AgentConsensus:
     now = datetime.now(timezone.utc)
     return AgentConsensus(
         symbol="XAUUSD",
         timestamp=now,
         final_direction=SignalDirection.LONG,
-        final_confidence=0.72,
+        final_confidence=final_confidence,
         verdicts=[
             AgentVerdict(
                 agent_id=AgentRole.MARKET_ANALYST,
                 agent_name_ar="محلل السوق",
                 direction=SignalDirection.LONG,
-                confidence=market_conf,
+                confidence=0.60,
                 reasoning=["test"],
                 weight=0.4,
             ),
@@ -63,7 +66,7 @@ def _consensus(market_conf: float, risk_conf: float) -> AgentConsensus:
                 agent_id=AgentRole.RISK,
                 agent_name_ar="المخاطر",
                 direction=SignalDirection.LONG,
-                confidence=risk_conf,
+                confidence=0.60,
                 reasoning=["test"],
                 weight=0.35,
             ),
@@ -72,14 +75,16 @@ def _consensus(market_conf: float, risk_conf: float) -> AgentConsensus:
     )
 
 
-def test_bypass_when_both_agents_above_75() -> None:
-    assert should_bypass_rsi_atr_filters(_consensus(0.80, 1.0)) is True
-    assert should_bypass_rsi_atr_filters(_consensus(0.76, 0.76)) is True
+def test_bypass_when_confidence_above_70_and_direction_clear() -> None:
+    assert should_bypass_technical_filters(SignalDirection.LONG, 0.71) is True
+    assert should_bypass_technical_filters(SignalDirection.SHORT, 0.80) is True
+    assert should_bypass_rsi_atr_filters(_consensus(0.72)) is True
 
 
-def test_no_bypass_when_one_agent_weak() -> None:
-    assert should_bypass_rsi_atr_filters(_consensus(1.0, 0.75)) is False
-    assert should_bypass_rsi_atr_filters(_consensus(0.75, 0.80)) is False
+def test_no_bypass_when_confidence_at_or_below_70() -> None:
+    assert should_bypass_technical_filters(SignalDirection.LONG, 0.70) is False
+    assert should_bypass_technical_filters(SignalDirection.LONG, 0.69) is False
+    assert should_bypass_technical_filters(SignalDirection.NEUTRAL, 0.90) is False
 
 
 def test_confluence_skip_rsi_allows_extreme_rsi() -> None:
@@ -99,9 +104,8 @@ def test_confluence_enforces_rsi_by_default() -> None:
 
 
 @pytest.mark.asyncio
-async def test_strong_agents_bypass_rsi_and_atr_filters() -> None:
+async def test_strong_consensus_bypasses_rsi_and_atr_filters() -> None:
     bars = [OHLCVBar(timestamp=datetime.now(timezone.utc), open=1, high=1, low=1, close=1, volume=1)] * 25
-    consensus = _consensus(1.0, 1.0)
 
     with patch(
         "app.services.signal_filters.is_gold_trading_session",
@@ -115,9 +119,9 @@ async def test_strong_agents_bypass_rsi_and_atr_filters() -> None:
             SignalDirection.LONG,
             0.72,
             _indicators(rsi=80.0, atr=1.0, atr_avg_20=4.0),
-            _regime(),
+            _regime(adx_value=10.0),
             bars,
-            consensus,
+            _consensus(),
         )
 
     assert allowed is True
@@ -127,7 +131,6 @@ async def test_strong_agents_bypass_rsi_and_atr_filters() -> None:
 @pytest.mark.asyncio
 async def test_marginal_confidence_applies_rsi_filter() -> None:
     bars = [OHLCVBar(timestamp=datetime.now(timezone.utc), open=1, high=1, low=1, close=1, volume=1)] * 25
-    consensus = _consensus(0.60, 0.60)
 
     with patch(
         "app.services.signal_filters.is_gold_trading_session",
@@ -139,11 +142,11 @@ async def test_marginal_confidence_applies_rsi_filter() -> None:
         allowed, reason = await apply_high_selectivity_filters(
             "EURUSD",
             SignalDirection.LONG,
-            0.72,
+            0.70,
             _indicators(rsi=80.0),
             _regime(),
             bars,
-            consensus,
+            _consensus(0.70),
         )
 
     assert allowed is False
@@ -163,7 +166,7 @@ async def test_confidence_below_70_rejected() -> None:
             _indicators(),
             _regime(),
             [],
-            _consensus(1.0, 1.0),
+            _consensus(0.69),
         )
 
     assert allowed is False
