@@ -19,7 +19,7 @@ from unittest.mock import AsyncMock, patch
 
 @pytest.mark.asyncio
 async def test_weighted_confidence_formula() -> None:
-    """final_confidence = |Σ(direction × confidence × weight) / Σ(weight)|"""
+    """final_confidence = weighted avg of supporting + neutral agent confidences."""
     engine = AdaptiveWeightedEngine()
     verdicts = [
         AgentVerdict(

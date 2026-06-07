@@ -19,14 +19,68 @@ from app.services.memory_engine import memory_engine
 RISK_MIN_WEIGHT = 0.40
 MARKET_BASE = 0.35
 NEWS_BASE = 0.25
+DIRECTION_VALUES = {
+    SignalDirection.LONG: 1.0,
+    SignalDirection.SHORT: -1.0,
+    SignalDirection.NEUTRAL: 0.0,
+}
+DIRECTION_THRESHOLD = 0.15
+
+
+def compute_direction_normalized(verdicts: list[AgentVerdict]) -> float:
+    """Signed score for direction: Σ(sign × confidence × weight) / Σ(weight)."""
+    weighted_sum = 0.0
+    total_weight = 0.0
+    for verdict in verdicts:
+        direction_val = DIRECTION_VALUES[verdict.direction]
+        weighted_sum += direction_val * verdict.confidence * verdict.weight
+        total_weight += verdict.weight
+    return weighted_sum / total_weight if total_weight else 0.0
+
+
+def direction_from_normalized(normalized: float) -> SignalDirection:
+    if normalized > DIRECTION_THRESHOLD:
+        return SignalDirection.LONG
+    if normalized < -DIRECTION_THRESHOLD:
+        return SignalDirection.SHORT
+    return SignalDirection.NEUTRAL
+
+
+def compute_weighted_confidence(
+    verdicts: list[AgentVerdict],
+    final_direction: SignalDirection,
+) -> float:
+    """
+    Weighted confidence among agents aligned with the final direction.
+    Supporting + NEUTRAL agents contribute confidence × weight; opposing agents are excluded.
+    """
+    if final_direction == SignalDirection.NEUTRAL:
+        return min(abs(compute_direction_normalized(verdicts)), 1.0)
+
+    confidence_sum = 0.0
+    weight_sum = 0.0
+    for verdict in verdicts:
+        if verdict.direction in (final_direction, SignalDirection.NEUTRAL):
+            confidence_sum += verdict.confidence * verdict.weight
+            weight_sum += verdict.weight
+
+    if weight_sum <= 0:
+        return 0.0
+    return min(confidence_sum / weight_sum, 1.0)
+
+
+def compute_vote_scores(verdicts: list[AgentVerdict]) -> dict[str, float]:
+    return {
+        verdict.agent_id.value: round(
+            DIRECTION_VALUES[verdict.direction] * verdict.confidence * verdict.weight,
+            4,
+        )
+        for verdict in verdicts
+    }
 
 
 class AdaptiveWeightedEngine:
-    DIRECTION_VALUES = {
-        SignalDirection.LONG: 1.0,
-        SignalDirection.SHORT: -1.0,
-        SignalDirection.NEUTRAL: 0.0,
-    }
+    DIRECTION_VALUES = DIRECTION_VALUES
 
     async def compute_weights(
         self,
@@ -117,26 +171,10 @@ class AdaptiveWeightedEngine:
         else:
             weight_reasons = []
 
-        vote_scores: dict[str, float] = {}
-        weighted_sum = 0.0
-        total_weight = 0.0
-
-        for verdict in verdicts:
-            direction_val = self.DIRECTION_VALUES[verdict.direction]
-            score = direction_val * verdict.confidence * verdict.weight
-            vote_scores[verdict.agent_id.value] = round(score, 4)
-            weighted_sum += score
-            total_weight += verdict.weight
-
-        normalized = weighted_sum / total_weight if total_weight else 0.0
-        final_confidence = min(abs(normalized), 1.0)
-
-        if normalized > 0.15:
-            final_direction = SignalDirection.LONG
-        elif normalized < -0.15:
-            final_direction = SignalDirection.SHORT
-        else:
-            final_direction = SignalDirection.NEUTRAL
+        vote_scores = compute_vote_scores(verdicts)
+        normalized = compute_direction_normalized(verdicts)
+        final_direction = direction_from_normalized(normalized)
+        final_confidence = compute_weighted_confidence(verdicts, final_direction)
 
         reasoning_summary = self._build_summary(verdicts, final_direction, final_confidence)
         if weight_reasons:
