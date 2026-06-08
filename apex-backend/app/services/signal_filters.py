@@ -93,25 +93,42 @@ def get_agent_confidences(consensus: AgentConsensus | None) -> tuple[float | Non
     return market, risk
 
 
+def should_bypass_rsi_atr_filters(
+    direction: SignalDirection,
+    signal_confidence: float,
+    consensus: AgentConsensus | None = None,
+) -> bool:
+    """
+    Collective decision >= 70% with clear direction → skip RSI and ATR filters.
+    Uses agent consensus confidence, not post-degradation signal confidence.
+    """
+    collective_dir = consensus.final_direction if consensus else direction
+    collective_conf = consensus.final_confidence if consensus else signal_confidence
+    if collective_dir == SignalDirection.NEUTRAL:
+        return False
+    return collective_conf >= STRONG_CONSENSUS_THRESHOLD
+
+
 def should_bypass_technical_filters(
     direction: SignalDirection,
     confidence: float,
+    consensus: AgentConsensus | None = None,
 ) -> bool:
-    """Strong collective decision (>70%) with clear direction → skip ADX/RSI/ATR only."""
-    return (
-        direction != SignalDirection.NEUTRAL
-        and confidence > STRONG_CONSENSUS_THRESHOLD
-    )
+    """Alias for RSI/ATR/ADX bypass under strong collective consensus."""
+    return should_bypass_rsi_atr_filters(direction, confidence, consensus)
 
 
-def should_bypass_rsi_atr_filters(consensus: AgentConsensus | None) -> bool:
-    """Backward-compatible alias — prefer should_bypass_technical_filters."""
-    if not consensus:
-        return False
-    return should_bypass_technical_filters(
-        consensus.final_direction,
-        consensus.final_confidence,
-    )
+def passes_selectivity_confidence_floor(
+    signal_confidence: float,
+    consensus: AgentConsensus | None = None,
+) -> bool:
+    """Allow degraded signal confidence when collective consensus still meets floor."""
+    floor = selectivity_confidence_floor()
+    if signal_confidence >= floor:
+        return True
+    if consensus is not None and consensus.final_confidence >= floor:
+        return True
+    return False
 
 
 def check_regime_filter(
@@ -196,24 +213,23 @@ async def apply_high_selectivity_filters(
     consensus: AgentConsensus | None = None,
 ) -> tuple[bool, str | None]:
     """Return (allowed, rejection_reason). False = WAIT."""
-    floor = selectivity_confidence_floor()
-    if confidence < floor:
+    if not passes_selectivity_confidence_floor(confidence, consensus):
         return False, "confidence_below_threshold"
 
-    bypass_technical = should_bypass_technical_filters(direction, confidence)
+    bypass_rsi_atr = should_bypass_rsi_atr_filters(direction, confidence, consensus)
 
-    ok, reason = check_confluence(direction, indicators, skip_rsi=bypass_technical)
+    ok, reason = check_confluence(direction, indicators, skip_rsi=bypass_rsi_atr)
     if not ok:
         return False, reason
 
-    ok, reason = check_regime_filter(direction, regime, skip_adx=bypass_technical)
+    ok, reason = check_regime_filter(direction, regime, skip_adx=bypass_rsi_atr)
     if not ok:
         return False, reason
 
     if symbol == "XAUUSD" and not is_gold_trading_session():
         return False, "gold_session_closed"
 
-    if not bypass_technical:
+    if not bypass_rsi_atr:
         ok, reason = check_atr_volatility(indicators, bars)
         if not ok:
             return False, reason

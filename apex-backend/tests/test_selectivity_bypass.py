@@ -11,6 +11,7 @@ from app.schemas.agent import AgentConsensus, AgentRole, AgentVerdict
 from app.services.signal_filters import (
     apply_high_selectivity_filters,
     check_confluence,
+    passes_selectivity_confidence_floor,
     should_bypass_rsi_atr_filters,
     should_bypass_technical_filters,
 )
@@ -46,27 +47,30 @@ def _regime(**kwargs) -> RegimeSnapshotSchema:
     return RegimeSnapshotSchema(**base)
 
 
-def _consensus(final_confidence: float = 0.72) -> AgentConsensus:
+def _consensus(
+    final_confidence: float = 0.72,
+    final_direction: SignalDirection = SignalDirection.LONG,
+) -> AgentConsensus:
     now = datetime.now(timezone.utc)
     return AgentConsensus(
         symbol="XAUUSD",
         timestamp=now,
-        final_direction=SignalDirection.LONG,
+        final_direction=final_direction,
         final_confidence=final_confidence,
         verdicts=[
             AgentVerdict(
                 agent_id=AgentRole.MARKET_ANALYST,
                 agent_name_ar="محلل السوق",
-                direction=SignalDirection.LONG,
-                confidence=0.60,
+                direction=final_direction,
+                confidence=0.80,
                 reasoning=["test"],
                 weight=0.4,
             ),
             AgentVerdict(
                 agent_id=AgentRole.RISK,
-                agent_name_ar="المخاطر",
-                direction=SignalDirection.LONG,
-                confidence=0.60,
+                agent_name_ar="المخاطr",
+                direction=final_direction,
+                confidence=0.75,
                 reasoning=["test"],
                 weight=0.35,
             ),
@@ -75,16 +79,23 @@ def _consensus(final_confidence: float = 0.72) -> AgentConsensus:
     )
 
 
-def test_bypass_when_confidence_above_70_and_direction_clear() -> None:
-    assert should_bypass_technical_filters(SignalDirection.LONG, 0.71) is True
-    assert should_bypass_technical_filters(SignalDirection.SHORT, 0.80) is True
-    assert should_bypass_rsi_atr_filters(_consensus(0.72)) is True
+def test_bypass_when_collective_confidence_at_least_70() -> None:
+    assert should_bypass_technical_filters(SignalDirection.LONG, 0.50, _consensus(0.73)) is True
+    assert should_bypass_technical_filters(SignalDirection.SHORT, 0.50, _consensus(0.80, SignalDirection.SHORT)) is True
+    assert should_bypass_rsi_atr_filters(SignalDirection.LONG, 0.50, _consensus(0.70)) is True
 
 
-def test_no_bypass_when_confidence_at_or_below_70() -> None:
-    assert should_bypass_technical_filters(SignalDirection.LONG, 0.70) is False
-    assert should_bypass_technical_filters(SignalDirection.LONG, 0.69) is False
-    assert should_bypass_technical_filters(SignalDirection.NEUTRAL, 0.90) is False
+def test_no_bypass_when_collective_below_70_or_neutral() -> None:
+    assert should_bypass_technical_filters(SignalDirection.LONG, 0.80, _consensus(0.69)) is False
+    assert should_bypass_technical_filters(SignalDirection.LONG, 0.69, None) is False
+    neutral = _consensus(0.90, SignalDirection.NEUTRAL)
+    assert should_bypass_rsi_atr_filters(SignalDirection.NEUTRAL, 0.90, neutral) is False
+
+
+def test_floor_passes_when_consensus_meets_threshold_after_degradation() -> None:
+    consensus = _consensus(0.73)
+    assert passes_selectivity_confidence_floor(0.584, consensus) is True
+    assert passes_selectivity_confidence_floor(0.69, _consensus(0.69)) is False
 
 
 def test_confluence_skip_rsi_allows_extreme_rsi() -> None:
@@ -121,7 +132,7 @@ async def test_strong_consensus_bypasses_rsi_and_atr_filters() -> None:
             _indicators(rsi=80.0, atr=1.0, atr_avg_20=4.0),
             _regime(adx_value=10.0),
             bars,
-            _consensus(),
+            _consensus(0.73),
         )
 
     assert allowed is True
@@ -129,7 +140,42 @@ async def test_strong_consensus_bypasses_rsi_and_atr_filters() -> None:
 
 
 @pytest.mark.asyncio
-async def test_marginal_confidence_applies_rsi_filter() -> None:
+async def test_degraded_signal_still_bypasses_rsi_atr_when_consensus_73_short() -> None:
+    """Regression: 73% collective SHORT must bypass RSI/ATR even if signal confidence ~58%."""
+    bars = [OHLCVBar(timestamp=datetime.now(timezone.utc), open=1, high=1, low=1, close=1, volume=1)] * 25
+    consensus = _consensus(0.73, SignalDirection.SHORT)
+
+    with patch(
+        "app.services.signal_filters.is_gold_trading_session",
+        return_value=True,
+    ), patch(
+        "app.services.signal_filters.check_news_block",
+        new=AsyncMock(return_value=False),
+    ):
+        allowed, reason = await apply_high_selectivity_filters(
+            "XAUUSD",
+            SignalDirection.SHORT,
+            0.584,
+            _indicators(
+                rsi=22.0,
+                macd=-1.0,
+                macd_signal=-0.5,
+                ema_50=2000.0,
+                ema_200=2100.0,
+                atr=0.2,
+                atr_avg_20=2.0,
+            ),
+            _regime(regime=RegimeType.TRENDING_DOWN, adx_value=55.0),
+            bars,
+            consensus,
+        )
+
+    assert allowed is True
+    assert reason is None
+
+
+@pytest.mark.asyncio
+async def test_marginal_collective_confidence_applies_rsi_filter() -> None:
     bars = [OHLCVBar(timestamp=datetime.now(timezone.utc), open=1, high=1, low=1, close=1, volume=1)] * 25
 
     with patch(
@@ -142,11 +188,11 @@ async def test_marginal_confidence_applies_rsi_filter() -> None:
         allowed, reason = await apply_high_selectivity_filters(
             "EURUSD",
             SignalDirection.LONG,
-            0.70,
+            0.75,
             _indicators(rsi=80.0),
             _regime(),
             bars,
-            _consensus(0.70),
+            _consensus(0.69),
         )
 
     assert allowed is False
