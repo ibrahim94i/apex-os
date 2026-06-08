@@ -12,6 +12,7 @@ from app.services.signal_filters import (
     apply_high_selectivity_filters,
     check_confluence,
     passes_selectivity_confidence_floor,
+    should_bypass_all_selectivity_filters,
     should_bypass_rsi_atr_filters,
     should_bypass_technical_filters,
 )
@@ -79,17 +80,26 @@ def _consensus(
     )
 
 
-def test_bypass_when_collective_confidence_at_least_70() -> None:
-    assert should_bypass_technical_filters(SignalDirection.LONG, 0.50, _consensus(0.73)) is True
-    assert should_bypass_technical_filters(SignalDirection.SHORT, 0.50, _consensus(0.80, SignalDirection.SHORT)) is True
-    assert should_bypass_rsi_atr_filters(SignalDirection.LONG, 0.50, _consensus(0.70)) is True
+def test_bypass_only_when_collective_at_least_75_and_trending() -> None:
+    regime = _regime(regime=RegimeType.TRENDING_DOWN)
+    assert should_bypass_all_selectivity_filters(_consensus(0.76, SignalDirection.SHORT), regime) is True
+    assert should_bypass_technical_filters(
+        SignalDirection.SHORT, 0.50, _consensus(0.76, SignalDirection.SHORT), regime
+    ) is True
+    assert should_bypass_rsi_atr_filters(
+        SignalDirection.LONG, 0.50, _consensus(0.75), _regime()
+    ) is True
 
 
-def test_no_bypass_when_collective_below_70_or_neutral() -> None:
-    assert should_bypass_technical_filters(SignalDirection.LONG, 0.80, _consensus(0.69)) is False
-    assert should_bypass_technical_filters(SignalDirection.LONG, 0.69, None) is False
+def test_no_bypass_in_70_to_75_band_or_without_clear_trend() -> None:
+    trending = _regime(regime=RegimeType.TRENDING_UP)
+    assert should_bypass_all_selectivity_filters(_consensus(0.73), trending) is False
+    assert should_bypass_technical_filters(SignalDirection.LONG, 0.50, _consensus(0.73), trending) is False
+    assert should_bypass_rsi_atr_filters(SignalDirection.LONG, 0.50, _consensus(0.70), trending) is False
+    assert should_bypass_all_selectivity_filters(_consensus(0.80), _regime(regime=RegimeType.RANGING)) is False
+    assert should_bypass_technical_filters(SignalDirection.LONG, 0.80, _consensus(0.69), trending) is False
     neutral = _consensus(0.90, SignalDirection.NEUTRAL)
-    assert should_bypass_rsi_atr_filters(SignalDirection.NEUTRAL, 0.90, neutral) is False
+    assert should_bypass_rsi_atr_filters(SignalDirection.NEUTRAL, 0.90, neutral, trending) is False
 
 
 def test_floor_passes_when_consensus_meets_threshold_after_degradation() -> None:
@@ -115,7 +125,73 @@ def test_confluence_enforces_rsi_by_default() -> None:
 
 
 @pytest.mark.asyncio
-async def test_strong_consensus_bypasses_rsi_and_atr_filters() -> None:
+async def test_strong_trend_consensus_bypasses_all_selectivity_filters() -> None:
+    bars = [OHLCVBar(timestamp=datetime.now(timezone.utc), open=1, high=1, low=1, close=1, volume=1)] * 25
+    regime = _regime(regime=RegimeType.TRENDING_DOWN, adx_value=10.0, volatility_pct=0.1)
+
+    with patch(
+        "app.services.signal_filters.is_gold_trading_session",
+        return_value=True,
+    ), patch(
+        "app.services.signal_filters.check_news_block",
+        new=AsyncMock(return_value=True),
+    ):
+        allowed, reason = await apply_high_selectivity_filters(
+            "XAUUSD",
+            SignalDirection.SHORT,
+            0.58,
+            _indicators(
+                rsi=80.0,
+                macd=1.0,
+                macd_signal=0.5,
+                atr=0.2,
+                atr_avg_20=2.0,
+            ),
+            regime,
+            bars,
+            _consensus(0.76, SignalDirection.SHORT),
+        )
+
+    assert allowed is True
+    assert reason is None
+
+
+@pytest.mark.asyncio
+async def test_mid_band_70_to_75_applies_all_filters() -> None:
+    bars = [OHLCVBar(timestamp=datetime.now(timezone.utc), open=1, high=1, low=1, close=1, volume=1)] * 25
+    consensus = _consensus(0.73, SignalDirection.SHORT)
+
+    with patch(
+        "app.services.signal_filters.is_gold_trading_session",
+        return_value=True,
+    ), patch(
+        "app.services.signal_filters.check_news_block",
+        new=AsyncMock(return_value=False),
+    ):
+        allowed, reason = await apply_high_selectivity_filters(
+            "XAUUSD",
+            SignalDirection.SHORT,
+            0.584,
+            _indicators(
+                rsi=50.0,
+                macd=-1.0,
+                macd_signal=-1.5,
+                ema_50=2200.0,
+                ema_200=2100.0,
+                atr=2.0,
+                atr_avg_20=2.0,
+            ),
+            _regime(regime=RegimeType.TRENDING_DOWN, adx_value=55.0),
+            bars,
+            consensus,
+        )
+
+    assert allowed is False
+    assert reason == "ema_confluence_short"
+
+
+@pytest.mark.asyncio
+async def test_mid_band_applies_rsi_filter() -> None:
     bars = [OHLCVBar(timestamp=datetime.now(timezone.utc), open=1, high=1, low=1, close=1, volume=1)] * 25
 
     with patch(
@@ -133,66 +209,6 @@ async def test_strong_consensus_bypasses_rsi_and_atr_filters() -> None:
             _regime(adx_value=10.0),
             bars,
             _consensus(0.73),
-        )
-
-    assert allowed is True
-    assert reason is None
-
-
-@pytest.mark.asyncio
-async def test_degraded_signal_still_bypasses_rsi_atr_when_consensus_73_short() -> None:
-    """Regression: 73% collective SHORT must bypass RSI/ATR even if signal confidence ~58%."""
-    bars = [OHLCVBar(timestamp=datetime.now(timezone.utc), open=1, high=1, low=1, close=1, volume=1)] * 25
-    consensus = _consensus(0.73, SignalDirection.SHORT)
-
-    with patch(
-        "app.services.signal_filters.is_gold_trading_session",
-        return_value=True,
-    ), patch(
-        "app.services.signal_filters.check_news_block",
-        new=AsyncMock(return_value=False),
-    ):
-        allowed, reason = await apply_high_selectivity_filters(
-            "XAUUSD",
-            SignalDirection.SHORT,
-            0.584,
-            _indicators(
-                rsi=22.0,
-                macd=-1.0,
-                macd_signal=-0.5,
-                ema_50=2000.0,
-                ema_200=2100.0,
-                atr=0.2,
-                atr_avg_20=2.0,
-            ),
-            _regime(regime=RegimeType.TRENDING_DOWN, adx_value=55.0),
-            bars,
-            consensus,
-        )
-
-    assert allowed is True
-    assert reason is None
-
-
-@pytest.mark.asyncio
-async def test_marginal_collective_confidence_applies_rsi_filter() -> None:
-    bars = [OHLCVBar(timestamp=datetime.now(timezone.utc), open=1, high=1, low=1, close=1, volume=1)] * 25
-
-    with patch(
-        "app.services.signal_filters.is_gold_trading_session",
-        return_value=True,
-    ), patch(
-        "app.services.signal_filters.check_news_block",
-        new=AsyncMock(return_value=False),
-    ):
-        allowed, reason = await apply_high_selectivity_filters(
-            "EURUSD",
-            SignalDirection.LONG,
-            0.75,
-            _indicators(rsi=80.0),
-            _regime(),
-            bars,
-            _consensus(0.69),
         )
 
     assert allowed is False

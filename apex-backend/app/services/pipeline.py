@@ -40,7 +40,10 @@ from app.services.market_hours import is_market_open
 from app.services.market_snapshot import bind_indicator_regime_to_symbol, build_market_snapshot
 from app.services.market_status_service import build_market_status
 from app.services.selectivity import selectivity_confidence_floor
-from app.services.signal_filters import apply_high_selectivity_filters
+from app.services.signal_filters import (
+    apply_high_selectivity_filters,
+    should_bypass_all_selectivity_filters,
+)
 from app.services.signal_gate import should_emit_new_signal
 from app.services.economic_calendar_gate import check_economic_calendar_gate
 from app.services.finnhub_calendar import _load_high_impact_events
@@ -223,8 +226,23 @@ async def process_bar(raw_bar: dict[str, Any], *, skip_agents: bool = False) -> 
                     snr_category: str | None = None
                     snr_blocked = False
                     signal = None
+                    bypass_selectivity = should_bypass_all_selectivity_filters(
+                        agent_consensus,
+                        regime,
+                    )
+                    if bypass_selectivity:
+                        logger.info(
+                            "selectivity_bypass_strong_trend",
+                            symbol=symbol,
+                            collective_confidence=agent_consensus.final_confidence,
+                            regime=regime.regime.value,
+                        )
 
-                    if snr_snapshot and agent_consensus.final_direction != SignalDirection.NEUTRAL:
+                    if (
+                        snr_snapshot
+                        and not bypass_selectivity
+                        and agent_consensus.final_direction != SignalDirection.NEUTRAL
+                    ):
                         bars_for_snr = _bar_buffer[symbol]
                         if len(bars_for_snr) < 2:
                             from app.services.market_data_store import fetch_bars_from_db

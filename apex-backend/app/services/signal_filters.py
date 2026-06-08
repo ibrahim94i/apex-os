@@ -10,8 +10,7 @@ from app.engines.indicator_engine import IndicatorEngine, OHLCVBar
 from app.schemas import IndicatorSnapshotSchema, RegimeSnapshotSchema, RegimeType, SignalDirection
 from app.schemas.agent import AgentConsensus, AgentRole
 from app.services.market_hours import is_gold_trading_session
-from app.agents.base_weights import STRONG_CONSENSUS_THRESHOLD
-from app.services.selectivity import selectivity_confidence_floor
+from app.services.selectivity import selectivity_confidence_floor, strong_agent_bypass_threshold
 
 
 NEWS_BLOCK_KEY = "apex:news_block:{symbol}"
@@ -93,29 +92,41 @@ def get_agent_confidences(consensus: AgentConsensus | None) -> tuple[float | Non
     return market, risk
 
 
+def should_bypass_all_selectivity_filters(
+    consensus: AgentConsensus | None,
+    regime: RegimeSnapshotSchema | None,
+) -> bool:
+    """
+    Collective >= 75% with clear trending regime → skip RSI, ATR, MACD, SNR, regime filters.
+    Safety Gate, Economic Calendar, and Kill Switch remain enforced in the pipeline.
+    """
+    if consensus is None or regime is None:
+        return False
+    if consensus.final_direction == SignalDirection.NEUTRAL:
+        return False
+    if consensus.final_confidence < strong_agent_bypass_threshold():
+        return False
+    return regime.regime in (RegimeType.TRENDING_UP, RegimeType.TRENDING_DOWN)
+
+
 def should_bypass_rsi_atr_filters(
     direction: SignalDirection,
     signal_confidence: float,
     consensus: AgentConsensus | None = None,
+    regime: RegimeSnapshotSchema | None = None,
 ) -> bool:
-    """
-    Collective decision >= 70% with clear direction → skip RSI and ATR filters.
-    Uses agent consensus confidence, not post-degradation signal confidence.
-    """
-    collective_dir = consensus.final_direction if consensus else direction
-    collective_conf = consensus.final_confidence if consensus else signal_confidence
-    if collective_dir == SignalDirection.NEUTRAL:
-        return False
-    return collective_conf >= STRONG_CONSENSUS_THRESHOLD
+    """Strong trend bypass only — 70–75% tier applies all technical filters."""
+    return should_bypass_all_selectivity_filters(consensus, regime)
 
 
 def should_bypass_technical_filters(
     direction: SignalDirection,
     confidence: float,
     consensus: AgentConsensus | None = None,
+    regime: RegimeSnapshotSchema | None = None,
 ) -> bool:
-    """Alias for RSI/ATR/ADX bypass under strong collective consensus."""
-    return should_bypass_rsi_atr_filters(direction, confidence, consensus)
+    """Alias for full selectivity bypass under strong trending consensus."""
+    return should_bypass_all_selectivity_filters(consensus, regime)
 
 
 def passes_selectivity_confidence_floor(
@@ -221,25 +232,23 @@ async def apply_high_selectivity_filters(
     if not passes_selectivity_confidence_floor(confidence, consensus):
         return False, "confidence_below_threshold"
 
-    bypass_rsi_atr = should_bypass_rsi_atr_filters(direction, confidence, consensus)
+    if should_bypass_all_selectivity_filters(consensus, regime):
+        return True, None
 
-    ok, reason = check_confluence(direction, indicators, skip_rsi=bypass_rsi_atr)
+    ok, reason = check_confluence(direction, indicators, skip_rsi=False)
     if not ok:
         return False, reason
 
-    ok, reason = check_regime_filter(
-        direction, regime, skip_adx=bypass_rsi_atr, symbol=symbol
-    )
+    ok, reason = check_regime_filter(direction, regime, skip_adx=False, symbol=symbol)
     if not ok:
         return False, reason
 
     if symbol == "XAUUSD" and not is_gold_trading_session():
         return False, "gold_session_closed"
 
-    if not bypass_rsi_atr:
-        ok, reason = check_atr_volatility(indicators, bars)
-        if not ok:
-            return False, reason
+    ok, reason = check_atr_volatility(indicators, bars)
+    if not ok:
+        return False, reason
 
     if await check_news_block(symbol):
         return False, "high_impact_news_window"
