@@ -7,10 +7,13 @@ from zoneinfo import ZoneInfo
 
 import httpx
 
+from app.agents.base_weights import STRONG_CONSENSUS_THRESHOLD
+from app.config.assets import get_asset
 from app.config import settings
 from app.logging_config import logger
 from app.schemas import RegimeType, SignalDirection, TradingSignalSchema
 from app.schemas.agent import AgentConsensus, TeamDiscussionLLMOutput
+from app.services.market_data_resolver import fetch_twelvedata_live_close
 
 BAGHDAD = ZoneInfo("Asia/Baghdad")
 
@@ -122,13 +125,26 @@ class TelegramNotifier:
         market_status_ar: str | None = None,
         consensus: AgentConsensus | None = None,
     ) -> bool:
-        if signal.confidence < 0.70:
+        collective_confidence = (
+            consensus.final_confidence if consensus is not None else signal.confidence
+        )
+        if collective_confidence < STRONG_CONSENSUS_THRESHOLD:
             return False
 
+        asset_cfg = get_asset(signal.symbol)
         asset = ASSET_AR.get(signal.symbol, signal.symbol)
         direction = DIRECTION_AR.get(signal.direction, signal.direction.value)
         regime = REGIME_AR.get(signal.regime, signal.regime.value)
         ts = signal.timestamp.astimezone(BAGHDAD).strftime("%Y-%m-%d %H:%M")
+
+        live_price = await fetch_twelvedata_live_close(signal.symbol)
+        if live_price is not None:
+            decimals = asset_cfg.price_decimals if asset_cfg else 2
+            price_label = "💰 السعر الحي (TwelveData)"
+            display_price = round(live_price, decimals)
+        else:
+            price_label = "💰 الدخول"
+            display_price = signal.entry_price
 
         text = (
             f"🚨 <b>إشارة APEX — {asset}</b>\n\n"
@@ -137,11 +153,12 @@ class TelegramNotifier:
         if signal.snr_explain_ar:
             text += f"🎯 سبب الإشارة: <b>{signal.snr_explain_ar}</b>\n"
         text += (
-            f"📈 الثقة: <b>{signal.confidence * 100:.1f}%</b>\n"
-            f"💰 الدخول: <code>{signal.entry_price}</code>\n"
+            f"📈 الثقة الجماعية: <b>{collective_confidence * 100:.1f}%</b>\n"
+            f"{price_label}: <code>{display_price}</code>\n"
             f"🛑 وقف الخسارة: <code>{signal.stop_loss}</code>\n"
             f"✅ هدف الربح: <code>{signal.take_profit}</code>\n"
             f"📈 حالة السوق: {regime}\n"
+            f"⚠️ <b>تحقق من السعر الحالي في MetaTrader قبل الدخول</b>\n"
         )
         if market_status_ar:
             text += f"🕐 الجلسة: {market_status_ar}\n"
@@ -161,7 +178,8 @@ class TelegramNotifier:
                 "telegram_signal_sent",
                 symbol=signal.symbol,
                 direction=signal.direction.value,
-                confidence=signal.confidence,
+                confidence=collective_confidence,
+                signal_confidence=signal.confidence,
             )
         return sent
 

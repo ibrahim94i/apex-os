@@ -101,6 +101,23 @@ async def _fetch_db_latest(apex_symbol: str) -> dict[str, Any] | None:
     return bar
 
 
+async def fetch_twelvedata_live_close(symbol: str) -> float | None:
+    """Latest close from TwelveData only (no DB/cache) — for Telegram live price."""
+    from app.config.assets import get_asset
+
+    asset = get_asset(symbol)
+    if not asset or asset.feed_type != "twelvedata" or not asset.twelvedata_symbol:
+        return None
+    bar = await _fetch_twelvedata_latest(
+        symbol,
+        asset.twelvedata_symbol,
+        asset.candle_interval,
+    )
+    if not bar:
+        return None
+    return float(bar["close"])
+
+
 async def fetch_live_bar_with_fallback(
     apex_symbol: str,
     td_symbol: str,
