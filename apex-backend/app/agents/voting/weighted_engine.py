@@ -9,7 +9,9 @@ from app.agents.base_weights import (
     AGENT_BASE_WEIGHTS,
     MIN_WEIGHT_FLOOR_RATIO,
     all_agents_high_confidence,
+    apply_base_weights_to_verdicts,
     min_weight_floor,
+    should_skip_weight_reduction,
 )
 from app.models.phase3 import AgentWeightLog
 from app.schemas import SignalDirection
@@ -90,12 +92,8 @@ class AdaptiveWeightedEngine:
         verdicts: list[AgentVerdict],
     ) -> dict[AgentRole, float]:
         if all_agents_high_confidence(verdicts):
-            total = sum(AGENT_BASE_WEIGHTS.values())
-            weights = {
-                role: round(w / total, 4) for role, w in AGENT_BASE_WEIGHTS.items()
-            }
-            for v in verdicts:
-                v.weight = weights.get(v.agent_id, v.weight)
+            weights_list = apply_base_weights_to_verdicts(verdicts)
+            weights = {v.agent_id: v.weight for v in weights_list}
             return weights
 
         market_acc = 0.5
@@ -165,9 +163,13 @@ class AdaptiveWeightedEngine:
         if snapshot is not None:
             from app.services.agent_freshness import apply_dynamic_weight_adjustments
 
-            verdicts, weight_reasons = apply_dynamic_weight_adjustments(
-                verdicts, snapshot.indicators, snapshot
-            )
+            if should_skip_weight_reduction(verdicts):
+                verdicts = apply_base_weights_to_verdicts(verdicts)
+                weight_reasons = []
+            else:
+                verdicts, weight_reasons = apply_dynamic_weight_adjustments(
+                    verdicts, snapshot.indicators, snapshot
+                )
         else:
             weight_reasons = []
 

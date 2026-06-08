@@ -4,7 +4,12 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from app.agents.base_weights import all_agents_high_confidence, min_weight_floor
+from app.agents.base_weights import (
+    all_agents_high_confidence,
+    apply_base_weights_to_verdicts,
+    min_weight_floor,
+    should_skip_weight_reduction,
+)
 from app.config import settings
 from app.schemas import IndicatorSnapshotSchema, SignalDirection
 from app.schemas.agent import AgentRole, AgentVerdict, MarketSnapshot
@@ -129,8 +134,8 @@ def apply_dynamic_weight_adjustments(
     snapshot: MarketSnapshot,
 ) -> tuple[list[AgentVerdict], list[str]]:
     """Reduce weights for stale or indicator-inconsistent agents."""
-    if all_agents_high_confidence(verdicts):
-        return verdicts, []
+    if should_skip_weight_reduction(verdicts):
+        return apply_base_weights_to_verdicts(verdicts), []
 
     max_age = settings.agent_data_max_age_seconds
     reasons: list[str] = []
@@ -138,7 +143,7 @@ def apply_dynamic_weight_adjustments(
 
     for v in verdicts:
         weight = v.weight
-        floor = min_weight_floor(v.agent_id, v.weight)
+        floor = min_weight_floor(v.agent_id)
         age = v.data_age_seconds or _data_age_seconds(snapshot)
 
         if v.is_stale or age > max_age:

@@ -50,10 +50,17 @@ async def test_all_agents_high_confidence_uses_base_weights() -> None:
 def test_all_agents_high_confidence_requires_three_agents() -> None:
     verdicts = _three_verdicts()
     assert all_agents_high_confidence(verdicts) is True
-    verdicts[2] = verdicts[2].model_copy(update={"confidence": 0.70})
+    verdicts[2] = verdicts[2].model_copy(update={"confidence": 0.69})
     assert all_agents_high_confidence(verdicts) is False
 
 
+def test_all_agents_high_confidence_includes_exactly_seventy() -> None:
+    verdicts = _three_verdicts()
+    verdicts = [v.model_copy(update={"confidence": 0.70}) for v in verdicts]
+    assert all_agents_high_confidence(verdicts) is True
+
+
 def test_min_weight_floor_is_half_of_base() -> None:
-    assert min_weight_floor(AgentRole.NEWS, 0.25) == pytest.approx(0.125)
-    assert min_weight_floor(AgentRole.MARKET_ANALYST, 0.35) == pytest.approx(0.175)
+    assert min_weight_floor(AgentRole.NEWS) == pytest.approx(0.125)
+    assert min_weight_floor(AgentRole.MARKET_ANALYST) == pytest.approx(0.175)
+    assert min_weight_floor(AgentRole.RISK) == pytest.approx(0.20)
