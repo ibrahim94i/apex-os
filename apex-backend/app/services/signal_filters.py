@@ -136,6 +136,7 @@ def check_regime_filter(
     regime: RegimeSnapshotSchema,
     *,
     skip_adx: bool = False,
+    symbol: str | None = None,
 ) -> tuple[bool, str | None]:
     r = regime.regime
 
@@ -145,7 +146,11 @@ def check_regime_filter(
     if not skip_adx:
         if regime.adx_value is not None and regime.adx_value < 15:
             return False, "regime_choppy"
-    if regime.volatility_pct is not None and regime.volatility_pct < 0.3:
+    if (
+        regime.volatility_pct is not None
+        and regime.volatility_pct < 0.3
+        and symbol != "XAUUSD"
+    ):
         return False, "regime_low_liquidity"
 
     if r in (RegimeType.TRENDING_UP, RegimeType.TRENDING_DOWN):
@@ -222,7 +227,9 @@ async def apply_high_selectivity_filters(
     if not ok:
         return False, reason
 
-    ok, reason = check_regime_filter(direction, regime, skip_adx=bypass_rsi_atr)
+    ok, reason = check_regime_filter(
+        direction, regime, skip_adx=bypass_rsi_atr, symbol=symbol
+    )
     if not ok:
         return False, reason
 

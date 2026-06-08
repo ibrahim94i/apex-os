@@ -65,6 +65,26 @@ def test_regime_allows_trending() -> None:
     assert ok is True
 
 
+def test_regime_low_liquidity_blocked_for_fx() -> None:
+    ok, reason = check_regime_filter(
+        SignalDirection.SHORT,
+        _regime(RegimeType.TRENDING_DOWN, volatility_pct=0.1),
+        symbol="EURUSD",
+    )
+    assert ok is False
+    assert reason == "regime_low_liquidity"
+
+
+def test_regime_low_liquidity_skipped_for_xauusd() -> None:
+    ok, reason = check_regime_filter(
+        SignalDirection.SHORT,
+        _regime(RegimeType.TRENDING_DOWN, volatility_pct=0.1),
+        symbol="XAUUSD",
+    )
+    assert ok is True
+    assert reason is None
+
+
 def test_gold_session_london_hours() -> None:
     from zoneinfo import ZoneInfo
 
