@@ -76,6 +76,10 @@ export interface AgentConsensus {
   rejection_reason_ar?: string | null;
   proposed_direction?: SignalDirection | null;
   proposed_confidence?: number | null;
+  snr_state?: string | null;
+  snr_state_ar?: string | null;
+  final_decision?: string | null;
+  final_decision_ar?: string | null;
 }
 
 export interface PriceBar {

@@ -27,6 +27,9 @@ REJECTION_AR: dict[str, str] = {
     "snr_in_r2_zone": "انتظار — السعر داخل منطقة R2 (±0.25%)",
     "snr_in_r3_zone": "انتظار — السعر داخل منطقة R3 (±0.25%)",
     "snr_in_level_zone": "انتظار — السعر داخل منطقة SNR (±0.25%)",
+    "SNR Zone Block": "انتظار — SNR Zone Block (فيتو نهائي)",
+    "snr_awaiting_breakout": "انتظار — لا كسر SNR مؤكد بعد",
+    "no_agent_consensus": "لا قرار — بيانات الوكلاء غير متوفرة",
 }
 
 

@@ -193,6 +193,16 @@ async def run_agent_analysis(symbol: str, *, force: bool = False) -> AgentConsen
                             error=consensus.verdicts[0].error,
                         )
                         return consensus
+                    from app.engines.final_decision_engine import apply_final_decision_to_consensus
+                    from app.services.pipeline import compute_snr_for_symbol, get_symbol_ohlcv_bars
+
+                    snr_snapshot = await compute_snr_for_symbol(symbol)
+                    bars = await get_symbol_ohlcv_bars(symbol)
+                    consensus = apply_final_decision_to_consensus(
+                        consensus,
+                        bars=bars,
+                        snr=snr_snapshot,
+                    )
                     consensus = consensus.model_copy(
                         update={
                             "signal_decision": consensus.signal_decision or "none",

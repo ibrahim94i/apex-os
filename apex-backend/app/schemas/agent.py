@@ -174,6 +174,10 @@ class AgentConsensus(BaseModel):
     rejection_reason_ar: str | None = None
     proposed_direction: SignalDirection | None = None
     proposed_confidence: float | None = None
+    snr_state: str | None = None  # WAIT | BREAKOUT_CONFIRMED | NORMAL
+    snr_state_ar: str | None = None
+    final_decision: str | None = None  # NO_TRADE | BUY | SELL
+    final_decision_ar: str | None = None
     llm_provider: str | None = None
 
     def is_llm_powered(self) -> bool:

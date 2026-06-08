@@ -77,6 +77,31 @@ function AgentCard({ verdict }: { verdict: AgentVerdict }) {
   );
 }
 
+function formatFinalDecision(consensus: AgentConsensus): string {
+  if (consensus.final_decision_ar) {
+    return consensus.final_decision_ar;
+  }
+  if (consensus.final_decision === "BUY") return "شراء";
+  if (consensus.final_decision === "SELL") return "بيع";
+  return "لا تداول";
+}
+
+function formatSnrState(consensus: AgentConsensus): string {
+  if (consensus.snr_state_ar) {
+    return consensus.snr_state_ar;
+  }
+  if (consensus.snr_state === "WAIT") return "انتظار";
+  if (consensus.snr_state === "BREAKOUT_CONFIRMED") return "كسر مؤكد";
+  if (consensus.snr_state === "NORMAL") return "عادي";
+  return "—";
+}
+
+function finalDecisionClass(consensus: AgentConsensus): string {
+  if (consensus.final_decision === "BUY") return "signal-LONG";
+  if (consensus.final_decision === "SELL") return "signal-SHORT";
+  return "signal-NEUTRAL";
+}
+
 export default function ReasoningPanel({ consensus, regime }: Props) {
   const verdicts = consensus?.verdicts ?? [];
   const reasoningSummary = consensus?.reasoning_summary ?? [];
@@ -115,6 +140,17 @@ export default function ReasoningPanel({ consensus, regime }: Props) {
             ({translateRegime(regime.regime)})
           </span>
         )}
+      </div>
+
+      <div className="consensus-summary final-decision-gate">
+        <span className="card-title">{t.snrState}: </span>
+        <span className="mono metric-value">{formatSnrState(consensus)}</span>
+        <span className="card-title" style={{ marginRight: "1rem" }}>
+          {t.finalDecision}:
+        </span>
+        <span className={`signal-direction ${finalDecisionClass(consensus)}`}>
+          {formatFinalDecision(consensus)}
+        </span>
       </div>
 
       {reasoningSummary.length > 0 && (

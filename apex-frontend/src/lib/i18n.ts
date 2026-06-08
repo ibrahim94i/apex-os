@@ -29,6 +29,8 @@ export const t = {
   wsError: "خطأ في اتصال WebSocket",
   reasoningPanel: "لوحة التحليل",
   collectiveDecision: "القرار الجماعي",
+  snrState: "حالة SNR",
+  finalDecision: "القرار النهائي",
   agentReasoning: "أسباب التحليل",
   noAgentData: "بانتظار تحليل الوكلاء...",
   voteWeight: "الوزن",
