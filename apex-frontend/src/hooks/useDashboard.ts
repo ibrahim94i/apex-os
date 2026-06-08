@@ -5,7 +5,7 @@ import type { DashboardState, WSMessage } from "@/types";
 import { fetchDashboard, getWebSocketUrl } from "@/lib/api";
 import { t } from "@/lib/i18n";
 
-export function useDashboard(symbol = "BTCUSDT") {
+export function useDashboard(symbol = "XAUUSD") {
   const [state, setState] = useState<DashboardState | null>(null);
   const [connected, setConnected] = useState(false);
   const [error, setError] = useState<string | null>(null);

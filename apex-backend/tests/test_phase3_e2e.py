@@ -19,8 +19,8 @@ def test_multi_asset_config() -> None:
     assert "BTCUSDT" in ASSETS
     assert "XAUUSD" in ASSETS
     assert "EURUSD" in ASSETS
-    assert len(ACTIVE_SYMBOLS) == 5
-    assert "BTCUSDT" in ACTIVE_SYMBOLS
+    assert len(ACTIVE_SYMBOLS) == 4
+    assert "BTCUSDT" not in ACTIVE_SYMBOLS
     assert "USDJPY" in ASSETS
     assert "GBPUSD" in ASSETS
     assert ASSETS["USDJPY"].frankfurter_from_symbol == "USD"
@@ -127,14 +127,14 @@ async def test_multi_dashboard_endpoint() -> None:
         from app.schemas import DashboardStateSchema
 
         mock_build.return_value = DashboardStateSchema(
-            symbol="BTCUSDT",
+            symbol="XAUUSD",
             kill_switch=KillSwitchStatusSchema(status=KillSwitchStatus.INACTIVE),
         )
         with patch("app.api.phase3_routes.memory_engine.get_top_patterns", new_callable=AsyncMock, return_value=[]):
             with patch(
                 "app.api.phase3_routes.memory_engine.get_memory_summary",
                 new_callable=AsyncMock,
-                return_value={"symbol": "BTCUSDT", "overall_win_rate": 0, "total_samples": 0},
+                return_value={"symbol": "XAUUSD", "overall_win_rate": 0, "total_samples": 0},
             ):
                 with patch("app.api.phase3_routes.kill_switch.evaluate", new_callable=AsyncMock, return_value=ks):
                     with patch("app.api.phase3_routes.kill_switch.load_from_cache", new_callable=AsyncMock):
@@ -144,19 +144,21 @@ async def test_multi_dashboard_endpoint() -> None:
                             return_value={"mode": "demo", "balance": 10000.0, "label_ar": "تجريبي"},
                         ):
                             with patch("app.api.phase3_routes.build_all_market_statuses", new_callable=AsyncMock, return_value={}):
-                                with patch("app.api.phase3_routes.get_hourly_report", new_callable=AsyncMock, return_value=None):
-                                    with patch("app.api.phase3_routes.build_hourly_report", new_callable=AsyncMock) as mock_report:
-                                        from app.schemas.market import HourlyReportSchema
-                                        from datetime import datetime, timezone
+                                with patch("app.api.phase3_routes.build_feed_status_payload", new_callable=AsyncMock, return_value={}):
+                                    with patch("app.api.phase3_routes.get_hourly_report", new_callable=AsyncMock, return_value=None):
+                                        with patch("app.api.phase3_routes.build_hourly_report", new_callable=AsyncMock) as mock_report:
+                                            from app.schemas.market import HourlyReportSchema
+                                            from datetime import datetime, timezone
 
-                                        mock_report.return_value = HourlyReportSchema(
-                                            timestamp=datetime.now(timezone.utc), assets=[]
-                                        )
-                                        transport = ASGITransport(app=app)
-                                        async with AsyncClient(transport=transport, base_url="http://test") as client:
-                                            response = await client.get("/api/v1/dashboard/multi")
-                                            assert response.status_code == 200
-                                            data = response.json()
-                                            assert "assets" in data
-                                            assert "BTCUSDT" in data["assets"]
-                                            assert data["account"]["mode"] == "demo"
+                                            mock_report.return_value = HourlyReportSchema(
+                                                timestamp=datetime.now(timezone.utc), assets=[]
+                                            )
+                                            transport = ASGITransport(app=app)
+                                            async with AsyncClient(transport=transport, base_url="http://test") as client:
+                                                response = await client.get("/api/v1/dashboard/multi")
+                                                assert response.status_code == 200
+                                                data = response.json()
+                                                assert "assets" in data
+                                                assert "XAUUSD" in data["assets"]
+                                                assert "BTCUSDT" not in data["assets"]
+                                                assert data["account"]["mode"] == "demo"
