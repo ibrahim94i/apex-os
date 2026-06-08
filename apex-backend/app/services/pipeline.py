@@ -317,10 +317,29 @@ async def process_bar(raw_bar: dict[str, Any], *, skip_agents: bool = False) -> 
                                 confidence=agent_consensus.final_confidence,
                             )
                     if signal and snr_explain_ar:
+                        from app.engines.final_decision_engine import (
+                            snr_penalty_points,
+                            snr_state_record_value,
+                        )
+
                         signal = signal.model_copy(
                             update={
                                 "snr_explain_ar": snr_explain_ar,
                                 "snr_category": snr_category,
+                                "snr_state": snr_state_record_value(snr_state),
+                                "snr_penalty": snr_penalty_points(snr_state),
+                            }
+                        )
+                    elif signal:
+                        from app.engines.final_decision_engine import (
+                            snr_penalty_points,
+                            snr_state_record_value,
+                        )
+
+                        signal = signal.model_copy(
+                            update={
+                                "snr_state": snr_state_record_value(snr_state),
+                                "snr_penalty": snr_penalty_points(snr_state),
                             }
                         )
 
@@ -491,6 +510,8 @@ async def process_bar(raw_bar: dict[str, Any], *, skip_agents: bool = False) -> 
                     degraded=signal.degraded,
                     degradation_reason=signal.degradation_reason,
                     kill_switch_active=signal.kill_switch_active,
+                    snr_state=signal.snr_state,
+                    snr_penalty=signal.snr_penalty,
                 ))
 
             await broadcaster.broadcast_kill_switch(ks_status.model_dump(mode="json"))

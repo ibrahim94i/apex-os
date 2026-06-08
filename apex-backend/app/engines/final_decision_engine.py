@@ -116,6 +116,17 @@ def snr_confidence_penalty(snr_state: SNRState) -> float:
     return 0.0
 
 
+def snr_penalty_points(snr_state: SNRState | str) -> int:
+    """Stored on each signal: -20, -10, or 0."""
+    state = snr_state.upper() if isinstance(snr_state, str) else snr_state
+    return int(-snr_confidence_penalty(state) * 100)  # type: ignore[arg-type]
+
+
+def snr_state_record_value(snr_state: SNRState | str) -> str:
+    """Stored on each signal: inside_zone / zone_edge / breakout_confirmed / normal."""
+    return snr_state.lower() if isinstance(snr_state, str) else snr_state.lower()
+
+
 def apply_snr_confidence_penalty(confidence: float, snr_state: SNRState) -> float:
     penalty = snr_confidence_penalty(snr_state)
     adjusted = confidence * (1.0 - penalty)

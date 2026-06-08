@@ -40,6 +40,9 @@ export interface TradingSignal {
   degraded: boolean;
   degradation_reason?: string | null;
   kill_switch_active: boolean;
+  snr_state?: string | null;
+  snr_penalty?: number | null;
+  snr_explain_ar?: string | null;
 }
 
 export interface KillSwitchState {
@@ -290,6 +293,8 @@ export interface JournalEntry extends JournalEntryCreate {
   id: number;
   follow_up_status: "pending" | "entered" | "lost" | "ignored";
   signal_confidence?: number | null;
+  snr_state?: string | null;
+  snr_penalty?: number | null;
   pnl: number;
   pnl_pct: number;
   closed_at: string;
@@ -315,6 +320,14 @@ export interface JournalSignalReport {
   generated_at: string;
 }
 
+export interface JournalSnrAnalytics {
+  inside_zone_win_rate: number;
+  inside_zone_resolved: number;
+  outside_zone_win_rate: number;
+  outside_zone_resolved: number;
+  generated_at: string;
+}
+
 export interface JournalAnalysis {
   total_trades: number;
   win_rate: number;
@@ -329,6 +342,7 @@ export interface JournalAnalysis {
   recommendation_ar: string;
   generated_at: string;
   signal_report?: JournalSignalReport | null;
+  snr_analytics?: JournalSnrAnalytics | null;
 }
 
 export interface PositionManagerStatus {

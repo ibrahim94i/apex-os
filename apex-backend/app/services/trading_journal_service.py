@@ -16,6 +16,7 @@ from app.schemas.journal import (
     JournalEntrySchema,
     JournalFollowUpSchema,
     JournalSignalReportSchema,
+    JournalSnrAnalyticsSchema,
 )
 from app.services.memory_engine import time_of_day
 
@@ -46,6 +47,37 @@ def calc_pnl(direction: str, entry: float, exit_: float) -> tuple[float, float]:
     return round(pnl, 4), round(pnl_pct, 4)
 
 
+def _resolved_system_signals(entries: list[JournalEntry]) -> list[JournalEntry]:
+    return [
+        e
+        for e in entries
+        if e.source == "system_signal"
+        and e.follow_up_status in (FollowUpStatus.ENTERED.value, FollowUpStatus.LOST.value)
+    ]
+
+
+def _win_rate(entries: list[JournalEntry]) -> tuple[float, int]:
+    if not entries:
+        return 0.0, 0
+    wins = sum(1 for e in entries if e.result == "win")
+    return round(wins / len(entries), 4), len(entries)
+
+
+def build_snr_analytics(entries: list[JournalEntry]) -> JournalSnrAnalyticsSchema:
+    resolved = _resolved_system_signals(entries)
+    inside = [e for e in resolved if e.snr_state == "inside_zone"]
+    outside = [e for e in resolved if e.snr_state != "inside_zone"]
+    inside_wr, inside_n = _win_rate(inside)
+    outside_wr, outside_n = _win_rate(outside)
+    return JournalSnrAnalyticsSchema(
+        inside_zone_win_rate=inside_wr,
+        inside_zone_resolved=inside_n,
+        outside_zone_win_rate=outside_wr,
+        outside_zone_resolved=outside_n,
+        generated_at=datetime.now(timezone.utc),
+    )
+
+
 class TradingJournalService:
     ANALYSIS_EVERY = 5
 
@@ -67,6 +99,8 @@ class TradingJournalService:
             result="pending",
             follow_up_status=FollowUpStatus.PENDING.value,
             signal_confidence=signal.confidence,
+            snr_state=signal.snr_state,
+            snr_penalty=signal.snr_penalty,
             notes=f"إشارة Telegram — ثقة {signal.confidence * 100:.1f}%",
             pnl=0.0,
             pnl_pct=0.0,
@@ -196,6 +230,8 @@ class TradingJournalService:
     ) -> JournalAnalysisSchema | None:
         count = await self._count_entries(session)
         signal_report = await self.get_signal_report(session)
+        all_signals = await self._list_system_signals(session)
+        snr_analytics = build_snr_analytics(all_signals)
         if count < self.ANALYSIS_EVERY and signal_report.total_signals == 0:
             if signal_report.total_signals > 0:
                 return JournalAnalysisSchema(
@@ -212,22 +248,31 @@ class TradingJournalService:
                     recommendation_ar="سجّل متابعتك للإشارات باستخدام الأزرار أعلاه.",
                     generated_at=datetime.now(timezone.utc),
                     signal_report=signal_report,
+                    snr_analytics=snr_analytics,
                 )
             return None
         if count % self.ANALYSIS_EVERY != 0 and count < self.ANALYSIS_EVERY:
             base = await self._build_analysis(session, count)
-            return base.model_copy(update={"signal_report": signal_report})
+            return base.model_copy(
+                update={"signal_report": signal_report, "snr_analytics": snr_analytics}
+            )
         base = await self._build_analysis(session, max(count, 1))
-        return base.model_copy(update={"signal_report": signal_report})
+        return base.model_copy(
+            update={"signal_report": signal_report, "snr_analytics": snr_analytics}
+        )
 
     async def _maybe_analyze(
         self, session: AsyncSession
     ) -> JournalAnalysisSchema | None:
         count = await self._count_entries(session)
         signal_report = await self.get_signal_report(session)
+        all_signals = await self._list_system_signals(session)
+        snr_analytics = build_snr_analytics(all_signals)
         if count >= self.ANALYSIS_EVERY and count % self.ANALYSIS_EVERY == 0:
             base = await self._build_analysis(session, count)
-            return base.model_copy(update={"signal_report": signal_report})
+            return base.model_copy(
+                update={"signal_report": signal_report, "snr_analytics": snr_analytics}
+            )
         if signal_report.total_signals > 0:
             return JournalAnalysisSchema(
                 total_trades=count,
@@ -243,8 +288,15 @@ class TradingJournalService:
                 recommendation_ar="راجع تقرير الإشارات أعلاه.",
                 generated_at=datetime.now(timezone.utc),
                 signal_report=signal_report,
+                snr_analytics=snr_analytics,
             )
         return None
+
+    async def _list_system_signals(self, session: AsyncSession) -> list[JournalEntry]:
+        result = await session.execute(
+            select(JournalEntry).where(JournalEntry.source == "system_signal")
+        )
+        return list(result.scalars().all())
 
     async def _count_entries(self, session: AsyncSession) -> int:
         result = await session.execute(select(JournalEntry))
@@ -344,6 +396,8 @@ class TradingJournalService:
             result=entry.result,
             follow_up_status=entry.follow_up_status,
             signal_confidence=entry.signal_confidence,
+            snr_state=entry.snr_state,
+            snr_penalty=entry.snr_penalty,
             notes=entry.notes,
             pnl=entry.pnl,
             pnl_pct=entry.pnl_pct,

@@ -11,8 +11,8 @@ from app.schemas.journal import JournalFollowUpSchema
 from app.services.trading_journal_service import trading_journal_service
 
 
-def _signal() -> TradingSignalSchema:
-    return TradingSignalSchema(
+def _signal(**kwargs) -> TradingSignalSchema:
+    base = dict(
         symbol="XAUUSD",
         timestamp=datetime.now(timezone.utc),
         direction=SignalDirection.LONG,
@@ -21,7 +21,11 @@ def _signal() -> TradingSignalSchema:
         stop_loss=2690.0,
         take_profit=2720.0,
         regime=RegimeType.TRENDING_UP,
+        snr_state="inside_zone",
+        snr_penalty=-20,
     )
+    base.update(kwargs)
+    return TradingSignalSchema(**base)
 
 
 @pytest.mark.asyncio
@@ -35,6 +39,8 @@ async def test_record_telegram_signal_pending() -> None:
     assert schema.follow_up_status == "pending"
     assert schema.source == "system_signal"
     assert schema.result == "pending"
+    assert schema.snr_state == "inside_zone"
+    assert schema.snr_penalty == -20
 
 
 def _pending_entry(**kwargs) -> "JournalEntry":

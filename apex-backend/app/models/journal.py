@@ -54,6 +54,8 @@ class JournalEntry(Base):
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     pnl: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     pnl_pct: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    snr_state: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    snr_penalty: Mapped[int | None] = mapped_column(Integer, nullable=True)
     closed_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False, index=True
     )

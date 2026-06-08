@@ -155,6 +155,8 @@ async def get_signals_from_db(
             degraded=s.degraded,
             degradation_reason=s.degradation_reason,
             kill_switch_active=s.kill_switch_active,
+            snr_state=s.snr_state,
+            snr_penalty=s.snr_penalty,
         )
         for s in signals
     ]

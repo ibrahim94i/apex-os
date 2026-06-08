@@ -61,6 +61,8 @@ class TradingSignalSchema(BaseModel):
     kill_switch_active: bool = False
     snr_explain_ar: str | None = None
     snr_category: str | None = None
+    snr_state: str | None = None  # inside_zone | zone_edge | breakout_confirmed | normal
+    snr_penalty: int | None = None  # -20 | -10 | 0
 
 
 class DashboardStateSchema(BaseModel):

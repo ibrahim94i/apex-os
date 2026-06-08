@@ -53,11 +53,21 @@ class JournalEntrySchema(BaseModel):
     result: str
     follow_up_status: str
     signal_confidence: float | None = None
+    snr_state: str | None = None
+    snr_penalty: int | None = None
     notes: str | None
     pnl: float
     pnl_pct: float
     closed_at: datetime
     created_at: datetime | None = None
+
+
+class JournalSnrAnalyticsSchema(BaseModel):
+    inside_zone_win_rate: float
+    inside_zone_resolved: int
+    outside_zone_win_rate: float
+    outside_zone_resolved: int
+    generated_at: datetime
 
 
 class JournalSignalReportSchema(BaseModel):
@@ -87,6 +97,7 @@ class JournalAnalysisSchema(BaseModel):
     recommendation_ar: str
     generated_at: datetime
     signal_report: JournalSignalReportSchema | None = None
+    snr_analytics: JournalSnrAnalyticsSchema | None = None
 
 
 class PositionManagerSchema(BaseModel):

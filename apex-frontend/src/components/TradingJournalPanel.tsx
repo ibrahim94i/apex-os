@@ -369,6 +369,28 @@ export default function TradingJournalPanel({ accountMode = "demo" }: Props) {
         <div className="card col-12 journal-analysis">
           <div className="card-title">{t.journalAnalysis}</div>
           <p className="analysis-recommendation">{analysis.recommendation_ar}</p>
+          {analysis.snr_analytics && (
+            <div className="signal-report-grid snr-analytics-grid">
+              <div className="analysis-item">
+                <span>{t.snrInsideZoneWinRate}</span>
+                <strong className="mono">
+                  {(analysis.snr_analytics.inside_zone_win_rate * 100).toFixed(0)}%
+                </strong>
+                <span className="analysis-sub">
+                  ({analysis.snr_analytics.inside_zone_resolved} {t.snrResolvedSamples})
+                </span>
+              </div>
+              <div className="analysis-item">
+                <span>{t.snrOutsideZoneWinRate}</span>
+                <strong className="mono">
+                  {(analysis.snr_analytics.outside_zone_win_rate * 100).toFixed(0)}%
+                </strong>
+                <span className="analysis-sub">
+                  ({analysis.snr_analytics.outside_zone_resolved} {t.snrResolvedSamples})
+                </span>
+              </div>
+            </div>
+          )}
         </div>
       )}
 

@@ -1091,6 +1091,17 @@ body {
   font-size: 0.9rem;
 }
 
+.analysis-sub {
+  display: block;
+  font-size: 0.8rem;
+  opacity: 0.75;
+  margin-top: 0.25rem;
+}
+
+.snr-analytics-grid {
+  margin-top: 0.5rem;
+}
+
 .position-manager.position-blocked {
   border-color: var(--red);
 }

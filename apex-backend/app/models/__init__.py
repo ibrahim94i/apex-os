@@ -128,6 +128,8 @@ class TradingSignal(Base):
     max_drawdown_during_trade: Mapped[float | None] = mapped_column(Float, nullable=True)
     time_in_trade_hours: Mapped[float | None] = mapped_column(Float, nullable=True)
     profit_loss_amount: Mapped[float | None] = mapped_column(Float, nullable=True)
+    snr_state: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    snr_penalty: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
