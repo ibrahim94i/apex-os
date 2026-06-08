@@ -96,3 +96,4 @@ def test_snr_analytics_inside_vs_outside() -> None:
     assert analytics.inside_zone_win_rate == 0.5
     assert analytics.outside_zone_resolved == 1
     assert analytics.outside_zone_win_rate == 1.0
+    assert analytics.unknown_snr_resolved == 0

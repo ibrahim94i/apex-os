@@ -120,6 +120,23 @@ async def _market_status_tick_loop() -> None:
             await asyncio.sleep(60)
 
 
+async def _auto_outcome_tracker_loop() -> None:
+    """Monitor open Telegram signals for TP/SL/expiry."""
+    from app.database import AsyncSessionLocal
+    from app.services.outcome_tracker import auto_outcome_tracker
+
+    await asyncio.sleep(60)
+    while True:
+        try:
+            async with AsyncSessionLocal() as session:
+                await auto_outcome_tracker.track_pending_outcomes(session)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logger.error("auto_outcome_tracker_error", error=str(exc))
+        await asyncio.sleep(300)
+
+
 def start_background_tasks() -> list[asyncio.Task[None]]:
     return [
         asyncio.create_task(_hourly_report_loop(), name="hourly_report"),
@@ -127,4 +144,5 @@ def start_background_tasks() -> list[asyncio.Task[None]]:
         asyncio.create_task(_market_status_tick_loop(), name="market_status_tick"),
         asyncio.create_task(_market_reopen_watch_loop(), name="market_reopen_watch"),
         asyncio.create_task(_agent_consensus_watch_loop(), name="agent_consensus_watch"),
+        asyncio.create_task(_auto_outcome_tracker_loop(), name="auto_outcome_tracker"),
     ]

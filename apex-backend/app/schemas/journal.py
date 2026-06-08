@@ -55,6 +55,10 @@ class JournalEntrySchema(BaseModel):
     signal_confidence: float | None = None
     snr_state: str | None = None
     snr_penalty: int | None = None
+    auto_outcome: str | None = None
+    time_to_outcome: float | None = None
+    max_favorable_excursion: float | None = None
+    max_adverse_excursion: float | None = None
     notes: str | None
     pnl: float
     pnl_pct: float
@@ -67,6 +71,8 @@ class JournalSnrAnalyticsSchema(BaseModel):
     inside_zone_resolved: int
     outside_zone_win_rate: float
     outside_zone_resolved: int
+    unknown_snr_win_rate: float
+    unknown_snr_resolved: int
     generated_at: datetime
 
 

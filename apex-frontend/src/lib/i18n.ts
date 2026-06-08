@@ -68,6 +68,7 @@ export const t = {
   journalAnalysis: "تحليل سجل التداول",
   snrInsideZoneWinRate: "Win Rate — داخل منطقة SNR",
   snrOutsideZoneWinRate: "Win Rate — خارج منطقة SNR",
+  snrUnknownWinRate: "Win Rate — SNR غير معروف (قديم)",
   snrResolvedSamples: "صفقات محسومة",
   personalWinRate: "نسبة الفوز الشخصية",
   systemVsPersonal: "أين تخسر أكثر",

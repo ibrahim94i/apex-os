@@ -167,9 +167,9 @@ async def process_bar(raw_bar: dict[str, Any], *, skip_agents: bool = False) -> 
             await kill_switch.load_from_cache()
             ks_status = await kill_switch.evaluate(session)
 
-            from app.services.backtester import backtester
+            from app.services.outcome_tracker import auto_outcome_tracker
 
-            await backtester.evaluate_pending_signals(session, symbol)
+            await auto_outcome_tracker.track_pending_outcomes(session, symbol)
 
             indicators, regime = signal_generator.analyze(_bar_buffer[symbol], symbol)
 
@@ -497,7 +497,7 @@ async def process_bar(raw_bar: dict[str, Any], *, skip_agents: bool = False) -> 
                 sig_data = signal.model_dump(mode="json")
                 await set_latest_signal(symbol, sig_data)
                 await broadcaster.broadcast_signal(sig_data)
-                session.add(TradingSignal(
+                db_signal = TradingSignal(
                     symbol=symbol,
                     timestamp=signal.timestamp,
                     direction=signal.direction.value,
@@ -512,7 +512,12 @@ async def process_bar(raw_bar: dict[str, Any], *, skip_agents: bool = False) -> 
                     kill_switch_active=signal.kill_switch_active,
                     snr_state=signal.snr_state,
                     snr_penalty=signal.snr_penalty,
-                ))
+                )
+                session.add(db_signal)
+                await session.flush()
+                trading_signal_id = db_signal.id
+            else:
+                trading_signal_id = None
 
             await broadcaster.broadcast_kill_switch(ks_status.model_dump(mode="json"))
             await alert_service.check_kill_switch(
@@ -552,7 +557,11 @@ async def process_bar(raw_bar: dict[str, Any], *, skip_agents: bool = False) -> 
                     consensus=agent_consensus,
                 )
                 if tg_sent:
-                    await trading_journal_service.record_telegram_signal(session, signal)
+                    await trading_journal_service.record_telegram_signal(
+                        session,
+                        signal,
+                        trading_signal_id=trading_signal_id,
+                    )
 
             history = await get_signal_history(symbol, 20)
             cached_consensus = await get_agent_consensus(symbol)

@@ -325,6 +325,8 @@ export interface JournalSnrAnalytics {
   inside_zone_resolved: number;
   outside_zone_win_rate: number;
   outside_zone_resolved: number;
+  unknown_snr_win_rate: number;
+  unknown_snr_resolved: number;
   generated_at: string;
 }
 

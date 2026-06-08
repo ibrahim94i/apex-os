@@ -56,6 +56,11 @@ class JournalEntry(Base):
     pnl_pct: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     snr_state: Mapped[str | None] = mapped_column(String(32), nullable=True)
     snr_penalty: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    trading_signal_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    auto_outcome: Mapped[str | None] = mapped_column(String(16), nullable=True, index=True)
+    time_to_outcome: Mapped[float | None] = mapped_column(Float, nullable=True)
+    max_favorable_excursion: Mapped[float | None] = mapped_column(Float, nullable=True)
+    max_adverse_excursion: Mapped[float | None] = mapped_column(Float, nullable=True)
     closed_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False, index=True
     )

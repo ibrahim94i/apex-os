@@ -14,6 +14,7 @@ class SignalOutcome(str, PyEnum):
     LOSS = "LOSS"
     PARTIAL = "PARTIAL"
     PENDING = "PENDING"
+    EXPIRED = "EXPIRED"
 
 
 class TimeOfDay(str, PyEnum):

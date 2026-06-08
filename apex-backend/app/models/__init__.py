@@ -130,6 +130,8 @@ class TradingSignal(Base):
     profit_loss_amount: Mapped[float | None] = mapped_column(Float, nullable=True)
     snr_state: Mapped[str | None] = mapped_column(String(32), nullable=True)
     snr_penalty: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    max_favorable_excursion: Mapped[float | None] = mapped_column(Float, nullable=True)
+    max_adverse_excursion: Mapped[float | None] = mapped_column(Float, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

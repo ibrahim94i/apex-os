@@ -63,17 +63,47 @@ def _win_rate(entries: list[JournalEntry]) -> tuple[float, int]:
     return round(wins / len(entries), 4), len(entries)
 
 
+def _auto_finished_system_signals(entries: list[JournalEntry]) -> list[JournalEntry]:
+    auto = [
+        e
+        for e in entries
+        if e.source == "system_signal" and e.auto_outcome in ("win", "loss")
+    ]
+    if auto:
+        return auto
+    return _resolved_system_signals(entries)
+
+
+def _win_rate_from_auto(entries: list[JournalEntry]) -> tuple[float, int]:
+    if not entries:
+        return 0.0, 0
+    wins = sum(
+        1
+        for e in entries
+        if e.auto_outcome == "win" or (e.auto_outcome is None and e.result == "win")
+    )
+    return round(wins / len(entries), 4), len(entries)
+
+
 def build_snr_analytics(entries: list[JournalEntry]) -> JournalSnrAnalyticsSchema:
-    resolved = _resolved_system_signals(entries)
+    resolved = _auto_finished_system_signals(entries)
     inside = [e for e in resolved if e.snr_state == "inside_zone"]
-    outside = [e for e in resolved if e.snr_state != "inside_zone"]
-    inside_wr, inside_n = _win_rate(inside)
-    outside_wr, outside_n = _win_rate(outside)
+    unknown = [e for e in resolved if e.snr_state is None]
+    outside = [
+        e
+        for e in resolved
+        if e.snr_state is not None and e.snr_state != "inside_zone"
+    ]
+    inside_wr, inside_n = _win_rate_from_auto(inside)
+    outside_wr, outside_n = _win_rate_from_auto(outside)
+    unknown_wr, unknown_n = _win_rate_from_auto(unknown)
     return JournalSnrAnalyticsSchema(
         inside_zone_win_rate=inside_wr,
         inside_zone_resolved=inside_n,
         outside_zone_win_rate=outside_wr,
         outside_zone_resolved=outside_n,
+        unknown_snr_win_rate=unknown_wr,
+        unknown_snr_resolved=unknown_n,
         generated_at=datetime.now(timezone.utc),
     )
 
@@ -85,6 +115,8 @@ class TradingJournalService:
         self,
         session: AsyncSession,
         signal: TradingSignalSchema,
+        *,
+        trading_signal_id: int | None = None,
     ) -> JournalEntrySchema:
         """Auto-log journal row when a signal is sent on Telegram."""
         entry = JournalEntry(
@@ -101,6 +133,7 @@ class TradingJournalService:
             signal_confidence=signal.confidence,
             snr_state=signal.snr_state,
             snr_penalty=signal.snr_penalty,
+            trading_signal_id=trading_signal_id,
             notes=f"إشارة Telegram — ثقة {signal.confidence * 100:.1f}%",
             pnl=0.0,
             pnl_pct=0.0,
@@ -398,6 +431,10 @@ class TradingJournalService:
             signal_confidence=entry.signal_confidence,
             snr_state=entry.snr_state,
             snr_penalty=entry.snr_penalty,
+            auto_outcome=entry.auto_outcome,
+            time_to_outcome=entry.time_to_outcome,
+            max_favorable_excursion=entry.max_favorable_excursion,
+            max_adverse_excursion=entry.max_adverse_excursion,
             notes=entry.notes,
             pnl=entry.pnl,
             pnl_pct=entry.pnl_pct,

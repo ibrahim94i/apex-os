@@ -389,6 +389,15 @@ export default function TradingJournalPanel({ accountMode = "demo" }: Props) {
                   ({analysis.snr_analytics.outside_zone_resolved} {t.snrResolvedSamples})
                 </span>
               </div>
+              <div className="analysis-item">
+                <span>{t.snrUnknownWinRate}</span>
+                <strong className="mono">
+                  {(analysis.snr_analytics.unknown_snr_win_rate * 100).toFixed(0)}%
+                </strong>
+                <span className="analysis-sub">
+                  ({analysis.snr_analytics.unknown_snr_resolved} {t.snrResolvedSamples})
+                </span>
+              </div>
             </div>
           )}
         </div>
