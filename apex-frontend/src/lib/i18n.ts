@@ -23,6 +23,7 @@ export const t = {
   time: "الوقت",
   direction: "الاتجاه",
   entry: "سعر الدخول",
+  entryZone: "منطقة الدخول",
   stopLoss: "وقف الخسارة",
   takeProfit: "هدف الربح",
   wsError: "خطأ في اتصال WebSocket",

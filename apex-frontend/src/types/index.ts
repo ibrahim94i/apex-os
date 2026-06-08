@@ -31,6 +31,8 @@ export interface TradingSignal {
   direction: SignalDirection;
   confidence: number;
   entry_price: number;
+  entry_zone_low?: number | null;
+  entry_zone_high?: number | null;
   stop_loss: number;
   take_profit: number;
   position_size: number;

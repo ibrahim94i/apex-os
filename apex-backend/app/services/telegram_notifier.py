@@ -13,7 +13,7 @@ from app.config import settings
 from app.logging_config import logger
 from app.schemas import RegimeType, SignalDirection, TradingSignalSchema
 from app.schemas.agent import AgentConsensus, TeamDiscussionLLMOutput
-from app.services.market_data_resolver import fetch_twelvedata_live_close
+from app.utils.price_zones import entry_zone_from_price
 
 BAGHDAD = ZoneInfo("Asia/Baghdad")
 
@@ -136,15 +136,13 @@ class TelegramNotifier:
         direction = DIRECTION_AR.get(signal.direction, signal.direction.value)
         regime = REGIME_AR.get(signal.regime, signal.regime.value)
         ts = signal.timestamp.astimezone(BAGHDAD).strftime("%Y-%m-%d %H:%M")
+        decimals = asset_cfg.price_decimals if asset_cfg else 2
 
-        live_price = await fetch_twelvedata_live_close(signal.symbol)
-        if live_price is not None:
-            decimals = asset_cfg.price_decimals if asset_cfg else 2
-            price_label = "💰 السعر الحي (TwelveData)"
-            display_price = round(live_price, decimals)
+        if signal.entry_zone_low is not None and signal.entry_zone_high is not None:
+            zone_low = signal.entry_zone_low
+            zone_high = signal.entry_zone_high
         else:
-            price_label = "💰 الدخول"
-            display_price = signal.entry_price
+            zone_low, zone_high, _ = entry_zone_from_price(signal.entry_price, decimals=decimals)
 
         text = (
             f"🚨 <b>إشارة APEX — {asset}</b>\n\n"
@@ -154,11 +152,11 @@ class TelegramNotifier:
             text += f"🎯 سبب الإشارة: <b>{signal.snr_explain_ar}</b>\n"
         text += (
             f"📈 الثقة الجماعية: <b>{collective_confidence * 100:.1f}%</b>\n"
-            f"{price_label}: <code>{display_price}</code>\n"
+            f"📍 منطقة الدخول: <code>{zone_low}</code> – <code>{zone_high}</code>\n"
             f"🛑 وقف الخسارة: <code>{signal.stop_loss}</code>\n"
             f"✅ هدف الربح: <code>{signal.take_profit}</code>\n"
             f"📈 حالة السوق: {regime}\n"
-            f"⚠️ <b>تحقق من السعر الحالي في MetaTrader قبل الدخول</b>\n"
+            f"⚠️ <b>ادخل لما يكون سعر MetaTrader داخل المنطقة</b>\n"
         )
         if market_status_ar:
             text += f"🕐 الجلسة: {market_status_ar}\n"

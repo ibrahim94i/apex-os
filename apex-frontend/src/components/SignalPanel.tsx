@@ -84,10 +84,24 @@ export default function SignalPanel({ signal, currentPrice, symbol, consensus }:
       </div>
       <div className="price-levels">
         <div className="price-level entry">
-          <div className="label">{t.entry}</div>
+          <div className="label">
+            {signal.entry_zone_low != null && signal.entry_zone_high != null
+              ? t.entryZone
+              : t.entry}
+          </div>
           <div className="value">
-            {prefix}
-            {formatAssetPrice(signal.entry_price, symbol)}
+            {signal.entry_zone_low != null && signal.entry_zone_high != null ? (
+              <>
+                {prefix}
+                {formatAssetPrice(signal.entry_zone_low, symbol)} – {prefix}
+                {formatAssetPrice(signal.entry_zone_high, symbol)}
+              </>
+            ) : (
+              <>
+                {prefix}
+                {formatAssetPrice(signal.entry_price, symbol)}
+              </>
+            )}
           </div>
         </div>
         <div className="price-level sl">

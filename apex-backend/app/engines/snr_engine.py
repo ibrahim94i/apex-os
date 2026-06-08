@@ -8,7 +8,8 @@ from typing import Literal
 
 from app.engines.indicator_engine import OHLCVBar
 from app.schemas.enums import SignalDirection
-from app.schemas.snr import SNRSnapshotSchema
+from app.schemas.snr import SNRLevelZone, SNRSnapshotSchema
+from app.utils.price_zones import level_zone_bounds, price_in_zone
 
 PIVOT_STRENGTH = 2
 MAX_LOOKBACK_BARS = 500
@@ -64,16 +65,25 @@ class SNREngine:
             self._distance_pct(price, resistances[0], below=False) if resistances[0] else None
         )
 
+        s1, s2, s3 = supports
+        r1, r2, r3 = resistances
+
         return SNRSnapshotSchema(
             symbol=symbol,
             timestamp=at or window[-1].timestamp,
             price=price,
-            support_1=supports[0],
-            support_2=supports[1],
-            support_3=supports[2],
-            resistance_1=resistances[0],
-            resistance_2=resistances[1],
-            resistance_3=resistances[2],
+            support_1=s1,
+            support_2=s2,
+            support_3=s3,
+            resistance_1=r1,
+            resistance_2=r2,
+            resistance_3=r3,
+            support_1_zone=self._make_zone(s1),
+            support_2_zone=self._make_zone(s2),
+            support_3_zone=self._make_zone(s3),
+            resistance_1_zone=self._make_zone(r1),
+            resistance_2_zone=self._make_zone(r2),
+            resistance_3_zone=self._make_zone(r3),
             distance_to_support_pct=dist_support,
             distance_to_resistance_pct=dist_resistance,
             pivot_high_count=len(pivot_highs),
@@ -88,19 +98,19 @@ class SNREngine:
         confidence: float,
         snr: SNRSnapshotSchema,
     ) -> SNREvaluationResult:
-        """No-trade zones, confirmed breakouts, rejection penalties, Arabic explainability."""
+        """Level zones (±0.25%), confirmed breakouts, rejection penalties."""
         if direction == SignalDirection.NEUTRAL or not bars:
             return SNREvaluationResult(confidence=confidence)
 
         price = bars[-1].close
-        in_zone, zone_reason = self._in_no_trade_zone(price, snr)
+        in_zone, zone_reason, zone_label = self._price_in_level_zone(price, snr)
         if in_zone:
-            explain = self._zone_explain_ar(zone_reason, snr, price)
+            explain = self._zone_explain_ar(zone_label, zone_reason, snr, price)
             return SNREvaluationResult(
                 confidence=confidence,
                 block_signal=True,
                 block_reason=zone_reason,
-                reasons=[zone_reason or "snr_no_trade_zone"],
+                reasons=[zone_reason or "snr_in_level_zone"],
                 category="snr_zone",
                 explain_ar=explain,
             )
@@ -112,11 +122,15 @@ class SNREngine:
 
         if direction == SignalDirection.LONG:
             if snr.resistance_1 is not None:
-                if self._confirmed_bullish_breakout(bars, snr.resistance_1):
+                _, r1_high = level_zone_bounds(snr.resistance_1)
+                if self._confirmed_bullish_breakout(bars, r1_high):
                     adjusted += BREAKOUT_BONUS
                     reasons.append("snr_bullish_breakout")
                     category = "breakout"
-                    explain_ar = f"شراء — Bullish Breakout فوق R1 عند {snr.resistance_1:.2f}"
+                    explain_ar = (
+                        f"شراء — Bullish Breakout فوق منطقة R1 "
+                        f"({snr.resistance_1:.2f} ±0.25%)"
+                    )
                 else:
                     dist_r = self._distance_pct(price, snr.resistance_1, below=False)
                     if dist_r is not None and dist_r <= NEAR_LEVEL_PCT:
@@ -127,11 +141,15 @@ class SNREngine:
 
         elif direction == SignalDirection.SHORT:
             if snr.support_1 is not None:
-                if self._confirmed_bearish_breakout(bars, snr.support_1):
+                s1_low, _ = level_zone_bounds(snr.support_1)
+                if self._confirmed_bearish_breakout(bars, s1_low):
                     adjusted += BREAKOUT_BONUS
                     reasons.append("snr_bearish_breakout")
                     category = "breakout"
-                    explain_ar = f"بيع — Bearish Breakout تحت S1 عند {snr.support_1:.2f}"
+                    explain_ar = (
+                        f"بيع — Bearish Breakout تحت منطقة S1 "
+                        f"({snr.support_1:.2f} ±0.25%)"
+                    )
                 else:
                     dist_s = self._distance_pct(price, snr.support_1, below=True)
                     if dist_s is not None and dist_s <= NEAR_LEVEL_PCT:
@@ -203,54 +221,76 @@ class SNREngine:
         )
 
     @staticmethod
-    def _in_no_trade_zone(price: float, snr: SNRSnapshotSchema) -> tuple[bool, str | None]:
-        if snr.support_1 is not None and snr.support_2 is not None:
-            lo = min(snr.support_1, snr.support_2)
-            hi = max(snr.support_1, snr.support_2)
-            if lo < price < hi:
-                return True, "snr_no_trade_zone_support"
-        if snr.resistance_1 is not None and snr.resistance_2 is not None:
-            lo = min(snr.resistance_1, snr.resistance_2)
-            hi = max(snr.resistance_1, snr.resistance_2)
-            if lo < price < hi:
-                return True, "snr_no_trade_zone_resistance"
-        return False, None
+    def _make_zone(level: float | None) -> SNRLevelZone | None:
+        if level is None:
+            return None
+        low, high = level_zone_bounds(level)
+        return SNRLevelZone(level=level, low=low, high=high)
 
     @staticmethod
-    def _confirmed_bullish_breakout(bars: list[OHLCVBar], resistance: float) -> bool:
-        if len(bars) < 2 or resistance <= 0:
+    def _price_in_level_zone(
+        price: float,
+        snr: SNRSnapshotSchema,
+    ) -> tuple[bool, str | None, str | None]:
+        checks: list[tuple[str, SNRLevelZone | None, str]] = [
+            ("S1", snr.support_1_zone, "snr_in_s1_zone"),
+            ("S2", snr.support_2_zone, "snr_in_s2_zone"),
+            ("S3", snr.support_3_zone, "snr_in_s3_zone"),
+            ("R1", snr.resistance_1_zone, "snr_in_r1_zone"),
+            ("R2", snr.resistance_2_zone, "snr_in_r2_zone"),
+            ("R3", snr.resistance_3_zone, "snr_in_r3_zone"),
+        ]
+        for label, zone, reason in checks:
+            if zone and price_in_zone(price, zone.low, zone.high):
+                return True, reason, label
+        return False, None, None
+
+    @staticmethod
+    def _confirmed_bullish_breakout(bars: list[OHLCVBar], zone_high: float) -> bool:
+        if len(bars) < 2 or zone_high <= 0:
             return False
         breakout = bars[-2]
         confirm = bars[-1]
-        if breakout.close <= resistance:
+        if breakout.close <= zone_high:
             return False
-        if confirm.close <= resistance:
+        if confirm.close <= zone_high:
             return False
         return confirm.close >= breakout.close
 
     @staticmethod
-    def _confirmed_bearish_breakout(bars: list[OHLCVBar], support: float) -> bool:
-        if len(bars) < 2 or support <= 0:
+    def _confirmed_bearish_breakout(bars: list[OHLCVBar], zone_low: float) -> bool:
+        if len(bars) < 2 or zone_low <= 0:
             return False
         breakout = bars[-2]
         confirm = bars[-1]
-        if breakout.close >= support:
+        if breakout.close >= zone_low:
             return False
-        if confirm.close >= support:
+        if confirm.close >= zone_low:
             return False
         return confirm.close <= breakout.close
 
     @staticmethod
-    def _zone_explain_ar(reason: str | None, snr: SNRSnapshotSchema, price: float) -> str:
-        if reason == "snr_no_trade_zone_support":
-            s1 = snr.support_1 or 0
-            s2 = snr.support_2 or 0
-            return f"انتظار — SNR Zone بين S1 ({s1:.2f}) وS2 ({s2:.2f}) — السعر {price:.2f}"
-        if reason == "snr_no_trade_zone_resistance":
-            r1 = snr.resistance_1 or 0
-            r2 = snr.resistance_2 or 0
-            return f"انتظار — SNR Zone بين R1 ({r1:.2f}) وR2 ({r2:.2f}) — السعر {price:.2f}"
-        return "انتظار — SNR Zone"
+    def _zone_explain_ar(
+        label: str | None,
+        reason: str | None,
+        snr: SNRSnapshotSchema,
+        price: float,
+    ) -> str:
+        zone_map = {
+            "S1": snr.support_1_zone,
+            "S2": snr.support_2_zone,
+            "S3": snr.support_3_zone,
+            "R1": snr.resistance_1_zone,
+            "R2": snr.resistance_2_zone,
+            "R3": snr.resistance_3_zone,
+        }
+        zone = zone_map.get(label or "")
+        if zone:
+            return (
+                f"انتظار — السعر {price:.2f} داخل منطقة {label} "
+                f"({zone.low:.2f} – {zone.high:.2f})"
+            )
+        return "انتظار — السعر داخل منطقة SNR (±0.25%)"
 
     @staticmethod
     def _find_pivot_highs(bars: list[OHLCVBar]) -> list[tuple[int, float]]:

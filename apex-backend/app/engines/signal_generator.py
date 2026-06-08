@@ -6,6 +6,7 @@ from app.config import settings
 from app.services.selectivity import effective_min_confidence
 from app.config.assets import get_asset
 from app.config.accounts import get_balance_for_mode
+from app.utils.price_zones import entry_zone_from_price
 from app.engines.degradation_engine import DegradationEngine
 from app.engines.indicator_engine import IndicatorEngine, OHLCVBar
 from app.engines.regime_engine import RegimeEngine
@@ -34,18 +35,13 @@ class SignalGenerator:
     def _min_confidence(self) -> float:
         return effective_min_confidence()
 
-    def _entry_price(
-        self, symbol: str, close: float, direction: SignalDirection
-    ) -> float:
-        """Apply half-spread to simulate bid/ask on entry."""
+    def _entry_zone(
+        self, symbol: str, close: float
+    ) -> tuple[float, float, float]:
+        """Entry zone ±0.25% from current price; SL/TP use zone center."""
         asset = get_asset(symbol)
-        spread = asset.default_spread if asset and asset.default_spread else 0.0
         decimals = asset.price_decimals if asset else 2
-        if direction == SignalDirection.LONG:
-            return round(close + spread / 2, decimals)
-        if direction == SignalDirection.SHORT:
-            return round(close - spread / 2, decimals)
-        return close
+        return entry_zone_from_price(close, decimals=decimals)
 
     def _determine_direction(
         self,
@@ -135,8 +131,8 @@ class SignalGenerator:
         if require_min_confidence and floor_source < floor:
             return None, "confidence_below_threshold"
 
-        entry_price = self._entry_price(symbol, bars[-1].close, direction)
-        sltp = self.sl_tp_engine.calculate(entry_price, direction, indicators, regime.regime)
+        zone_low, zone_high, entry_center = self._entry_zone(symbol, bars[-1].close)
+        sltp = self.sl_tp_engine.calculate(entry_center, direction, indicators, regime.regime)
         if sltp.risk_reward_ratio < settings.min_risk_reward_ratio:
             return None, "min_risk_reward_not_met"
 
@@ -150,6 +146,8 @@ class SignalGenerator:
             direction=direction,
             confidence=confidence,
             entry_price=sltp.entry_price,
+            entry_zone_low=zone_low,
+            entry_zone_high=zone_high,
             stop_loss=sltp.stop_loss,
             take_profit=sltp.take_profit,
             position_size=position.position_size,

@@ -33,11 +33,15 @@ def test_xauusd_h1_config() -> None:
     assert settings.signal_cooldown_hours == 1.0
 
 
-def test_xauusd_spread_on_entry() -> None:
+def test_xauusd_entry_zone() -> None:
     gen = SignalGenerator()
-    assert gen._entry_price("XAUUSD", 2700.0, SignalDirection.LONG) == 2700.15
-    assert gen._entry_price("XAUUSD", 2700.0, SignalDirection.SHORT) == 2699.85
-    assert gen._entry_price("BTCUSDT", 95000.0, SignalDirection.LONG) == 95000.0
+    low, high, center = gen._entry_zone("XAUUSD", 2700.0)
+    assert low == 2693.25
+    assert high == 2706.75
+    assert center == 2700.0
+    low_btc, high_btc, center_btc = gen._entry_zone("BTCUSDT", 95000.0)
+    assert center_btc == 95000.0
+    assert low_btc < center_btc < high_btc
 
 
 def test_xauusd_closed_on_saturday() -> None:

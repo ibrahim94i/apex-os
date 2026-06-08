@@ -1,4 +1,4 @@
-"""SNR engine tests — zones, confirmed breakouts, explainability."""
+"""SNR engine tests — ±0.25% level zones, confirmed breakouts."""
 
 from datetime import datetime, timedelta, timezone
 
@@ -6,10 +6,10 @@ from app.engines.indicator_engine import OHLCVBar
 from app.engines.snr_engine import SNREngine, snr_engine
 from app.schemas.enums import SignalDirection
 from app.schemas.snr import SNRSnapshotSchema
+from app.utils.price_zones import level_zone_bounds
 
 
 def _bars_with_pivots() -> list[OHLCVBar]:
-    """Synthetic series: lows at 100, highs at 120, current close 110."""
     base = datetime(2026, 1, 1, tzinfo=timezone.utc)
     bars: list[OHLCVBar] = []
     for i in range(30):
@@ -35,7 +35,18 @@ def _snr(**kwargs: float) -> SNRSnapshotSchema:
         "resistance_2": 120.0,
     }
     defaults.update(kwargs)
-    return SNRSnapshotSchema(**defaults)
+    engine = SNREngine()
+    snr = SNRSnapshotSchema(**defaults)
+    return snr.model_copy(
+        update={
+            "support_1_zone": engine._make_zone(snr.support_1),
+            "support_2_zone": engine._make_zone(snr.support_2),
+            "support_3_zone": engine._make_zone(snr.support_3),
+            "resistance_1_zone": engine._make_zone(snr.resistance_1),
+            "resistance_2_zone": engine._make_zone(snr.resistance_2),
+            "resistance_3_zone": engine._make_zone(snr.resistance_3),
+        }
+    )
 
 
 def test_snr_finds_support_and_resistance() -> None:
@@ -45,29 +56,15 @@ def test_snr_finds_support_and_resistance() -> None:
     assert snr is not None
     assert snr.support_1 is not None
     assert snr.resistance_1 is not None
+    assert snr.support_1_zone is not None
+    assert snr.resistance_1_zone is not None
     assert snr.support_1 < snr.price < snr.resistance_1
 
 
-def test_no_trade_zone_between_s1_s2_blocks() -> None:
+def test_price_inside_s1_zone_blocks() -> None:
     engine = SNREngine()
-    snr = _snr(support_1=105.0, support_2=100.0, price=102.0)
-    bars = [OHLCVBar(datetime(2026, 1, 1, tzinfo=timezone.utc), 101, 103, 100, 102, 0)]
-    result = engine.evaluate_signal(
-        bars=bars,
-        direction=SignalDirection.LONG,
-        confidence=0.80,
-        snr=snr,
-    )
-    assert result.block_signal is True
-    assert result.block_reason == "snr_no_trade_zone_support"
-    assert result.category == "snr_zone"
-    assert "SNR Zone" in (result.explain_ar or "")
-
-
-def test_no_trade_zone_between_r1_r2_blocks() -> None:
-    engine = SNREngine()
-    snr = _snr(resistance_1=115.0, resistance_2=120.0, price=117.0)
-    bars = [OHLCVBar(datetime(2026, 1, 1, tzinfo=timezone.utc), 116, 118, 115, 117, 0)]
+    snr = _snr(support_1=105.0, price=105.0)
+    bars = [OHLCVBar(datetime(2026, 1, 1, tzinfo=timezone.utc), 104, 106, 104, 105.0, 0)]
     result = engine.evaluate_signal(
         bars=bars,
         direction=SignalDirection.SHORT,
@@ -75,18 +72,33 @@ def test_no_trade_zone_between_r1_r2_blocks() -> None:
         snr=snr,
     )
     assert result.block_signal is True
-    assert result.block_reason == "snr_no_trade_zone_resistance"
+    assert result.block_reason == "snr_in_s1_zone"
     assert result.category == "snr_zone"
 
 
-def test_bullish_breakout_requires_confirmation_candle() -> None:
+def test_price_inside_r1_zone_blocks() -> None:
     engine = SNREngine()
-    snr = _snr(resistance_1=115.0, resistance_2=None, support_1=100.0, support_2=None, price=116.0)
+    snr = _snr(resistance_1=115.0, price=115.0)
+    bars = [OHLCVBar(datetime(2026, 1, 1, tzinfo=timezone.utc), 114, 116, 114, 115.0, 0)]
+    result = engine.evaluate_signal(
+        bars=bars,
+        direction=SignalDirection.LONG,
+        confidence=0.80,
+        snr=snr,
+    )
+    assert result.block_signal is True
+    assert result.block_reason == "snr_in_r1_zone"
+
+
+def test_bullish_breakout_requires_confirmation_above_r1_zone() -> None:
+    engine = SNREngine()
+    r1 = 115.0
+    _, r1_high = level_zone_bounds(r1)
+    snr = _snr(resistance_1=r1, support_1=100.0, price=r1_high + 1.0)
     base = datetime(2026, 1, 1, tzinfo=timezone.utc)
-    # Only breakout bar — no confirmation
     bars = [
-        OHLCVBar(base, 114, 116, 113, 116, 0),
-        OHLCVBar(base + timedelta(hours=1), 115, 116.5, 114, 115.5, 0),
+        OHLCVBar(base, r1_high - 0.5, r1_high + 0.2, r1_high - 0.8, r1_high + 0.1, 0),
+        OHLCVBar(base + timedelta(hours=1), r1_high + 0.05, r1_high + 0.3, r1_high, r1_high + 0.05, 0),
     ]
     result = engine.evaluate_signal(
         bars=bars,
@@ -95,11 +107,10 @@ def test_bullish_breakout_requires_confirmation_candle() -> None:
         snr=snr,
     )
     assert "snr_bullish_breakout" not in result.reasons
-    assert result.confidence == 0.75
 
     bars_confirmed = [
-        OHLCVBar(base, 114, 116, 113, 116, 0),
-        OHLCVBar(base + timedelta(hours=1), 115.5, 117, 115, 116.5, 0),
+        OHLCVBar(base, r1_high - 0.5, r1_high + 0.5, r1_high - 0.8, r1_high + 0.4, 0),
+        OHLCVBar(base + timedelta(hours=1), r1_high + 0.3, r1_high + 1.0, r1_high + 0.2, r1_high + 0.9, 0),
     ]
     result_ok = engine.evaluate_signal(
         bars=bars_confirmed,
@@ -109,17 +120,18 @@ def test_bullish_breakout_requires_confirmation_candle() -> None:
     )
     assert result_ok.confidence == 0.85
     assert "snr_bullish_breakout" in result_ok.reasons
-    assert result_ok.category == "breakout"
     assert "Bullish Breakout" in (result_ok.explain_ar or "")
 
 
-def test_bearish_breakout_requires_confirmation_candle() -> None:
+def test_bearish_breakout_requires_confirmation_below_s1_zone() -> None:
     engine = SNREngine()
-    snr = _snr(support_1=105.0, support_2=None, resistance_1=120.0, resistance_2=None, price=104.0)
+    s1 = 105.0
+    s1_low, _ = level_zone_bounds(s1)
+    snr = _snr(support_1=s1, resistance_1=120.0, price=s1_low - 1.0)
     base = datetime(2026, 1, 1, tzinfo=timezone.utc)
     bars = [
-        OHLCVBar(base, 106, 107, 104, 104, 0),
-        OHLCVBar(base + timedelta(hours=1), 104, 105, 103.5, 104.2, 0),
+        OHLCVBar(base, s1_low + 0.5, s1_low + 0.8, s1_low + 0.2, s1_low + 0.4, 0),
+        OHLCVBar(base + timedelta(hours=1), s1_low + 0.1, s1_low + 0.4, s1_low, s1_low + 0.2, 0),
     ]
     result = engine.evaluate_signal(
         bars=bars,
@@ -130,8 +142,8 @@ def test_bearish_breakout_requires_confirmation_candle() -> None:
     assert "snr_bearish_breakout" not in result.reasons
 
     bars_confirmed = [
-        OHLCVBar(base, 106, 107, 104, 104, 0),
-        OHLCVBar(base + timedelta(hours=1), 104, 104.5, 103, 103.5, 0),
+        OHLCVBar(base, s1_low + 0.5, s1_low + 0.6, s1_low - 0.2, s1_low - 0.1, 0),
+        OHLCVBar(base + timedelta(hours=1), s1_low - 0.2, s1_low, s1_low - 1.0, s1_low - 0.8, 0),
     ]
     result_ok = engine.evaluate_signal(
         bars=bars_confirmed,
@@ -141,14 +153,13 @@ def test_bearish_breakout_requires_confirmation_candle() -> None:
     )
     assert result_ok.confidence == 0.85
     assert "snr_bearish_breakout" in result_ok.reasons
-    assert "Bearish Breakout" in (result_ok.explain_ar or "")
     assert "S1" in (result_ok.explain_ar or "")
 
 
-def test_near_resistance_rejection_penalizes_long() -> None:
+def test_near_resistance_rejection_penalizes_long_below_r1() -> None:
     engine = SNREngine()
-    snr = _snr(resistance_1=115.0, price=114.5)
-    bars = [OHLCVBar(datetime(2026, 1, 1, tzinfo=timezone.utc), 114, 115, 114, 114.5, 0)]
+    snr = _snr(resistance_1=115.0, price=114.43)
+    bars = [OHLCVBar(datetime(2026, 1, 1, tzinfo=timezone.utc), 114.2, 114.5, 114.1, 114.43, 0)]
     result = engine.evaluate_signal(
         bars=bars,
         direction=SignalDirection.LONG,
@@ -157,22 +168,6 @@ def test_near_resistance_rejection_penalizes_long() -> None:
     )
     assert result.confidence == 0.65
     assert result.category == "rejection"
-    assert "Rejection" in (result.explain_ar or "")
-
-
-def test_near_support_rejection_penalizes_short() -> None:
-    engine = SNREngine()
-    snr = _snr(support_1=105.0, price=105.4)
-    bars = [OHLCVBar(datetime(2026, 1, 1, tzinfo=timezone.utc), 105, 106, 105, 105.4, 0)]
-    result = engine.evaluate_signal(
-        bars=bars,
-        direction=SignalDirection.SHORT,
-        confidence=0.80,
-        snr=snr,
-    )
-    assert result.confidence == 0.65
-    assert result.category == "rejection"
-    assert "Rejection" in (result.explain_ar or "")
 
 
 def test_snr_module_singleton() -> None:

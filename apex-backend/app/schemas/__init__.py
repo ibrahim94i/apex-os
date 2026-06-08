@@ -50,6 +50,8 @@ class TradingSignalSchema(BaseModel):
     direction: SignalDirection
     confidence: float = Field(ge=0.0, le=1.0)
     entry_price: float
+    entry_zone_low: float | None = None
+    entry_zone_high: float | None = None
     stop_loss: float
     take_profit: float
     position_size: float = 0.0
