@@ -1,9 +1,10 @@
-"""Tests for Final Decision Gate — SNR veto + agent consensus on breakout."""
+"""Tests for SNR soft filter and Final Decision Gate."""
 
 from datetime import datetime, timezone
 
 from app.engines.final_decision_engine import (
     apply_final_decision_to_consensus,
+    apply_snr_confidence_penalty,
     classify_snr_state,
     finalize_decision,
 )
@@ -47,40 +48,67 @@ def _snr(*, price: float, s1: float = 90.0, r1: float = 110.0) -> SNRSnapshotSch
     )
 
 
-def test_finalize_wait_is_absolute_veto() -> None:
-    consensus = _consensus(SignalDirection.LONG, 1.0)
-    result = finalize_decision("WAIT", consensus)
-    assert result.action == "NO_TRADE"
-    assert result.reason == "SNR Zone Block"
+def test_inside_zone_reduces_confidence_not_blocks() -> None:
+    consensus = _consensus(SignalDirection.LONG, 0.80)
+    result = finalize_decision("INSIDE_ZONE", consensus)
+    assert result.action == "BUY"
+    assert result.confidence == 0.64
+    assert result.snr_warning_ar == "تحذير — السعر داخل منطقة SNR"
 
 
-def test_finalize_breakout_returns_buy_sell_from_agents() -> None:
-    buy = finalize_decision("BREAKOUT_CONFIRMED", _consensus(SignalDirection.LONG))
-    sell = finalize_decision("BREAKOUT_CONFIRMED", _consensus(SignalDirection.SHORT))
+def test_zone_edge_reduces_confidence_by_10_percent() -> None:
+    consensus = _consensus(SignalDirection.SHORT, 0.90)
+    result = finalize_decision("ZONE_EDGE", consensus)
+    assert result.action == "SELL"
+    assert result.confidence == 0.81
+    assert result.snr_warning_ar == "السعر قريب من كسر المنطقة"
+
+
+def test_breakout_no_penalty() -> None:
+    buy = finalize_decision("BREAKOUT_CONFIRMED", _consensus(SignalDirection.LONG, 0.88))
     assert buy.action == "BUY"
-    assert sell.action == "SELL"
+    assert buy.confidence == 0.88
+    assert buy.snr_warning_ar is None
 
 
-def test_finalize_normal_is_no_trade() -> None:
-    result = finalize_decision("NORMAL", _consensus(SignalDirection.LONG))
-    assert result.action == "NO_TRADE"
-    assert result.reason == "snr_awaiting_breakout"
+def test_normal_allows_agents_without_penalty() -> None:
+    result = finalize_decision("NORMAL", _consensus(SignalDirection.LONG, 0.75))
+    assert result.action == "BUY"
+    assert result.confidence == 0.75
 
 
-def test_classify_wait_when_price_in_zone() -> None:
+def test_classify_inside_zone() -> None:
     snr = _snr(price=100.0, r1=100.0)
-    bars = [_bar(100.0)]
-    assert classify_snr_state(bars, snr) == "WAIT"
+    assert classify_snr_state([_bar(100.0)], snr) == "INSIDE_ZONE"
 
 
-def test_apply_final_decision_enriches_consensus() -> None:
+def test_classify_zone_edge_outside_but_near_boundary() -> None:
+    zone = _zone(100.0)
+    price = zone.high * 1.0005
+    snr = SNRSnapshotSchema(
+        symbol="BTCUSDT",
+        timestamp=datetime.now(timezone.utc),
+        price=price,
+        resistance_1=100.0,
+        resistance_1_zone=zone,
+    )
+    assert classify_snr_state([_bar(price)], snr) == "ZONE_EDGE"
+
+
+def test_apply_penalty_helper() -> None:
+    assert apply_snr_confidence_penalty(1.0, "INSIDE_ZONE") == 0.8
+    assert apply_snr_confidence_penalty(1.0, "ZONE_EDGE") == 0.9
+    assert apply_snr_confidence_penalty(0.75, "NORMAL") == 0.75
+
+
+def test_apply_final_decision_enriches_consensus_with_warning() -> None:
     snr = _snr(price=100.0, r1=100.0)
     consensus = apply_final_decision_to_consensus(
-        _consensus(SignalDirection.LONG),
+        _consensus(SignalDirection.LONG, 0.80),
         bars=[_bar(100.0)],
         snr=snr,
     )
-    assert consensus.snr_state == "WAIT"
-    assert consensus.final_decision == "NO_TRADE"
-    assert consensus.final_decision_ar == "لا تداول"
-    assert consensus.signal_decision == "wait"
+    assert consensus.snr_state == "INSIDE_ZONE"
+    assert consensus.final_decision == "BUY"
+    assert consensus.proposed_confidence == 0.64
+    assert consensus.snr_warning_ar == "تحذير — السعر داخل منطقة SNR"

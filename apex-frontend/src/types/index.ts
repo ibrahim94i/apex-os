@@ -78,6 +78,7 @@ export interface AgentConsensus {
   proposed_confidence?: number | null;
   snr_state?: string | null;
   snr_state_ar?: string | null;
+  snr_warning_ar?: string | null;
   final_decision?: string | null;
   final_decision_ar?: string | null;
 }

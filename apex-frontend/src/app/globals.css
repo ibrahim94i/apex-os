@@ -285,6 +285,12 @@ body {
   line-height: 1.5;
 }
 
+.snr-warning-banner {
+  background: rgba(255, 193, 7, 0.12);
+  border-color: #ffc107;
+  color: #ffe082;
+}
+
 .signal-rejection-inline {
   color: #ffb4b4;
   font-size: 0.9rem;

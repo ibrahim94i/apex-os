@@ -207,6 +207,8 @@ async def process_bar(raw_bar: dict[str, Any], *, skip_agents: bool = False) -> 
             proposed_direction: SignalDirection | None = None
             proposed_confidence: float | None = None
             snr_state: str = "NORMAL"
+            snr_warning_ar: str | None = None
+            final = None
 
             if indicators and regime and agent_consensus:
                 from app.engines.final_decision_engine import (
@@ -226,7 +228,11 @@ async def process_bar(raw_bar: dict[str, Any], *, skip_agents: bool = False) -> 
                 final = finalize_decision(snr_state, agent_consensus)
 
                 proposed_direction = agent_consensus.final_direction
-                proposed_confidence = agent_consensus.final_confidence
+                proposed_confidence = (
+                    final.confidence
+                    if final.confidence is not None
+                    else agent_consensus.final_confidence
+                )
 
                 if (
                     regime.regime == RegimeType.RANGING
@@ -245,11 +251,27 @@ async def process_bar(raw_bar: dict[str, Any], *, skip_agents: bool = False) -> 
                         snr_state=snr_state,
                         reason=rejection_reason,
                     )
-                elif final.direction is not None:
+                elif final.direction is not None and final.confidence is not None:
                     trade_direction = final.direction
-                    final_confidence = agent_consensus.final_confidence
-                    snr_explain_ar: str | None = None
-                    snr_category: str | None = None
+                    final_confidence = final.confidence
+                    snr_warning_ar = final.snr_warning_ar
+                    snr_explain_ar: str | None = final.snr_warning_ar
+                    snr_category: str | None = (
+                        "snr_zone"
+                        if snr_state in ("INSIDE_ZONE", "ZONE_EDGE")
+                        else "breakout"
+                        if snr_state == "BREAKOUT_CONFIRMED"
+                        else None
+                    )
+                    if final.confidence_penalty > 0:
+                        logger.info(
+                            "snr_soft_filter_penalty",
+                            symbol=symbol,
+                            snr_state=snr_state,
+                            penalty_pct=round(final.confidence_penalty * 100, 1),
+                            before=final.raw_confidence,
+                            after=final_confidence,
+                        )
                     bypass_selectivity = should_bypass_all_selectivity_filters(
                         agent_consensus,
                         regime,
@@ -261,27 +283,6 @@ async def process_bar(raw_bar: dict[str, Any], *, skip_agents: bool = False) -> 
                             collective_confidence=agent_consensus.final_confidence,
                             regime=regime.regime.value,
                         )
-
-                    if snr_snapshot and snr_state == "BREAKOUT_CONFIRMED":
-                        snr_eval = snr_engine.evaluate_signal(
-                            bars=bars_for_snr,
-                            direction=trade_direction,
-                            confidence=final_confidence,
-                            snr=snr_snapshot,
-                        )
-                        if snr_eval.reasons:
-                            logger.info(
-                                "snr_confidence_adjusted",
-                                symbol=symbol,
-                                reasons=snr_eval.reasons,
-                                category=snr_eval.category,
-                                before=final_confidence,
-                                after=snr_eval.confidence,
-                            )
-                        final_confidence = snr_eval.confidence
-                        proposed_confidence = final_confidence
-                        snr_explain_ar = snr_eval.explain_ar
-                        snr_category = snr_eval.category
 
                     balance = await account_service.get_balance()
                     signal, build_reason = signal_generator.build_trading_signal(
@@ -410,6 +411,7 @@ async def process_bar(raw_bar: dict[str, Any], *, skip_agents: bool = False) -> 
                         "rejection_reason_ar": rejection_reason_ar(rejection_reason),
                         "proposed_direction": proposed_direction,
                         "proposed_confidence": proposed_confidence,
+                        "snr_warning_ar": snr_warning_ar or agent_consensus.snr_warning_ar,
                     }
                 )
                 consensus_data = agent_consensus.model_dump(mode="json")

@@ -90,9 +90,11 @@ function formatSnrState(consensus: AgentConsensus): string {
   if (consensus.snr_state_ar) {
     return consensus.snr_state_ar;
   }
-  if (consensus.snr_state === "WAIT") return "انتظار";
+  if (consensus.snr_state === "INSIDE_ZONE") return "داخل المنطقة";
+  if (consensus.snr_state === "ZONE_EDGE") return "قرب الكسر";
   if (consensus.snr_state === "BREAKOUT_CONFIRMED") return "كسر مؤكد";
   if (consensus.snr_state === "NORMAL") return "عادي";
+  if (consensus.snr_state === "WAIT") return "انتظار";
   return "—";
 }
 
@@ -125,6 +127,12 @@ export default function ReasoningPanel({ consensus, regime }: Props) {
 
       {rejectionHeadline && (
         <div className="signal-rejection-banner">{rejectionHeadline}</div>
+      )}
+
+      {consensus.snr_warning_ar && (
+        <div className="signal-rejection-banner snr-warning-banner">
+          ⚠️ {consensus.snr_warning_ar}
+        </div>
       )}
 
       <div className="consensus-summary">
