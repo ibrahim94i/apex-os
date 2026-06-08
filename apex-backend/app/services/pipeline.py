@@ -8,6 +8,7 @@ from sqlalchemy.dialects.postgresql import insert
 from app.agents.orchestrator import agent_orchestrator
 from app.core.cache import (
     get_agent_consensus,
+    get_signal_history,
     set_agent_consensus,
     set_dashboard_state,
     set_latest_indicators,
@@ -477,8 +478,6 @@ async def process_bar(raw_bar: dict[str, Any], *, skip_agents: bool = False) -> 
                 )
                 if tg_sent:
                     await trading_journal_service.record_telegram_signal(session, signal)
-
-            from app.core.cache import get_signal_history, get_agent_consensus
 
             history = await get_signal_history(symbol, 20)
             cached_consensus = await get_agent_consensus(symbol)
