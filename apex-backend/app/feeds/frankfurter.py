@@ -37,6 +37,8 @@ class FrankfurterFeed:
         self._last_success_at: datetime | None = None
         self._error_count = 0
         self._last_price: float | None = None
+        self._active_hour: datetime | None = None
+        self._active_bar: dict[str, Any] | None = None
 
     @property
     def is_running(self) -> bool:
@@ -71,16 +73,37 @@ class FrankfurterFeed:
             source = "db"
             logger.info("live_bar_db_fallback", symbol=self.apex_symbol)
         else:
+            hour_ts = now.replace(minute=0, second=0, microsecond=0)
+            if (
+                self._active_hour is not None
+                and hour_ts > self._active_hour
+                and self._active_bar is not None
+            ):
+                closed_bar = dict(self._active_bar)
+                closed_bar["is_closed"] = True
+                await self._emit_bar(closed_bar, source, now)
+                self._active_hour = None
+                self._active_bar = None
+
+            open_price = self._last_price if self._last_price is not None else rate
+            high = max(open_price, rate)
+            low = min(open_price, rate)
             bar = build_hourly_bar(
                 apex_symbol=self.apex_symbol,
                 price=rate,
                 at=now,
                 source=source,
+                is_closed=False,
+                open_price=open_price,
+                high=high,
+                low=low,
             )
-            if self._last_price is not None:
-                bar["open"] = self._last_price
-                bar["high"] = max(self._last_price, rate)
-                bar["low"] = min(self._last_price, rate)
+            if self._active_hour == hour_ts and self._active_bar is not None:
+                bar["open"] = self._active_bar["open"]
+                bar["high"] = max(float(self._active_bar["high"]), rate)
+                bar["low"] = min(float(self._active_bar["low"]), rate)
+            self._active_hour = hour_ts
+            self._active_bar = dict(bar)
             self._last_price = rate
 
         self._last_success_at = now
@@ -96,6 +119,18 @@ class FrankfurterFeed:
         if self.on_bar:
             await self.on_bar(bar)
         return True
+
+    async def _emit_bar(self, bar: dict[str, Any], source: str, now: datetime) -> None:
+        await set_latest_price(bar["symbol"], bar["close"], bar["timestamp"])
+        await set_feed_last_update(bar["symbol"], bar["timestamp"])
+        await set_feed_status(
+            self.apex_symbol,
+            FeedConnectionState.CONNECTED,
+            last_update=now,
+            detail=f"source={source}",
+        )
+        if self.on_bar:
+            await self.on_bar(bar)
 
     async def _poll_loop(self) -> None:
         from app.services.market_hours import is_market_open

@@ -17,6 +17,17 @@ from app.services.pipeline import process_bar
 FeedHandle = BinanceWebSocketFeed | BinanceRestFeed | TwelveDataFeed | AlphaVantageFeed | FrankfurterFeed
 
 
+async def _handle_feed_bar(raw_bar: dict[str, Any]) -> None:
+    symbol = raw_bar.get("symbol", "")
+    asset = get_asset(symbol)
+    skip_agents = bool(
+        raw_bar.get("is_closed", True)
+        and asset is not None
+        and asset.feed_type == "frankfurter"
+    )
+    await process_bar(raw_bar, skip_agents=skip_agents)
+
+
 class FeedManager:
     def __init__(self) -> None:
         self._feeds: dict[str, FeedHandle] = {}
@@ -92,7 +103,7 @@ class FeedManager:
             if asset.binance_ws_url:
                 return BinanceWebSocketFeed(
                     ws_url=asset.binance_ws_url,
-                    on_bar=process_bar,
+                    on_bar=_handle_feed_bar,
                     apex_symbol=asset.symbol,
                 )
             return BinanceRestFeed(
@@ -100,7 +111,7 @@ class FeedManager:
                 apex_symbol=asset.symbol,
                 interval=asset.candle_interval,
                 poll_interval=asset.poll_interval,
-                on_bar=process_bar,
+                on_bar=_handle_feed_bar,
                 stagger_seconds=stagger,
             )
         if asset.feed_type == "twelvedata" and asset.twelvedata_symbol:
@@ -111,7 +122,7 @@ class FeedManager:
                 apex_symbol=asset.symbol,
                 interval=asset.candle_interval,
                 poll_interval=asset.poll_interval,
-                on_bar=process_bar,
+                on_bar=_handle_feed_bar,
                 stagger_seconds=stagger,
             )
         if (
@@ -126,7 +137,7 @@ class FeedManager:
                 apex_symbol=asset.symbol,
                 interval=asset.candle_interval,
                 poll_interval=asset.poll_interval,
-                on_bar=process_bar,
+                on_bar=_handle_feed_bar,
                 stagger_seconds=5,
             )
         if (
@@ -139,7 +150,7 @@ class FeedManager:
                 to_symbol=asset.frankfurter_to_symbol,
                 apex_symbol=asset.symbol,
                 poll_interval=asset.poll_interval,
-                on_bar=process_bar,
+                on_bar=_handle_feed_bar,
                 stagger_seconds=3,
             )
         return None

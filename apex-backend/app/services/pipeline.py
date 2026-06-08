@@ -7,6 +7,7 @@ from sqlalchemy.dialects.postgresql import insert
 
 from app.agents.orchestrator import agent_orchestrator
 from app.core.cache import (
+    get_agent_consensus,
     set_agent_consensus,
     set_dashboard_state,
     set_latest_indicators,
@@ -173,6 +174,7 @@ async def process_bar(raw_bar: dict[str, Any], *, skip_agents: bool = False) -> 
                 await set_latest_snr(symbol, snr_snapshot.model_dump(mode="json"))
 
             agent_consensus = None
+            eval_time = datetime.now(timezone.utc)
             if indicators and regime and not skip_agents:
                 indicators, regime = bind_indicator_regime_to_symbol(symbol, indicators, regime)
                 candle_patterns = candlestick_engine.detect(_bar_buffer[symbol])
@@ -185,7 +187,15 @@ async def process_bar(raw_bar: dict[str, Any], *, skip_agents: bool = False) -> 
                     candlestick_patterns=candle_patterns,
                     snr=snr_snapshot,
                 )
+                eval_time = snapshot.timestamp
                 agent_consensus = await agent_orchestrator.run(snapshot, session=session)
+            elif skip_agents:
+                cached = await get_agent_consensus(symbol)
+                if cached:
+                    try:
+                        agent_consensus = AgentConsensus(**cached)
+                    except Exception:
+                        agent_consensus = None
 
             signal = None
             signal_decision = "none"
@@ -307,7 +317,7 @@ async def process_bar(raw_bar: dict[str, Any], *, skip_agents: bool = False) -> 
                             calendar_pool = await _load_high_impact_events()
                             cal_safe, cal_reason = check_economic_calendar_gate(
                                 calendar_pool,
-                                snapshot.timestamp,
+                                eval_time,
                             )
                             if not cal_safe:
                                 logger.info(

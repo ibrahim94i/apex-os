@@ -40,7 +40,7 @@ from app.services.market_snapshot import (
     build_market_snapshot,
     redis_snapshot_matches_symbol,
 )
-from app.services.pipeline import seed_bars_to_buffer
+from app.services.pipeline import seed_bars_to_buffer, process_bar
 from app.services.signal_rejection_i18n import rejection_reason_ar
 from app.websocket.manager import broadcaster
 
@@ -168,6 +168,9 @@ async def run_agent_analysis(symbol: str, *, force: bool = False) -> AgentConsen
                 logger.warning("agent_analysis_feed_stale_recovering", symbol=symbol)
                 await recover_feed(symbol, "pre_agent_recovery")
 
+            result: AgentConsensus | None = None
+            trigger_price = 0.0
+            trigger_source = "frankfurter"
             async with AsyncSessionLocal() as session:
                 try:
                     await kill_switch.load_from_cache()
@@ -210,11 +213,27 @@ async def run_agent_analysis(symbol: str, *, force: bool = False) -> AgentConsen
                         direction=consensus.final_direction.value,
                         verdicts=len(consensus.verdicts),
                     )
-                    return consensus
+                    trigger_price = float(price_data["price"])
+                    trigger_source = price_data.get("source") or "frankfurter"
+                    result = consensus
                 except Exception as exc:
                     await session.rollback()
                     logger.error("agent_analysis_failed", symbol=symbol, error=str(exc))
                     return None
+
+            from app.config.assets import get_asset
+            from app.feeds.fx_rate_client import build_hourly_bar
+
+            asset = get_asset(symbol)
+            if asset and asset.feed_type == "frankfurter" and result is not None:
+                signal_bar = build_hourly_bar(
+                    apex_symbol=symbol,
+                    price=trigger_price,
+                    source=trigger_source,
+                    is_closed=True,
+                )
+                await process_bar(signal_bar, skip_agents=True)
+            return result
         finally:
             _last_agent_run_finished_at = time.monotonic()
 

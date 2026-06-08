@@ -155,7 +155,15 @@ class TelegramNotifier:
             text += f"\n🤖 النموذج: {consensus.llm_provider}"
         text += f"\n⏰ وقت الإشارة: {ts} (العراق)"
 
-        return await self._send(text)
+        sent = await self._send(text)
+        if sent:
+            logger.info(
+                "telegram_signal_sent",
+                symbol=signal.symbol,
+                direction=signal.direction.value,
+                confidence=signal.confidence,
+            )
+        return sent
 
     async def send_data_source_failover_alert(
         self,

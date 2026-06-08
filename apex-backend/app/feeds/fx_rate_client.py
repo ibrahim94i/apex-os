@@ -204,17 +204,24 @@ def build_hourly_bar(
     price: float,
     at: datetime | None = None,
     source: str = "exchangerate_api",
+    is_closed: bool = False,
+    open_price: float | None = None,
+    high: float | None = None,
+    low: float | None = None,
 ) -> dict[str, Any]:
     now = at or datetime.now(timezone.utc)
     ts = now.replace(minute=0, second=0, microsecond=0)
+    bar_open = open_price if open_price is not None else price
+    bar_high = high if high is not None else price
+    bar_low = low if low is not None else price
     return {
         "symbol": apex_symbol,
         "timestamp": ts.isoformat(),
-        "open": price,
-        "high": price,
-        "low": price,
+        "open": bar_open,
+        "high": bar_high,
+        "low": bar_low,
         "close": price,
         "volume": 0.0,
         "source": source,
-        "is_closed": False,
+        "is_closed": is_closed,
     }
