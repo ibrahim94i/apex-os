@@ -143,7 +143,7 @@ def test_signal_generator_rejects_low_confidence() -> None:
         regime=RegimeType.RANGING,
         confidence=0.5,
     )
-    signal = gen.build_trading_signal(
+    signal, _ = gen.build_trading_signal(
         bars * 60,
         "XAUUSD",
         SignalDirection.LONG,

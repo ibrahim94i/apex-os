@@ -118,18 +118,27 @@ class SignalGenerator:
         *,
         require_min_confidence: bool = True,
         min_confidence: float | None = None,
-    ) -> TradingSignalSchema | None:
+        collective_confidence: float | None = None,
+    ) -> tuple[TradingSignalSchema | None, str | None]:
+        """
+        Build a trading signal. Floor checks use collective_confidence when provided
+        (agent consensus before SNR/degradation gates), while signal.confidence
+        reflects the passed confidence (typically SNR-adjusted).
+        """
         if direction == SignalDirection.NEUTRAL or kill_switch_active:
-            return None
+            return None, "neutral_direction"
 
         floor = min_confidence if min_confidence is not None else self._min_confidence
-        if require_min_confidence and confidence < floor:
-            return None
+        floor_source = (
+            collective_confidence if collective_confidence is not None else confidence
+        )
+        if require_min_confidence and floor_source < floor:
+            return None, "confidence_below_threshold"
 
         entry_price = self._entry_price(symbol, bars[-1].close, direction)
         sltp = self.sl_tp_engine.calculate(entry_price, direction, indicators, regime.regime)
         if sltp.risk_reward_ratio < settings.min_risk_reward_ratio:
-            return None
+            return None, "min_risk_reward_not_met"
 
         balance = account_balance if account_balance is not None else get_balance_for_mode("demo")
         calc = RiskCalculator(account_balance=balance)
@@ -154,10 +163,10 @@ class SignalGenerator:
             signal, regime, indicators, ks_schema, feed_stale
         )
 
-        if require_min_confidence and signal.confidence < floor:
-            return None
+        if require_min_confidence and floor_source < floor:
+            return None, "confidence_below_threshold"
 
-        return signal
+        return signal, None
 
     def generate(
         self,
@@ -171,7 +180,7 @@ class SignalGenerator:
             return None, None, None
 
         direction, confidence = self._determine_direction(indicators, regime)
-        signal = self.build_trading_signal(
+        signal, _ = self.build_trading_signal(
             bars,
             symbol,
             direction,

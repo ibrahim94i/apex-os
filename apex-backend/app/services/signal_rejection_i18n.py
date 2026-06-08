@@ -11,6 +11,8 @@ REJECTION_AR: dict[str, str] = {
     "safety_gate_short_above_ema200": "رفض Safety Gate: بيع ممنوع — السعر فوق EMA200",
     "neutral_direction": "لا إشارة — توصية الوكلاء محايدة",
     "confidence_below_threshold": "لا إشارة — الثقة أقل من 70%",
+    "min_risk_reward_not_met": "لا إشارة — نسبة المخاطرة/العائد غير كافية",
+    "signal_build_failed": "لا إشارة — فشل بناء الإشارة",
     "selectivity_wait": "انتظار — فلاتر انتقائية (ثقة أو RSI أو ATR)",
     "signal_suppressed": "انتظار — فترة بين الإشارات أو تغيير السعر غير كافٍ",
     "ranging_market_wait": "السوق جانبي — انتظر",

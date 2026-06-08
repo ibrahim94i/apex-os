@@ -255,7 +255,7 @@ async def process_bar(raw_bar: dict[str, Any], *, skip_agents: bool = False) -> 
 
                     if not snr_blocked:
                         balance = await account_service.get_balance()
-                        signal = signal_generator.build_trading_signal(
+                        signal, build_reason = signal_generator.build_trading_signal(
                             _bar_buffer[symbol],
                             symbol,
                             agent_consensus.final_direction,
@@ -265,8 +265,19 @@ async def process_bar(raw_bar: dict[str, Any], *, skip_agents: bool = False) -> 
                             kill_switch_active=kill_switch.is_active,
                             require_min_confidence=True,
                             min_confidence=selectivity_confidence_floor(),
+                            collective_confidence=agent_consensus.final_confidence,
                             account_balance=balance,
                         )
+                        if signal is None and build_reason:
+                            signal_decision = "wait"
+                            rejection_reason = build_reason
+                            logger.info(
+                                "signal_build_rejected",
+                                symbol=symbol,
+                                reason=build_reason,
+                                collective_confidence=agent_consensus.final_confidence,
+                                signal_confidence=final_confidence,
+                            )
                         if signal and snr_explain_ar:
                             signal = signal.model_copy(
                                 update={
@@ -346,7 +357,7 @@ async def process_bar(raw_bar: dict[str, Any], *, skip_agents: bool = False) -> 
                             signal_decision = "emitted"
                         elif signal_decision == "none" and rejection_reason is None:
                             signal_decision = "wait"
-                            rejection_reason = "selectivity_wait"
+                            rejection_reason = "signal_build_failed"
 
             if agent_consensus and agent_consensus.is_llm_powered():
                 agent_consensus = agent_consensus.model_copy(
