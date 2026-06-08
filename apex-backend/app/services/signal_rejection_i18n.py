@@ -30,6 +30,7 @@ REJECTION_AR: dict[str, str] = {
     "SNR Zone Block": "انتظار — SNR Zone Block (فيتو نهائي)",
     "snr_awaiting_breakout": "انتظار — لا كسر SNR مؤكد بعد",
     "no_agent_consensus": "لا قرار — بيانات الوكلاء غير متوفرة",
+    "invalid_trade_levels": "رفض — مستويات SL/TP غير صالحة (المسافة أو R:R)",
 }
 
 

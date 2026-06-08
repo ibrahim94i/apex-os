@@ -181,6 +181,36 @@ class TelegramNotifier:
             )
         return sent
 
+    async def send_signal_rejection(
+        self,
+        symbol: str,
+        direction: SignalDirection,
+        reason_code: str,
+        *,
+        reason_ar: str | None = None,
+        confidence: float | None = None,
+    ) -> bool:
+        asset = ASSET_AR.get(symbol, symbol)
+        dir_ar = DIRECTION_AR.get(direction, direction.value)
+        reason_text = reason_ar or reason_code
+        text = (
+            f"🚫 <b>رفض إشارة APEX — {asset}</b>\n\n"
+            f"📊 الاتجاه المقترح: <b>{dir_ar}</b>\n"
+        )
+        if confidence is not None:
+            text += f"📈 الثقة الجماعية: <b>{confidence * 100:.1f}%</b>\n"
+        text += f"❌ السبب: <b>{reason_text}</b>\n"
+        text += f"⏰ {datetime.now(BAGHDAD).strftime('%Y-%m-%d %H:%M')} (العراق)"
+        sent = await self._send(text)
+        if sent:
+            logger.info(
+                "telegram_signal_rejection_sent",
+                symbol=symbol,
+                direction=direction.value,
+                reason=reason_code,
+            )
+        return sent
+
     async def send_data_source_failover_alert(
         self,
         symbol: str,

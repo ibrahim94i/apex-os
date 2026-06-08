@@ -21,7 +21,10 @@ def test_sl_tp_engine_long() -> None:
         timestamp=datetime.now(timezone.utc),
         atr=500.0,
     )
-    result = engine.calculate(50000, SignalDirection.LONG, indicators, RegimeType.TRENDING_UP)
+    zone_low, zone_high = 49500.0, 50500.0
+    result = engine.calculate(zone_low, zone_high, SignalDirection.LONG, indicators, RegimeType.TRENDING_UP)
+    assert result.stop_loss == zone_low - 500.0
+    assert result.take_profit == zone_high + 1000.0
     assert result.stop_loss < result.entry_price
     assert result.take_profit > result.entry_price
     assert result.risk_reward_ratio >= 2.0
@@ -34,6 +37,9 @@ def test_sl_tp_engine_short() -> None:
         timestamp=datetime.now(timezone.utc),
         atr=500.0,
     )
-    result = engine.calculate(50000, SignalDirection.SHORT, indicators, RegimeType.TRENDING_DOWN)
+    zone_low, zone_high = 49500.0, 50500.0
+    result = engine.calculate(zone_low, zone_high, SignalDirection.SHORT, indicators, RegimeType.TRENDING_DOWN)
+    assert result.stop_loss == zone_high + 500.0
+    assert result.take_profit == zone_low - 1000.0
     assert result.stop_loss > result.entry_price
     assert result.take_profit < result.entry_price

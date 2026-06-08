@@ -308,6 +308,14 @@ async def process_bar(raw_bar: dict[str, Any], *, skip_agents: bool = False) -> 
                             collective_confidence=agent_consensus.final_confidence,
                             signal_confidence=final_confidence,
                         )
+                        if build_reason == "invalid_trade_levels":
+                            await telegram_notifier.send_signal_rejection(
+                                symbol,
+                                trade_direction,
+                                build_reason,
+                                reason_ar=rejection_reason_ar(build_reason),
+                                confidence=agent_consensus.final_confidence,
+                            )
                     if signal and snr_explain_ar:
                         signal = signal.model_copy(
                             update={

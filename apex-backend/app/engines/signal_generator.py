@@ -7,11 +7,13 @@ from app.services.selectivity import effective_min_confidence
 from app.config.assets import get_asset
 from app.config.accounts import get_balance_for_mode
 from app.utils.price_zones import entry_zone_from_price
+from app.logging_config import logger
 from app.engines.degradation_engine import DegradationEngine
 from app.engines.indicator_engine import IndicatorEngine, OHLCVBar
 from app.engines.regime_engine import RegimeEngine
 from app.engines.risk_calculator import RiskCalculator
 from app.engines.sl_tp_engine import SLTPEngine
+from app.engines.trade_level_validator import validate_trade_levels
 from app.schemas import (
     IndicatorSnapshotSchema,
     KillSwitchStatus,
@@ -132,9 +134,38 @@ class SignalGenerator:
             return None, "confidence_below_threshold"
 
         zone_low, zone_high, entry_center = self._entry_zone(symbol, bars[-1].close)
-        sltp = self.sl_tp_engine.calculate(entry_center, direction, indicators, regime.regime)
-        if sltp.risk_reward_ratio < settings.min_risk_reward_ratio:
-            return None, "min_risk_reward_not_met"
+        sltp = self.sl_tp_engine.calculate(
+            zone_low,
+            zone_high,
+            direction,
+            indicators,
+            regime.regime,
+        )
+
+        atr = indicators.atr or (entry_center * 0.01)
+        level_check = validate_trade_levels(
+            direction=direction,
+            entry_price=sltp.entry_price,
+            entry_zone_low=zone_low,
+            entry_zone_high=zone_high,
+            stop_loss=sltp.stop_loss,
+            take_profit=sltp.take_profit,
+            atr=atr,
+            min_rr=settings.min_risk_reward_ratio,
+        )
+        if not level_check.valid:
+            logger.info(
+                "invalid_trade_levels",
+                symbol=symbol,
+                direction=direction.value,
+                detail=level_check.detail,
+                entry_zone_low=zone_low,
+                entry_zone_high=zone_high,
+                stop_loss=sltp.stop_loss,
+                take_profit=sltp.take_profit,
+                atr=atr,
+            )
+            return None, level_check.reason
 
         balance = account_balance if account_balance is not None else get_balance_for_mode("demo")
         calc = RiskCalculator(account_balance=balance)
