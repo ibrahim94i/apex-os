@@ -32,6 +32,11 @@ async def _fetch_twelvedata_latest(
     if not settings.twelvedata_api_key or settings.twelvedata_api_key == "your_key_here":
         return None
 
+    from app.feeds.twelvedata_limiter import should_skip_twelvedata_api
+
+    if should_skip_twelvedata_api(1):
+        return None
+
     params = {
         "symbol": td_symbol,
         "interval": interval,
@@ -40,7 +45,7 @@ async def _fetch_twelvedata_latest(
     }
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await throttled_get(client, TWELVEDATA_URL, params=params)
+            response = await throttled_get(client, TWELVEDATA_URL, params=params, reason="live_poll")
             if response.status_code in (404, 429):
                 logger.warning(
                     "twelvedata_live_fetch_skipped",

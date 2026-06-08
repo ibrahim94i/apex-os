@@ -31,7 +31,8 @@ def test_eurusd_twelvedata_poll_five_minutes() -> None:
     assert asset.poll_interval == 300
 
 
-def test_twelvedata_daily_call_budget_within_free_tier() -> None:
+def test_twelvedata_daily_live_poll_budget_within_free_tier() -> None:
+    """Live polls use outputsize=1 → 1 credit each (bootstrap is separate)."""
     xau_calls = 86400 // ASSETS["XAUUSD"].poll_interval
     eur_calls = 86400 // ASSETS["EURUSD"].poll_interval
     assert xau_calls == 480

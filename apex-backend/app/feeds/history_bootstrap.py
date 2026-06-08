@@ -79,10 +79,36 @@ async def fetch_twelvedata_history(
     limit: int = 100,
     interval: str = "1h",
 ) -> list[dict[str, Any]]:
+    from app.services.market_data_store import fetch_bars_from_db
+
+    db_bars = await fetch_bars_from_db(apex_symbol, limit)
+    if len(db_bars) >= limit:
+        logger.info(
+            "twelvedata_bootstrap_db_sufficient",
+            symbol=apex_symbol,
+            bars=len(db_bars),
+        )
+        return db_bars
+
     api_key = settings.twelvedata_api_key
     if not api_key or api_key == "your_key_here":
         logger.warning("twelvedata_bootstrap_skipped", reason="api_key_missing")
-        return []
+        return db_bars
+
+    from app.feeds.twelvedata_limiter import (
+        can_afford_credits,
+        get_credit_usage_report,
+        is_credits_exhausted,
+    )
+
+    if is_credits_exhausted() or not can_afford_credits(limit):
+        logger.warning(
+            "twelvedata_bootstrap_skipped_credits",
+            symbol=apex_symbol,
+            needed=limit,
+            **get_credit_usage_report(),
+        )
+        return db_bars
 
     params = {
         "symbol": td_symbol,
@@ -99,6 +125,7 @@ async def fetch_twelvedata_history(
                 client,
                 "https://api.twelvedata.com/time_series",
                 params=params,
+                reason="bootstrap",
             )
             if response.status_code == 404:
                 logger.warning(

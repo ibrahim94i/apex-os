@@ -69,7 +69,11 @@ class TwelveDataFeed:
         bar_dt = parse_utc_timestamp(bar["timestamp"])
         bar_age = compute_age_seconds(bar_dt)
         await set_latest_price(bar["symbol"], bar["close"], bar["timestamp"])
-        await set_feed_last_update(bar["symbol"], bar["timestamp"])
+        await set_feed_last_update(
+            bar["symbol"],
+            bar["timestamp"],
+            received_at=datetime.now(timezone.utc).isoformat(),
+        )
         await set_feed_status(
             self.apex_symbol,
             FeedConnectionState.CONNECTED,

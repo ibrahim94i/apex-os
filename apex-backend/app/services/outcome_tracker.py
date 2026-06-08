@@ -223,7 +223,7 @@ class AutoOutcomeTracker:
                 ts = ts_raw
             else:
                 ts = now
-            price = float(latest["close"])
+            price = float(latest.get("price") or latest["close"])
             if not samples or samples[-1].timestamp < ts:
                 samples.append(
                     PriceSample(timestamp=ts, high=price, low=price, close=price)

@@ -86,6 +86,7 @@ class Settings(BaseSettings):
     twelvedata_stale_retry_delay_seconds: float = 5.0
     twelvedata_min_gap_seconds: float = 12.0
     twelvedata_429_recovery_pause_seconds: int = 1800
+    twelvedata_daily_credit_limit: int = 800
     alphavantage_api_key: str = ""
     alphavantage_poll_interval_seconds: int = 3600
     alphavantage_min_gap_seconds: float = 12.0

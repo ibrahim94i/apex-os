@@ -192,7 +192,23 @@ async def recover_feed(symbol: str, reason: str) -> bool:
                 symbol=symbol,
                 age_seconds=await _feed_data_age_seconds(symbol),
             )
-            ok = await bootstrap_asset(symbol)
+            from app.feeds.history_bootstrap import bootstrap_limit_for, bootstrap_success_threshold
+            from app.services.market_data_store import count_bars_in_db
+
+            asset = get_asset(symbol)
+            bar_limit = bootstrap_limit_for(asset) if asset else 250
+            threshold = bootstrap_success_threshold(asset, bar_limit) if asset else 50
+            db_count = await count_bars_in_db(symbol)
+            if db_count >= threshold:
+                ok = True
+                logger.info(
+                    "feed_recovery_skipped_bootstrap_db_sufficient",
+                    symbol=symbol,
+                    db_bars=db_count,
+                    threshold=threshold,
+                )
+            else:
+                ok = await bootstrap_asset(symbol)
 
         if ok and not await _is_feed_data_fresh(symbol):
             price_data = await get_latest_price(symbol)

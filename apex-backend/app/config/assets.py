@@ -6,7 +6,9 @@ from typing import Literal
 SIGNAL_TIMEFRAME = "1h"
 POLL_INTERVAL_SECONDS = 180  # XAUUSD TwelveData — 480 calls/day (86400/180)
 EURUSD_POLL_INTERVAL_SECONDS = 300  # EURUSD TwelveData — 288 calls/day (86400/300)
-# TwelveData total: 480 + 288 = 768 calls/day (free tier 800)
+# TwelveData credits: 1 credit per data point returned (not per HTTP call).
+# Live polls (outputsize=1): XAUUSD 480/day + EURUSD 288/day = 768 credits/day.
+# Bootstrap is DB-first; API bootstrap only when DB is below threshold.
 
 MarketSchedule = Literal["24_7", "xauusd", "forex_24_5"]
 
