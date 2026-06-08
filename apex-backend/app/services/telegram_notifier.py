@@ -190,9 +190,17 @@ class TelegramNotifier:
         reason_ar: str | None = None,
         confidence: float | None = None,
     ) -> bool:
+        from app.services.signal_rejection_i18n import (
+            is_snr_soft_penalty_reason,
+            rejection_reason_ar,
+        )
+
+        if is_snr_soft_penalty_reason(reason_code):
+            return False
+
         asset = ASSET_AR.get(symbol, symbol)
         dir_ar = DIRECTION_AR.get(direction, direction.value)
-        reason_text = reason_ar or reason_code
+        reason_text = reason_ar or rejection_reason_ar(reason_code) or reason_code
         text = (
             f"🚫 <b>رفض إشارة APEX — {asset}</b>\n\n"
             f"📊 الاتجاه المقترح: <b>{dir_ar}</b>\n"

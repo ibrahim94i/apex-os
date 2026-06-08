@@ -203,14 +203,20 @@ async def run_agent_analysis(symbol: str, *, force: bool = False) -> AgentConsen
                         bars=bars,
                         snr=snr_snapshot,
                     )
+                    from app.services.signal_rejection_i18n import normalize_snr_consensus_fields
+
+                    rr, rr_ar, warning = normalize_snr_consensus_fields(
+                        rejection_reason=consensus.rejection_reason,
+                        rejection_reason_ar=consensus.rejection_reason_ar,
+                        snr_warning_ar=consensus.snr_warning_ar,
+                        final_decision=consensus.final_decision,
+                    )
                     consensus = consensus.model_copy(
                         update={
                             "signal_decision": consensus.signal_decision or "none",
-                            "rejection_reason_ar": (
-                                rejection_reason_ar(consensus.rejection_reason)
-                                if consensus.rejection_reason
-                                else consensus.rejection_reason_ar
-                            ),
+                            "rejection_reason": rr,
+                            "rejection_reason_ar": rr_ar,
+                            "snr_warning_ar": warning,
                         }
                     )
                     data = consensus.model_dump(mode="json")

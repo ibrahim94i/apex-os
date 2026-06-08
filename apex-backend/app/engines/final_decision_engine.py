@@ -211,7 +211,10 @@ def apply_final_decision_to_consensus(
     if final.action == "NO_TRADE":
         updates["proposed_direction"] = consensus.final_direction
         updates["proposed_confidence"] = consensus.final_confidence
-        if final.reason:
+        if final.reason and final.reason not in (
+            "neutral_direction",
+            "no_agent_consensus",
+        ):
             from app.services.signal_rejection_i18n import rejection_reason_ar
 
             updates["rejection_reason"] = final.reason
@@ -219,5 +222,19 @@ def apply_final_decision_to_consensus(
     else:
         updates["proposed_direction"] = final.direction
         updates["proposed_confidence"] = final.confidence
+        updates["rejection_reason"] = None
+        updates["rejection_reason_ar"] = None
+
+    from app.services.signal_rejection_i18n import normalize_snr_consensus_fields
+
+    rr, rr_ar, warning = normalize_snr_consensus_fields(
+        rejection_reason=updates.get("rejection_reason"),
+        rejection_reason_ar=updates.get("rejection_reason_ar"),
+        snr_warning_ar=updates.get("snr_warning_ar"),
+        final_decision=updates.get("final_decision"),
+    )
+    updates["rejection_reason"] = rr
+    updates["rejection_reason_ar"] = rr_ar
+    updates["snr_warning_ar"] = warning
 
     return consensus.model_copy(update=updates)

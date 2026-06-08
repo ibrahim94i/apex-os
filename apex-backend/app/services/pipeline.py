@@ -393,6 +393,7 @@ async def process_bar(raw_bar: dict[str, Any], *, skip_agents: bool = False) -> 
 
                     if signal:
                         signal_decision = "emitted"
+                        rejection_reason = None
                     elif signal_decision == "none" and rejection_reason is None:
                         signal_decision = "wait"
                         rejection_reason = "signal_build_failed"
@@ -412,14 +413,25 @@ async def process_bar(raw_bar: dict[str, Any], *, skip_agents: bool = False) -> 
                     bars=bars_for_consensus,
                     snr=snr_snapshot,
                 )
+                from app.services.signal_rejection_i18n import (
+                    normalize_snr_consensus_fields,
+                    rejection_reason_ar,
+                )
+
+                rr, rr_ar, warning = normalize_snr_consensus_fields(
+                    rejection_reason=rejection_reason,
+                    rejection_reason_ar=rejection_reason_ar(rejection_reason),
+                    snr_warning_ar=snr_warning_ar or agent_consensus.snr_warning_ar,
+                    final_decision=agent_consensus.final_decision,
+                )
                 agent_consensus = agent_consensus.model_copy(
                     update={
                         "signal_decision": signal_decision,
-                        "rejection_reason": rejection_reason,
-                        "rejection_reason_ar": rejection_reason_ar(rejection_reason),
+                        "rejection_reason": rr,
+                        "rejection_reason_ar": rr_ar,
                         "proposed_direction": proposed_direction,
                         "proposed_confidence": proposed_confidence,
-                        "snr_warning_ar": snr_warning_ar or agent_consensus.snr_warning_ar,
+                        "snr_warning_ar": warning,
                     }
                 )
                 consensus_data = agent_consensus.model_dump(mode="json")

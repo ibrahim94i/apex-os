@@ -112,3 +112,5 @@ def test_apply_final_decision_enriches_consensus_with_warning() -> None:
     assert consensus.final_decision == "BUY"
     assert consensus.proposed_confidence == 0.64
     assert consensus.snr_warning_ar == "تحذير — السعر داخل منطقة SNR"
+    assert consensus.rejection_reason is None
+    assert consensus.rejection_reason_ar is None

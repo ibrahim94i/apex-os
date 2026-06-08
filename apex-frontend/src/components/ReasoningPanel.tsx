@@ -16,11 +16,33 @@ function formatCollectiveConfidence(consensus: AgentConsensus): string {
   return `${(consensus.final_confidence * 100).toFixed(1)}%`;
 }
 
+function isSnrSoftPenaltyRejection(consensus: AgentConsensus): boolean {
+  const code = consensus.rejection_reason ?? "";
+  if (
+    code === "SNR Zone Block" ||
+    code === "WAIT" ||
+    code === "snr_awaiting_breakout" ||
+    code.startsWith("snr_in_") ||
+    code.startsWith("snr_no_trade")
+  ) {
+    return true;
+  }
+  const ar = consensus.rejection_reason_ar ?? "";
+  return (
+    ar.includes("فيتو") ||
+    ar.toLowerCase().includes("snr zone block") ||
+    ar.includes("WAIT = NO_TRADE")
+  );
+}
+
 function getRejectionHeadline(
   consensus: AgentConsensus,
   regime: RegimeSnapshot | null | undefined
 ): string | null {
   if (consensus.signal_decision !== "blocked" && consensus.signal_decision !== "wait") {
+    return null;
+  }
+  if (isSnrSoftPenaltyRejection(consensus)) {
     return null;
   }
   if (regime?.regime === "RANGING" || consensus.rejection_reason === "ranging_market_wait") {
@@ -90,11 +112,12 @@ function formatSnrState(consensus: AgentConsensus): string {
   if (consensus.snr_state_ar) {
     return consensus.snr_state_ar;
   }
-  if (consensus.snr_state === "INSIDE_ZONE") return "داخل المنطقة";
+  if (consensus.snr_state === "INSIDE_ZONE" || consensus.snr_state === "WAIT") {
+    return "داخل المنطقة";
+  }
   if (consensus.snr_state === "ZONE_EDGE") return "قرب الكسر";
   if (consensus.snr_state === "BREAKOUT_CONFIRMED") return "كسر مؤكد";
   if (consensus.snr_state === "NORMAL") return "عادي";
-  if (consensus.snr_state === "WAIT") return "انتظار";
   return "—";
 }
 
