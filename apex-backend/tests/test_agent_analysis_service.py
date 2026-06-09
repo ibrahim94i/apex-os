@@ -7,7 +7,11 @@ import pytest
 from app.schemas import SignalDirection
 from app.schemas.agent import AgentConsensus, AgentRole, AgentVerdict
 from app.schemas import IndicatorSnapshotSchema, RegimeSnapshotSchema
-from app.services.agent_analysis_service import run_agent_analysis, _load_market_context
+from app.services.agent_analysis_service import (
+    run_agent_analysis,
+    _load_market_context,
+    _restore_stale_consensus,
+)
 
 
 def _sample_consensus() -> AgentConsensus:
@@ -255,3 +259,37 @@ async def test_run_agent_analysis_does_not_cache_rule_based_fallback() -> None:
 
     llm_consensus = _sample_consensus()
     assert llm_consensus.is_llm_powered()
+
+
+@pytest.mark.asyncio
+async def test_restore_stale_consensus_on_429() -> None:
+    last_good = _sample_consensus().model_dump(mode="json")
+
+    with patch(
+        "app.services.agent_analysis_service.get_agent_consensus",
+        new_callable=AsyncMock,
+        return_value=None,
+    ):
+        with patch(
+            "app.services.agent_analysis_service.get_agent_consensus_last_good",
+            new_callable=AsyncMock,
+            return_value=last_good,
+        ):
+            with patch(
+                "app.services.agent_analysis_service.set_agent_consensus",
+                new_callable=AsyncMock,
+            ) as mock_set:
+                with patch(
+                    "app.services.agent_analysis_service.broadcaster.broadcast_agent_consensus",
+                    new_callable=AsyncMock,
+                ) as mock_broadcast:
+                    result = await _restore_stale_consensus(
+                        "XAUUSD",
+                        "LLM request failed after retries: 429 Too Many Requests",
+                    )
+
+    assert result is not None
+    assert result.is_stale is True
+    assert result.stale_warning_ar == "بيانات قديمة"
+    mock_set.assert_awaited_once()
+    mock_broadcast.assert_awaited_once()

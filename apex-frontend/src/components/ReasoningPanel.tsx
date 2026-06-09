@@ -152,6 +152,12 @@ export default function ReasoningPanel({ consensus, regime }: Props) {
         <div className="signal-rejection-banner">{rejectionHeadline}</div>
       )}
 
+      {consensus.is_stale && (
+        <div className="signal-rejection-banner snr-warning-banner">
+          ⚠️ {consensus.stale_warning_ar ?? t.staleAgentData}
+        </div>
+      )}
+
       {consensus.snr_warning_ar && (
         <div className="signal-rejection-banner snr-warning-banner">
           ⚠️ {consensus.snr_warning_ar}

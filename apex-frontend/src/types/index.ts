@@ -84,6 +84,8 @@ export interface AgentConsensus {
   snr_warning_ar?: string | null;
   final_decision?: string | null;
   final_decision_ar?: string | null;
+  is_stale?: boolean;
+  stale_warning_ar?: string | null;
 }
 
 export interface PriceBar {

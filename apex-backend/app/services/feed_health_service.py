@@ -236,18 +236,6 @@ async def recover_feed(symbol: str, reason: str) -> bool:
                 age_seconds=await _feed_data_age_seconds(symbol),
                 consecutive_failures=0,
             )
-            try:
-                from app.core.cache import get_agent_consensus
-                from app.services.agent_analysis_service import run_agent_analysis
-
-                if not await get_agent_consensus(symbol):
-                    await run_agent_analysis(symbol)
-            except Exception as agent_exc:
-                logger.warning(
-                    "feed_recovery_agent_refresh_failed",
-                    symbol=symbol,
-                    error=str(agent_exc),
-                )
             logger.info("feed_recovery_complete", symbol=symbol)
             return True
 

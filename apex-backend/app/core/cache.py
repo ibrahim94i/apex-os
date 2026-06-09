@@ -3,6 +3,7 @@
 from datetime import datetime, timezone
 from typing import Any
 
+from app.config import settings
 from app.core.redis_client import (
     CacheKeys,
     cache_get,
@@ -90,11 +91,27 @@ async def get_dashboard_state(symbol: str) -> dict[str, Any] | None:
 
 
 async def set_agent_consensus(symbol: str, data: dict[str, Any]) -> None:
-    await cache_set(CacheKeys.AGENT_CONSENSUS.format(symbol=symbol), data, ttl=600)
+    await cache_set(
+        CacheKeys.AGENT_CONSENSUS.format(symbol=symbol),
+        data,
+        ttl=settings.agent_consensus_ttl_seconds,
+    )
 
 
 async def get_agent_consensus(symbol: str) -> dict[str, Any] | None:
     return await cache_get(CacheKeys.AGENT_CONSENSUS.format(symbol=symbol))
+
+
+async def set_agent_consensus_last_good(symbol: str, data: dict[str, Any]) -> None:
+    await cache_set(
+        CacheKeys.AGENT_CONSENSUS_LAST_GOOD.format(symbol=symbol),
+        data,
+        ttl=settings.agent_consensus_last_good_ttl_seconds,
+    )
+
+
+async def get_agent_consensus_last_good(symbol: str) -> dict[str, Any] | None:
+    return await cache_get(CacheKeys.AGENT_CONSENSUS_LAST_GOOD.format(symbol=symbol))
 
 
 async def set_hourly_report(data: dict[str, Any]) -> None:

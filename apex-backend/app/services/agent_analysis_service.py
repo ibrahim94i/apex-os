@@ -10,10 +10,12 @@ from app.agents.orchestrator import agent_orchestrator
 from app.config import settings
 from app.core.cache import (
     get_agent_consensus,
+    get_agent_consensus_last_good,
     get_latest_indicators,
     get_latest_price,
     get_latest_regime,
     set_agent_consensus,
+    set_agent_consensus_last_good,
     set_latest_indicators,
     set_latest_regime,
 )
@@ -48,16 +50,55 @@ _signal_generator = SignalGenerator()
 _MIN_INDICATOR_BARS = IndicatorEngine().min_bars
 _DB_BAR_LIMIT = 500
 _agent_analysis_lock = asyncio.Lock()
+_batch_consensus_lock = asyncio.Lock()
 _last_agent_run_finished_at: float = 0.0
+_STALE_WARNING_AR = "بيانات قديمة"
 
 
 async def _wait_agent_run_slot() -> None:
     """Gap between serialized agent runs to respect LLM rate limits."""
     global _last_agent_run_finished_at
-    gap = settings.llm_min_request_interval_seconds
+    gap = settings.agent_symbol_gap_seconds
     wait = gap - (time.monotonic() - _last_agent_run_finished_at)
     if wait > 0:
         await asyncio.sleep(wait)
+
+
+def _consensus_from_cache(raw: dict[str, Any] | None) -> AgentConsensus | None:
+    if not raw:
+        return None
+    try:
+        cached = AgentConsensus(**raw)
+    except Exception:
+        return None
+    if not cached.verdicts:
+        return None
+    return cached
+
+
+async def _restore_stale_consensus(symbol: str, error: str | None) -> AgentConsensus | None:
+    """On LLM failure, re-publish the last good LLM consensus with a stale flag."""
+    for getter in (get_agent_consensus, get_agent_consensus_last_good):
+        cached = _consensus_from_cache(await getter(symbol))
+        if not cached or not cached.is_llm_powered():
+            continue
+        stale = cached.model_copy(
+            update={
+                "symbol": symbol,
+                "is_stale": True,
+                "stale_warning_ar": _STALE_WARNING_AR,
+            }
+        )
+        data = stale.model_dump(mode="json")
+        await set_agent_consensus(symbol, data)
+        await broadcaster.broadcast_agent_consensus(data)
+        logger.warning(
+            "agent_analysis_serving_stale_consensus",
+            symbol=symbol,
+            error=error,
+        )
+        return stale
+    return None
 
 
 async def _recompute_market_metrics(symbol: str) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
@@ -142,14 +183,9 @@ async def run_agent_analysis(symbol: str, *, force: bool = False) -> AgentConsen
         return None
 
     if not force:
-        existing = await get_agent_consensus(symbol)
-        if existing:
-            try:
-                cached = AgentConsensus(**existing)
-                if cached.verdicts and cached.is_llm_powered():
-                    return cached
-            except Exception:
-                pass
+        cached = _consensus_from_cache(await get_agent_consensus(symbol))
+        if cached and cached.is_llm_powered():
+            return cached
 
     async with _agent_analysis_lock:
         global _last_agent_run_finished_at
@@ -187,11 +223,15 @@ async def run_agent_analysis(symbol: str, *, force: bool = False) -> AgentConsen
                         logger.warning("agent_analysis_empty_verdicts", symbol=symbol)
                         return None
                     if not consensus.is_llm_powered():
+                        error = consensus.verdicts[0].error if consensus.verdicts else None
                         logger.warning(
                             "agent_analysis_llm_fallback",
                             symbol=symbol,
-                            error=consensus.verdicts[0].error,
+                            error=error,
                         )
+                        stale = await _restore_stale_consensus(symbol, error)
+                        if stale:
+                            return stale
                         return consensus
                     from app.engines.final_decision_engine import apply_final_decision_to_consensus
                     from app.services.pipeline import compute_snr_for_symbol, get_symbol_ohlcv_bars
@@ -217,10 +257,13 @@ async def run_agent_analysis(symbol: str, *, force: bool = False) -> AgentConsen
                             "rejection_reason": rr,
                             "rejection_reason_ar": rr_ar,
                             "snr_warning_ar": warning,
+                            "is_stale": False,
+                            "stale_warning_ar": None,
                         }
                     )
                     data = consensus.model_dump(mode="json")
                     await set_agent_consensus(symbol, data)
+                    await set_agent_consensus_last_good(symbol, data)
                     await broadcaster.broadcast_agent_consensus(data)
                     await session.commit()
                     logger.info(
@@ -255,22 +298,21 @@ async def run_agent_analysis(symbol: str, *, force: bool = False) -> AgentConsen
 
 
 async def ensure_agent_consensus_for_active_symbols(*, force: bool = False) -> None:
+    """Run agent analysis sequentially: XAUUSD first, then USDJPY, with a gap between each."""
     from app.config.assets import ACTIVE_SYMBOLS
 
     symbols = [sym for sym in ACTIVE_SYMBOLS if is_market_open(sym)]
     if not symbols:
         return
 
-    for sym in symbols:
-        if force:
-            await run_agent_analysis(sym, force=True)
-            continue
-        existing = await get_agent_consensus(sym)
-        if existing:
-            try:
-                cached = AgentConsensus(**existing)
-                if cached.verdicts and cached.is_llm_powered():
-                    continue
-            except Exception:
-                pass
-        await run_agent_analysis(sym)
+    async with _batch_consensus_lock:
+        for index, sym in enumerate(symbols):
+            if index > 0:
+                await asyncio.sleep(settings.agent_symbol_gap_seconds)
+            if force:
+                await run_agent_analysis(sym, force=True)
+                continue
+            cached = _consensus_from_cache(await get_agent_consensus(sym))
+            if cached and cached.is_llm_powered():
+                continue
+            await run_agent_analysis(sym)

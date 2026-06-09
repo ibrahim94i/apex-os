@@ -33,6 +33,7 @@ export const t = {
   finalDecision: "القرار النهائي",
   agentReasoning: "أسباب التحليل",
   noAgentData: "بانتظار تحليل الوكلاء...",
+  staleAgentData: "بيانات قديمة",
   voteWeight: "الوزن",
   llmPowered: "ذكاء اصطناعي",
   ruleBased: "قواعد",

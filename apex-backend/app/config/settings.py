@@ -61,6 +61,9 @@ class Settings(BaseSettings):
     feed_health_interval_seconds: int = 30
     llm_min_request_interval_seconds: float = 10.0
     llm_429_backoff_seconds: float = 30.0
+    agent_symbol_gap_seconds: float = 10.0
+    agent_consensus_ttl_seconds: int = 1800
+    agent_consensus_last_good_ttl_seconds: int = 86400
     agent_cache_ttl_seconds: int = 300
     news_block_window_minutes: int = 30
     finnhub_api_key: str = ""

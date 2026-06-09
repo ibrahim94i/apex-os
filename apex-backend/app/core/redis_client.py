@@ -46,6 +46,7 @@ class CacheKeys:
     FEED_LAST_UPDATE = "apex:feed_last_update:{source}"
     DASHBOARD_STATE = "apex:dashboard_state:{symbol}"
     AGENT_CONSENSUS = "apex:agent_consensus:{symbol}"
+    AGENT_CONSENSUS_LAST_GOOD = "apex:agent_consensus_last_good:{symbol}"
     HOURLY_REPORT = "apex:hourly_report"
     LATEST_SNR = "apex:snr:{symbol}"
 

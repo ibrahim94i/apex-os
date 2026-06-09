@@ -17,21 +17,13 @@ _market_was_open: dict[str, bool] = {}
 
 
 async def _agent_consensus_watch_loop() -> None:
-    """Fill missing agent consensus so dashboard is not stuck after bootstrap/restart."""
-    from app.config.assets import ACTIVE_SYMBOLS
-    from app.core.cache import get_agent_consensus
-    from app.services.agent_analysis_service import run_agent_analysis
+    """Fill missing agent consensus sequentially (XAUUSD → USDJPY)."""
+    from app.services.agent_analysis_service import ensure_agent_consensus_for_active_symbols
 
     await asyncio.sleep(45)
     while True:
         try:
-            missing = [
-                sym
-                for sym in ACTIVE_SYMBOLS
-                if is_market_open(sym) and not await get_agent_consensus(sym)
-            ]
-            for sym in missing:
-                await run_agent_analysis(sym)
+            await ensure_agent_consensus_for_active_symbols()
         except asyncio.CancelledError:
             raise
         except Exception as exc:

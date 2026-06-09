@@ -180,6 +180,8 @@ class AgentConsensus(BaseModel):
     final_decision: str | None = None  # NO_TRADE | BUY | SELL
     final_decision_ar: str | None = None
     llm_provider: str | None = None
+    is_stale: bool = False
+    stale_warning_ar: str | None = None
 
     def is_llm_powered(self) -> bool:
         """True when all verdicts used the LLM (not rule-based fallback)."""
