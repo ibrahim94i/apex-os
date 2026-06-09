@@ -6,9 +6,11 @@ from app.services.market_hours import SCHEDULE_LABELS
 from app.services.telegram_notifier import ASSET_AR
 
 
-def test_active_symbols_four_assets() -> None:
-    assert ACTIVE_SYMBOLS == ["XAUUSD", "EURUSD", "USDJPY", "GBPUSD"]
+def test_active_symbols_two_assets() -> None:
+    assert ACTIVE_SYMBOLS == ["XAUUSD", "USDJPY"]
     assert "BTCUSDT" not in ACTIVE_SYMBOLS
+    assert "EURUSD" not in ACTIVE_SYMBOLS
+    assert "GBPUSD" not in ACTIVE_SYMBOLS
 
 
 def test_fx_frankfurter_pairs_poll_three_minutes() -> None:

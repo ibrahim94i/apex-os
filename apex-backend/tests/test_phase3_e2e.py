@@ -19,8 +19,12 @@ def test_multi_asset_config() -> None:
     assert "BTCUSDT" in ASSETS
     assert "XAUUSD" in ASSETS
     assert "EURUSD" in ASSETS
-    assert len(ACTIVE_SYMBOLS) == 4
+    assert len(ACTIVE_SYMBOLS) == 2
     assert "BTCUSDT" not in ACTIVE_SYMBOLS
+    assert "EURUSD" not in ACTIVE_SYMBOLS
+    assert "GBPUSD" not in ACTIVE_SYMBOLS
+    assert "XAUUSD" in ACTIVE_SYMBOLS
+    assert "USDJPY" in ACTIVE_SYMBOLS
     assert "USDJPY" in ASSETS
     assert "GBPUSD" in ASSETS
     assert ASSETS["USDJPY"].frankfurter_from_symbol == "USD"

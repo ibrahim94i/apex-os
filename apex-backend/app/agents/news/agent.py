@@ -17,7 +17,7 @@ from app.utils.llm_client import LLMClient, LLMClientError, llm_client
 AGENT_NAME_AR = "وكيل الأخبار"
 WEIGHT = 0.25
 
-_ASSETS = ("XAUUSD", "EURUSD", "USDJPY", "GBPUSD")
+_ASSETS = ("XAUUSD", "USDJPY")
 
 
 def _headline_sentiment(item) -> str:
