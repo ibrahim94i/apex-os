@@ -101,12 +101,12 @@ async def fetch_twelvedata_history(
         is_credits_exhausted,
     )
 
-    if is_credits_exhausted() or not can_afford_credits(limit):
+    if await is_credits_exhausted() or not await can_afford_credits(limit):
         logger.warning(
             "twelvedata_bootstrap_skipped_credits",
             symbol=apex_symbol,
             needed=limit,
-            **get_credit_usage_report(),
+            **(await get_credit_usage_report()),
         )
         return db_bars
 
@@ -361,13 +361,42 @@ async def bootstrap_asset(symbol: str, limit: int | None = None) -> bool:
         return False
 
 
+async def warm_asset_from_db(symbol: str, bar_limit: int) -> bool:
+    """Seed pipeline from DB without calling external APIs."""
+    from app.services.market_data_store import fetch_bars_from_db
+    from app.services.pipeline import process_bar, seed_bars_to_buffer
+
+    db_bars = await fetch_bars_from_db(symbol, bar_limit)
+    if not db_bars:
+        return False
+
+    seed_bars_to_buffer(db_bars)
+    last_bar = db_bars[-1]
+    await process_bar(last_bar, skip_agents=True)
+    await _mark_feed_warmed(symbol, last_bar)
+    return True
+
+
 async def bootstrap_all_assets(limit: int | None = None) -> None:
+    from app.services.market_data_store import count_bars_in_db, fetch_bars_from_db
+
     failed: list[str] = []
 
     for symbol in ACTIVE_SYMBOLS:
         asset = ASSETS[symbol]
         sym_limit = limit if limit is not None else bootstrap_limit_for(asset)
-        ok = await bootstrap_asset(symbol, sym_limit)
+        threshold = bootstrap_success_threshold(asset, sym_limit)
+        db_count = await count_bars_in_db(symbol)
+        if db_count >= threshold:
+            ok = await warm_asset_from_db(symbol, sym_limit)
+            logger.info(
+                "history_bootstrap_skipped_db_sufficient",
+                symbol=symbol,
+                db_bars=db_count,
+                threshold=threshold,
+            )
+        else:
+            ok = await bootstrap_asset(symbol, sym_limit)
         if not ok:
             failed.append(symbol)
         await asyncio.sleep(1)
@@ -381,22 +410,25 @@ async def bootstrap_all_assets(limit: int | None = None) -> None:
         for symbol in failed:
             asset = ASSETS[symbol]
             sym_limit = limit if limit is not None else bootstrap_limit_for(asset)
+            required = bootstrap_success_threshold(asset, sym_limit)
+            db_count = await count_bars_in_db(symbol)
+            if db_count >= required:
+                ok = await warm_asset_from_db(symbol, sym_limit)
+                if ok:
+                    logger.info(
+                        "history_bootstrap_db_retry_success",
+                        symbol=symbol,
+                        bars=db_count,
+                    )
+                    continue
             ok = await bootstrap_asset(symbol, sym_limit)
             if ok:
                 continue
-            from app.services.market_data_store import fetch_bars_from_db
-
             db_bars = await fetch_bars_from_db(symbol, sym_limit)
-            required = bootstrap_success_threshold(asset, sym_limit)
             if len(db_bars) >= required:
-                from app.services.pipeline import process_bar, seed_bars_to_buffer
-
-                seed_bars_to_buffer(db_bars)
-                last_bar = db_bars[-1]
-                await process_bar(last_bar, skip_agents=True)
-                await _mark_feed_warmed(symbol, last_bar)
-                logger.info("history_bootstrap_db_retry_success", symbol=symbol, bars=len(db_bars))
-                continue
+                if await warm_asset_from_db(symbol, sym_limit):
+                    logger.info("history_bootstrap_db_retry_success", symbol=symbol, bars=len(db_bars))
+                    continue
             if db_bars:
                 logger.warning(
                     "history_bootstrap_db_insufficient_bars",

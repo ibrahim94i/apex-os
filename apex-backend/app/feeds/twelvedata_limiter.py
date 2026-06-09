@@ -4,73 +4,120 @@ from __future__ import annotations
 
 import asyncio
 import time
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
 import httpx
 
 from app.config import settings
+from app.core.redis_client import cache_delete, cache_get, cache_set
 from app.logging_config import logger
 
 _lock = asyncio.Lock()
+_credit_lock = asyncio.Lock()
 _last_request_at: float = 0.0
 _recovery_paused_until: datetime | None = None
-_credits_used_today: int = 0
-_credits_day: str = ""
-_credits_exhausted: bool = False
 
 
 def _utc_day() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
 
-def _reset_daily_counter_if_needed() -> None:
-    global _credits_used_today, _credits_day, _credits_exhausted
+def _credits_redis_key(day: str | None = None) -> str:
+    return f"twelvedata_credits:{day or _utc_day()}"
+
+
+def _redis_ttl_seconds() -> int:
+    """Keep today's key through the next UTC day, then expire."""
+    now = datetime.now(timezone.utc)
+    tomorrow = (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+    return int((tomorrow - now).total_seconds()) + 86400
+
+
+@dataclass
+class _CreditState:
+    day: str = ""
+    used: int = 0
+    exhausted: bool = False
+    loaded: bool = False
+
+
+_credit_state = _CreditState()
+
+
+async def _ensure_credits_loaded() -> None:
+    """Load today's credit counter from Redis (survives restarts)."""
+    global _credit_state
     today = _utc_day()
-    if _credits_day != today:
-        _credits_day = today
-        _credits_used_today = 0
-        _credits_exhausted = False
+    if _credit_state.loaded and _credit_state.day == today:
+        return
+
+    raw = await cache_get(_credits_redis_key(today))
+    if raw:
+        _credit_state = _CreditState(
+            day=today,
+            used=int(raw.get("used", 0)),
+            exhausted=bool(raw.get("exhausted", False)),
+            loaded=True,
+        )
+        return
+
+    _credit_state = _CreditState(day=today, used=0, exhausted=False, loaded=True)
 
 
-def record_twelvedata_429(response_body: dict | None = None) -> None:
+async def _persist_credits() -> None:
+    await cache_set(
+        _credits_redis_key(_credit_state.day),
+        {"used": _credit_state.used, "exhausted": _credit_state.exhausted},
+        ttl=_redis_ttl_seconds(),
+    )
+
+
+async def record_twelvedata_429(response_body: dict | None = None) -> None:
     """Pause feed recovery after TwelveData rate-limits us."""
     global _recovery_paused_until
     pause = settings.twelvedata_429_recovery_pause_seconds
     _recovery_paused_until = datetime.now(timezone.utc) + timedelta(seconds=pause)
     if _is_credits_exhausted_message(response_body):
-        mark_credits_exhausted()
+        await mark_credits_exhausted()
 
 
-def mark_credits_exhausted() -> None:
-    global _credits_exhausted
-    _reset_daily_counter_if_needed()
-    _credits_exhausted = True
+async def mark_credits_exhausted() -> None:
+    async with _credit_lock:
+        await _ensure_credits_loaded()
+        _credit_state.exhausted = True
+        await _persist_credits()
     logger.warning(
         "twelvedata_credits_exhausted",
-        used=_credits_used_today,
+        used=_credit_state.used,
         limit=settings.twelvedata_daily_credit_limit,
-        day=_credits_day,
+        day=_credit_state.day,
     )
 
 
-def record_credits_used(credits: int, *, reason: str) -> None:
+async def record_credits_used(credits: int, *, reason: str) -> None:
     """Track estimated TwelveData credits consumed (1 credit per data point)."""
-    global _credits_used_today
     if credits <= 0:
         return
-    _reset_daily_counter_if_needed()
-    _credits_used_today += credits
-    limit = settings.twelvedata_daily_credit_limit
+
+    async with _credit_lock:
+        await _ensure_credits_loaded()
+        _credit_state.used += credits
+        limit = settings.twelvedata_daily_credit_limit
+        if _credit_state.used >= limit:
+            _credit_state.exhausted = True
+        await _persist_credits()
+        used_today = _credit_state.used
+        exhausted = _credit_state.exhausted
+
     logger.info(
         "twelvedata_credits_used",
         credits=credits,
-        used_today=_credits_used_today,
+        used_today=used_today,
         limit=limit,
-        remaining=max(limit - _credits_used_today, 0),
+        remaining=max(limit - used_today, 0),
         reason=reason,
     )
-    if _credits_used_today >= limit:
-        mark_credits_exhausted()
 
 
 def estimate_request_credits(params: dict) -> int:
@@ -81,43 +128,44 @@ def estimate_request_credits(params: dict) -> int:
         return 1
 
 
-def credits_remaining_today() -> int:
-    _reset_daily_counter_if_needed()
-    return max(settings.twelvedata_daily_credit_limit - _credits_used_today, 0)
+async def credits_remaining_today() -> int:
+    await _ensure_credits_loaded()
+    return max(settings.twelvedata_daily_credit_limit - _credit_state.used, 0)
 
 
-def is_credits_exhausted() -> bool:
-    _reset_daily_counter_if_needed()
-    if _credits_exhausted:
+async def is_credits_exhausted() -> bool:
+    await _ensure_credits_loaded()
+    if _credit_state.exhausted:
         return True
-    return _credits_used_today >= settings.twelvedata_daily_credit_limit
+    return _credit_state.used >= settings.twelvedata_daily_credit_limit
 
 
-def can_afford_credits(credits: int) -> bool:
-    _reset_daily_counter_if_needed()
-    if _credits_exhausted:
+async def can_afford_credits(credits: int) -> bool:
+    await _ensure_credits_loaded()
+    if _credit_state.exhausted:
         return False
-    return _credits_used_today + credits <= settings.twelvedata_daily_credit_limit
+    return _credit_state.used + credits <= settings.twelvedata_daily_credit_limit
 
 
-def should_skip_twelvedata_api(credits: int = 1) -> bool:
+async def should_skip_twelvedata_api(credits: int = 1) -> bool:
     """Skip API when credits are gone or a recent 429 pause is active."""
-    if is_credits_exhausted():
+    if await is_credits_exhausted():
         return True
-    if not can_afford_credits(credits):
+    if not await can_afford_credits(credits):
         return True
     return False
 
 
-def get_credit_usage_report() -> dict[str, int | str | bool]:
-    _reset_daily_counter_if_needed()
+async def get_credit_usage_report() -> dict[str, int | str | bool]:
+    await _ensure_credits_loaded()
     limit = settings.twelvedata_daily_credit_limit
+    used = _credit_state.used
     return {
-        "day": _credits_day,
-        "used": _credits_used_today,
+        "day": _credit_state.day,
+        "used": used,
         "limit": limit,
-        "remaining": max(limit - _credits_used_today, 0),
-        "exhausted": is_credits_exhausted(),
+        "remaining": max(limit - used, 0),
+        "exhausted": await is_credits_exhausted(),
         "recovery_paused": is_feed_recovery_paused(),
     }
 
@@ -137,12 +185,17 @@ def feed_recovery_pause_remaining_seconds() -> int | None:
 
 
 def clear_feed_recovery_pause() -> None:
-    """Test helper — reset 429 recovery pause and credit counters."""
-    global _recovery_paused_until, _credits_used_today, _credits_day, _credits_exhausted
+    """Test helper — reset 429 recovery pause."""
+    global _recovery_paused_until
     _recovery_paused_until = None
-    _credits_used_today = 0
-    _credits_day = ""
-    _credits_exhausted = False
+
+
+async def clear_credit_tracking() -> None:
+    """Test helper — reset in-memory and Redis credit counters for today."""
+    global _credit_state
+    today = _utc_day()
+    _credit_state = _CreditState()
+    await cache_delete(_credits_redis_key(today))
 
 
 def _is_credits_exhausted_message(body: dict | None) -> bool:
@@ -161,12 +214,13 @@ async def throttled_get(
 ) -> httpx.Response:
     global _last_request_at
     estimated = estimate_request_credits(params)
-    if should_skip_twelvedata_api(estimated):
+    if await should_skip_twelvedata_api(estimated):
+        report = await get_credit_usage_report()
         logger.warning(
             "twelvedata_request_skipped_budget",
             reason=reason,
             estimated_credits=estimated,
-            **get_credit_usage_report(),
+            **report,
         )
         return httpx.Response(
             429,
@@ -189,7 +243,7 @@ async def throttled_get(
                 body = response.json()
             except Exception:
                 pass
-            record_twelvedata_429(body)
+            await record_twelvedata_429(body)
             return response
 
         if response.is_success:
@@ -200,6 +254,6 @@ async def throttled_get(
                     actual = len(payload["values"])
             except Exception:
                 pass
-            record_credits_used(actual, reason=reason)
+            await record_credits_used(actual, reason=reason)
 
         return response

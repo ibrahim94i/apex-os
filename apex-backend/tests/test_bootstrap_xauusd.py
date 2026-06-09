@@ -7,6 +7,7 @@ import pytest
 from app.config.assets import ASSETS
 from app.feeds.history_bootstrap import (
     XAUUSD_BOOTSTRAP_BARS,
+    bootstrap_all_assets,
     bootstrap_asset,
     bootstrap_limit_for,
     bootstrap_success_threshold,
@@ -54,3 +55,31 @@ async def test_bootstrap_xauusd_runs_when_market_closed() -> None:
                         with patch("app.services.market_hours.is_market_open", return_value=False):
                             ok = await bootstrap_asset("XAUUSD")
     assert ok is True
+
+
+@pytest.mark.asyncio
+async def test_bootstrap_all_assets_skips_api_when_db_has_200_bars() -> None:
+    with patch(
+        "app.services.market_data_store.count_bars_in_db",
+        new=AsyncMock(return_value=250),
+    ):
+        with patch(
+            "app.feeds.history_bootstrap.warm_asset_from_db",
+            new=AsyncMock(return_value=True),
+        ) as mock_warm:
+            with patch(
+                "app.feeds.history_bootstrap.bootstrap_asset",
+                new=AsyncMock(return_value=True),
+            ) as mock_bootstrap:
+                with patch(
+                    "app.feeds.history_bootstrap.refresh_dashboard_cache",
+                    new=AsyncMock(),
+                ):
+                    with patch(
+                        "app.services.agent_analysis_service.ensure_agent_consensus_for_active_symbols",
+                        new=AsyncMock(),
+                    ):
+                        await bootstrap_all_assets()
+
+    mock_warm.assert_awaited_once()
+    mock_bootstrap.assert_not_awaited()

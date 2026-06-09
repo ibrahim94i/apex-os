@@ -258,7 +258,7 @@ async def get_feeds_status() -> dict:
     health = [await check_feed_health(sym) for sym in ACTIVE_SYMBOLS]
     return {
         "manager": feed_manager.get_status(),
-        "twelvedata_credits": get_credit_usage_report(),
+        "twelvedata_credits": await get_credit_usage_report(),
         "health": [
             {
                 "symbol": h.symbol,

@@ -34,7 +34,7 @@ async def _fetch_twelvedata_latest(
 
     from app.feeds.twelvedata_limiter import should_skip_twelvedata_api
 
-    if should_skip_twelvedata_api(1):
+    if await should_skip_twelvedata_api(1):
         return None
 
     params = {
