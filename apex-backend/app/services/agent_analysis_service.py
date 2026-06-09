@@ -298,7 +298,7 @@ async def run_agent_analysis(symbol: str, *, force: bool = False) -> AgentConsen
 
 
 async def ensure_agent_consensus_for_active_symbols(*, force: bool = False) -> None:
-    """Run agent analysis sequentially: XAUUSD first, then USDJPY, with a gap between each."""
+    """Run agent analysis sequentially for active symbols with a gap between each."""
     from app.config.assets import ACTIVE_SYMBOLS
 
     symbols = [sym for sym in ACTIVE_SYMBOLS if is_market_open(sym)]

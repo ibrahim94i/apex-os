@@ -9,11 +9,12 @@ from app.config.assets import (
 from app.services.signal_rejection_i18n import rejection_reason_ar
 
 
-def test_active_symbols_xauusd_usdjpy_only() -> None:
-    assert ACTIVE_SYMBOLS == ["XAUUSD", "USDJPY"]
+def test_active_symbols_xauusd_only() -> None:
+    assert ACTIVE_SYMBOLS == ["XAUUSD"]
     assert "BTCUSDT" not in ACTIVE_SYMBOLS
     assert "EURUSD" not in ACTIVE_SYMBOLS
     assert "GBPUSD" not in ACTIVE_SYMBOLS
+    assert "USDJPY" not in ACTIVE_SYMBOLS
 
 
 def test_btcusdt_uses_binance_feed() -> None:

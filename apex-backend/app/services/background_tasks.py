@@ -17,7 +17,7 @@ _market_was_open: dict[str, bool] = {}
 
 
 async def _agent_consensus_watch_loop() -> None:
-    """Fill missing agent consensus sequentially (XAUUSD → USDJPY)."""
+    """Fill missing agent consensus sequentially for active symbols."""
     from app.services.agent_analysis_service import ensure_agent_consensus_for_active_symbols
 
     await asyncio.sleep(45)

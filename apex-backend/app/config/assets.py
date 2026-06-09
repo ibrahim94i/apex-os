@@ -104,8 +104,8 @@ ASSETS: dict[str, AssetConfig] = {
     ),
 }
 
-# Active trading universe (EURUSD/GBPUSD paused — XAUUSD + USDJPY only)
-ACTIVE_SYMBOLS: list[str] = ["XAUUSD", "USDJPY"]
+# Active trading universe (EURUSD/GBPUSD/USDJPY paused — XAUUSD only)
+ACTIVE_SYMBOLS: list[str] = ["XAUUSD"]
 
 
 def get_asset(symbol: str) -> AssetConfig | None:
