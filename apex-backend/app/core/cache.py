@@ -128,3 +128,15 @@ async def set_latest_snr(symbol: str, data: dict[str, Any]) -> None:
 
 async def get_latest_snr(symbol: str) -> dict[str, Any] | None:
     return await cache_get(CacheKeys.LATEST_SNR.format(symbol=symbol))
+
+
+async def set_news_verdict(symbol: str, data: dict[str, Any]) -> None:
+    await cache_set(
+        CacheKeys.NEWS_VERDICT.format(symbol=symbol),
+        data,
+        ttl=settings.news_verdict_ttl_seconds,
+    )
+
+
+async def get_news_verdict(symbol: str) -> dict[str, Any] | None:
+    return await cache_get(CacheKeys.NEWS_VERDICT.format(symbol=symbol))

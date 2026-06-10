@@ -51,13 +51,18 @@ async def get_cached_consensus(snapshot: MarketSnapshot) -> AgentConsensus | Non
     return cached
 
 
-async def set_cached_consensus(snapshot: MarketSnapshot, consensus: AgentConsensus) -> None:
+async def set_cached_consensus(
+    snapshot: MarketSnapshot,
+    consensus: AgentConsensus,
+    *,
+    ttl_seconds: int | None = None,
+) -> None:
     try:
         bound = consensus.model_copy(update={"symbol": snapshot.symbol})
         await cache_set(
             await _cache_key(snapshot),
             bound.model_dump(mode="json"),
-            ttl=settings.agent_cache_ttl_seconds,
+            ttl=ttl_seconds if ttl_seconds is not None else settings.agent_cache_ttl_seconds,
         )
     except Exception:
         return None

@@ -15,20 +15,19 @@ from app.websocket.manager import broadcaster
 
 _market_was_open: dict[str, bool] = {}
 
+async def _news_monitor_loop() -> None:
+    """Run news agent + high-impact calendar monitoring every 5 minutes."""
+    from app.services.news_monitor_service import run_news_monitor_cycle
 
-async def _agent_consensus_watch_loop() -> None:
-    """Fill missing agent consensus sequentially for active symbols."""
-    from app.services.agent_analysis_service import ensure_agent_consensus_for_active_symbols
-
-    await asyncio.sleep(45)
+    await asyncio.sleep(60)
     while True:
         try:
-            await ensure_agent_consensus_for_active_symbols()
+            await run_news_monitor_cycle()
         except asyncio.CancelledError:
             raise
         except Exception as exc:
-            logger.error("agent_consensus_watch_error", error=str(exc))
-        await asyncio.sleep(90)
+            logger.error("news_monitor_loop_error", error=str(exc))
+        await asyncio.sleep(settings.news_monitor_interval_seconds)
 
 
 async def _hourly_report_loop() -> None:
@@ -135,6 +134,6 @@ def start_background_tasks() -> list[asyncio.Task[None]]:
         asyncio.create_task(_feed_health_watch_loop(), name="feed_health_watch"),
         asyncio.create_task(_market_status_tick_loop(), name="market_status_tick"),
         asyncio.create_task(_market_reopen_watch_loop(), name="market_reopen_watch"),
-        asyncio.create_task(_agent_consensus_watch_loop(), name="agent_consensus_watch"),
+        asyncio.create_task(_news_monitor_loop(), name="news_monitor"),
         asyncio.create_task(_auto_outcome_tracker_loop(), name="auto_outcome_tracker"),
     ]

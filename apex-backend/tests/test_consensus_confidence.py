@@ -128,14 +128,20 @@ async def test_orchestrator_keeps_weighted_confidence_not_round3() -> None:
         ),
     ]
 
+    h1_verdicts = mock_verdicts[:2]
+    news_verdict = mock_verdicts[2]
+
     orchestrator = AgentOrchestrator()
     with patch.object(
         orchestrator.team_service,
-        "analyze",
-        new=AsyncMock(return_value=(mock_verdicts, True, None, team_output, "openai")),
+        "analyze_h1",
+        new=AsyncMock(return_value=(h1_verdicts, True, None, team_output, "openai")),
     ), patch(
         "app.agents.orchestrator.get_cached_consensus",
         new=AsyncMock(return_value=None),
+    ), patch(
+        "app.agents.orchestrator.get_news_verdict",
+        new=AsyncMock(return_value=news_verdict.model_dump(mode="json")),
     ), patch(
         "app.agents.orchestrator.set_cached_consensus",
         new=AsyncMock(),

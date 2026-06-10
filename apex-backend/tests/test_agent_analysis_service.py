@@ -213,11 +213,11 @@ async def test_run_agent_analysis_publishes_consensus() -> None:
             new_callable=AsyncMock,
             return_value=AsyncMock(),
         ),
-        patch(
-            "app.services.agent_analysis_service.agent_orchestrator.run",
-            new_callable=AsyncMock,
-            return_value=consensus,
-        ),
+            patch(
+                "app.services.agent_analysis_service.agent_orchestrator.run_h1",
+                new_callable=AsyncMock,
+                return_value=consensus,
+            ),
         patch(
             "app.services.agent_analysis_service.set_agent_consensus_last_good",
             new_callable=AsyncMock,

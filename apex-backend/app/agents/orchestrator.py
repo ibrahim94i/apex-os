@@ -1,4 +1,4 @@
-"""Agent orchestrator — team discussion + freshness + weighted voting."""
+"""Agent orchestrator — H1 team discussion + cached news verdict + weighted voting."""
 
 from datetime import datetime, timezone
 
@@ -6,6 +6,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agents.team_discussion import team_discussion_service
 from app.agents.voting.weighted_engine import AdaptiveWeightedEngine
+from app.config import settings
+from app.core.cache import get_agent_consensus, get_news_verdict
 from app.schemas import SignalDirection
 from app.schemas.agent import AgentConsensus, AgentRole, AgentVerdict, MarketSnapshot
 from app.services.agent_cache import get_cached_consensus, set_cached_consensus
@@ -20,14 +22,56 @@ class AgentOrchestrator:
         self.team_service = team_discussion_service
         self.voting_engine = AdaptiveWeightedEngine()
 
-    async def run(
+    async def _load_news_verdict(self, symbol: str) -> AgentVerdict | None:
+        raw = await get_news_verdict(symbol)
+        if raw:
+            try:
+                verdict = AgentVerdict(**raw)
+                if verdict.agent_id == AgentRole.NEWS:
+                    return verdict
+            except Exception:
+                pass
+
+        cached = await get_agent_consensus(symbol)
+        if cached:
+            try:
+                consensus = AgentConsensus(**cached)
+                for verdict in consensus.verdicts:
+                    if verdict.agent_id == AgentRole.NEWS:
+                        return verdict
+            except Exception:
+                pass
+        return None
+
+    async def _merge_verdicts(
+        self,
+        symbol: str,
+        h1_verdicts: list[AgentVerdict],
+    ) -> list[AgentVerdict]:
+        news = await self._load_news_verdict(symbol)
+        if news is None:
+            return h1_verdicts
+        merged = [v for v in h1_verdicts if v.agent_id != AgentRole.NEWS]
+        merged.append(news)
+        return merged
+
+    async def run_h1(
         self, snapshot: MarketSnapshot, session: AsyncSession | None = None
     ) -> AgentConsensus:
+        """Run market analyst + risk at H1 close; merge cached news verdict for voting."""
         cached = await get_cached_consensus(snapshot)
         if cached:
+            news = await self._load_news_verdict(snapshot.symbol)
+            if news is not None:
+                h1_verdicts = [v for v in cached.verdicts if v.agent_id != AgentRole.NEWS]
+                if len(h1_verdicts) >= 2:
+                    merged = await self._merge_verdicts(snapshot.symbol, h1_verdicts)
+                    return await self._vote_from_verdicts(
+                        snapshot, merged, cached.team_discussion, cached.llm_provider, session
+                    )
             return cached.model_copy(update={"symbol": snapshot.symbol})
 
-        verdicts, used_llm, error, team_discussion, llm_provider = await self.team_service.analyze(
+        verdicts, used_llm, error, team_discussion, llm_provider = await self.team_service.analyze_h1(
             snapshot
         )
 
@@ -51,7 +95,34 @@ class AgentOrchestrator:
                 vote_scores={},
             )
 
-        # Refresh snapshot clock after LLM — slow API calls must not trigger snapshot_data_too_old
+        all_verdicts = await self._merge_verdicts(snapshot.symbol, verdicts)
+        consensus = await self._vote_from_verdicts(
+            snapshot, all_verdicts, team_discussion, llm_provider, session
+        )
+
+        if used_llm:
+            await set_cached_consensus(
+                snapshot,
+                consensus,
+                ttl_seconds=settings.h1_agent_cache_ttl_seconds,
+            )
+
+        return consensus
+
+    async def run(
+        self, snapshot: MarketSnapshot, session: AsyncSession | None = None
+    ) -> AgentConsensus:
+        """Backward-compatible alias — H1 path only."""
+        return await self.run_h1(snapshot, session=session)
+
+    async def _vote_from_verdicts(
+        self,
+        snapshot: MarketSnapshot,
+        verdicts: list[AgentVerdict],
+        team_discussion,
+        llm_provider: str | None,
+        session: AsyncSession | None,
+    ) -> AgentConsensus:
         snapshot = snapshot.model_copy(update={"timestamp": datetime.now(timezone.utc)})
         verdicts = annotate_verdict_freshness(verdicts, snapshot)
         fresh_ok, fresh_reason = validate_agent_data_freshness(snapshot, verdicts)
@@ -78,8 +149,6 @@ class AgentOrchestrator:
                 update={
                     "team_discussion": team_discussion,
                     "discussion_summary_ar": team_discussion.discussion_summary,
-                    # Keep final_direction/final_confidence from weighted voting — do not
-                    # overwrite with round3 LLM synthesis (avoids 70% display vs 61.5% math).
                     "reasoning_summary": (
                         consensus.reasoning_summary
                         + team_discussion.discussion_summary
@@ -91,9 +160,6 @@ class AgentOrchestrator:
             )
         else:
             consensus = consensus.model_copy(update={"llm_provider": llm_provider})
-
-        if used_llm:
-            await set_cached_consensus(snapshot, consensus)
 
         return consensus
 

@@ -66,6 +66,9 @@ class Settings(BaseSettings):
     agent_consensus_ttl_seconds: int = 1800
     agent_consensus_last_good_ttl_seconds: int = 86400
     agent_cache_ttl_seconds: int = 300
+    h1_agent_cache_ttl_seconds: int = 3600
+    news_monitor_interval_seconds: int = 300
+    news_verdict_ttl_seconds: int = 3600
     news_block_window_minutes: int = 30
     finnhub_api_key: str = ""
     finnhub_news_limit: int = 5

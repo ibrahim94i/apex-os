@@ -25,6 +25,14 @@ async def _handle_feed_bar(raw_bar: dict[str, Any]) -> None:
         and asset is not None
         and asset.feed_type == "frankfurter"
     )
+    if skip_agents and raw_bar.get("is_closed", True):
+        from app.services.h1_bar_gate import should_run_h1_pipeline
+
+        if await should_run_h1_pipeline(symbol, raw_bar["timestamp"]):
+            from app.services.agent_analysis_service import run_agent_analysis
+
+            await run_agent_analysis(symbol, force=True)
+            return
     await process_bar(raw_bar, skip_agents=skip_agents)
 
 

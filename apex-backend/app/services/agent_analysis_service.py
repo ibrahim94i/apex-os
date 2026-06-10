@@ -237,7 +237,7 @@ async def run_agent_analysis(symbol: str, *, force: bool = False) -> AgentConsen
                         regime=regime,
                         kill_switch=ks_status,
                     )
-                    consensus = await agent_orchestrator.run(snapshot, session=session)
+                    consensus = await agent_orchestrator.run_h1(snapshot, session=session)
                     if not consensus.verdicts:
                         logger.warning("agent_analysis_empty_verdicts", symbol=symbol)
                         return None

@@ -12,6 +12,7 @@ from app.schemas.agent import AgentRole, AgentVerdict, MarketSnapshot, NewsAgent
 from app.schemas import SignalDirection
 from app.services.finnhub_calendar import find_imminent_event, minutes_until_event
 from app.utils.llm_client import LLMClient, LLMClientError, llm_client
+from app.utils.llm_circuit_breaker import LLMCircuitOpenError
 
 
 AGENT_NAME_AR = "وكيل الأخبار"
@@ -164,7 +165,7 @@ class NewsAgent:
             else:
                 output = _rule_based(snapshot)
                 latency_ms = (time.monotonic() - start) * 1000
-        except LLMClientError as exc:
+        except (LLMClientError, LLMCircuitOpenError) as exc:
             error = str(exc)
             output = _rule_based(snapshot)
             latency_ms = (time.monotonic() - start) * 1000

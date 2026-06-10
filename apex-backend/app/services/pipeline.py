@@ -47,6 +47,7 @@ from app.services.signal_filters import (
 from app.services.signal_gate import should_emit_new_signal
 from app.services.economic_calendar_gate import check_economic_calendar_gate
 from app.services.finnhub_calendar import _load_high_impact_events
+from app.services.h1_bar_gate import mark_h1_pipeline_processed, should_run_h1_pipeline
 from app.services.safety_gate import check_mandatory_safety_gate
 from app.services.position_service import detect_position_signal_conflict, get_open_positions
 from app.config import settings
@@ -161,17 +162,41 @@ async def process_bar(raw_bar: dict[str, Any], *, skip_agents: bool = False) -> 
     if not raw_bar.get("is_closed", True):
         return
 
+    run_h1_pipeline = await should_run_h1_pipeline(symbol, raw_bar["timestamp"])
+
     async with AsyncSessionLocal() as session:
         try:
             await _persist_bar(session, raw_bar)
             await kill_switch.load_from_cache()
             ks_status = await kill_switch.evaluate(session)
 
-            from app.services.outcome_tracker import auto_outcome_tracker
-
-            await auto_outcome_tracker.track_pending_outcomes(session, symbol)
-
             indicators, regime = signal_generator.analyze(_bar_buffer[symbol], symbol)
+
+            if not run_h1_pipeline and not skip_agents:
+                if indicators:
+                    ind_data = indicators.model_dump(mode="json")
+                    await set_latest_indicators(symbol, ind_data)
+                if regime:
+                    reg_data = regime.model_dump(mode="json")
+                    await set_latest_regime(symbol, reg_data)
+                    await broadcaster.broadcast_regime(reg_data)
+                market_status = await build_market_status(symbol)
+                dashboard = await build_asset_dashboard_state(symbol)
+                dashboard = dashboard.model_copy(
+                    update={
+                        "regime": RegimeSnapshotSchema(**regime.model_dump()) if regime else None,
+                        "kill_switch": KillSwitchStatusSchema(**ks_status.model_dump()),
+                        "current_price": raw_bar["close"],
+                        "market_status": market_status,
+                    }
+                )
+                dash_data = dashboard.model_dump(mode="json")
+                await set_dashboard_state(symbol, dash_data)
+                await broadcaster.broadcast_dashboard_update(dash_data)
+                await broadcaster.broadcast_kill_switch(ks_status.model_dump(mode="json"))
+                await session.commit()
+                logger.debug("pipeline_light_tick", symbol=symbol)
+                return
 
             snr_snapshot = await compute_snr_for_symbol(symbol)
             if snr_snapshot:
@@ -204,7 +229,7 @@ async def process_bar(raw_bar: dict[str, Any], *, skip_agents: bool = False) -> 
                     else:
                         agent_consensus = None
                 else:
-                    agent_consensus = await agent_orchestrator.run(snapshot, session=session)
+                    agent_consensus = await agent_orchestrator.run_h1(snapshot, session=session)
             elif skip_agents:
                 cached = await get_agent_consensus(symbol)
                 if cached:
@@ -595,6 +620,8 @@ async def process_bar(raw_bar: dict[str, Any], *, skip_agents: bool = False) -> 
             await broadcaster.broadcast_dashboard_update(dash_data)
 
             await session.commit()
+            if run_h1_pipeline:
+                await mark_h1_pipeline_processed(symbol, raw_bar["timestamp"])
         except Exception as exc:
             await session.rollback()
             logger.error("pipeline_error", error=str(exc), symbol=symbol)
