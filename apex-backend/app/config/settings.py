@@ -85,6 +85,8 @@ class Settings(BaseSettings):
     cors_origins: str = ""
     openai_api_key: str = ""
     openai_model: str = "gpt-4o-mini"
+    groq_api_key: str = ""
+    groq_model: str = "llama-3.3-70b-versatile"
     agent_timeout_seconds: int = 30
     agent_max_retries: int = 2
     agent_circuit_breaker_threshold: int = 3
