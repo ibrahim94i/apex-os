@@ -251,6 +251,7 @@ async def get_agent_verdicts(symbol: str = "BTCUSDT") -> list[AgentVerdict]:
 @router.get("/feeds/status")
 async def get_feeds_status() -> dict:
     from app.feeds.twelvedata_limiter import get_credit_usage_report
+    from app.utils.llm_circuit_breaker import get_circuit_report as get_llm_circuit_report
     from app.services.feed_health_service import check_feed_health
     from app.config.assets import ACTIVE_SYMBOLS
     from app.feeds.manager import feed_manager
@@ -259,6 +260,7 @@ async def get_feeds_status() -> dict:
     return {
         "manager": feed_manager.get_status(),
         "twelvedata_credits": await get_credit_usage_report(),
+        "llm_circuit": await get_llm_circuit_report(),
         "health": [
             {
                 "symbol": h.symbol,

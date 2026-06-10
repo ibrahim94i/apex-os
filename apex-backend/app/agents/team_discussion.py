@@ -18,6 +18,7 @@ from app.schemas.agent import (
     TeamRoundOpinion,
 )
 from app.utils.llm_client import LLMClient, LLMClientError, llm_client
+from app.utils.llm_circuit_breaker import LLMCircuitOpenError
 
 
 class TeamDiscussionService:
@@ -53,7 +54,7 @@ class TeamDiscussionService:
             now = datetime.now(timezone.utc)
             verdicts = self._build_verdicts_from_round1(output.round1_initial, latency, now)
             return verdicts, True, None, output, response.provider
-        except LLMClientError as exc:
+        except (LLMClientError, LLMCircuitOpenError) as exc:
             msg = str(exc)
             verdicts = self._fallback._rule_based_verdicts(
                 snapshot, start, fallback_error=msg

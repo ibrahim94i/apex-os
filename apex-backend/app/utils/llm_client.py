@@ -1,4 +1,4 @@
-"""OpenAI LLM client with rate limiting, 429 backoff, and circuit breaker."""
+"""OpenAI LLM client with global serialization, Redis circuit breaker, and 429 handling."""
 
 from __future__ import annotations
 
@@ -6,7 +6,6 @@ import asyncio
 import json
 import time
 from dataclasses import dataclass, field
-from enum import Enum
 from typing import TypeVar
 
 import httpx
@@ -14,48 +13,21 @@ from pydantic import BaseModel
 
 from app.config import settings
 from app.logging_config import logger
+from app.utils.llm_circuit_breaker import (
+    LLMCircuitOpenError,
+    assert_llm_allowed,
+    get_circuit_status,
+    is_llm_blocked,
+    record_llm_429,
+    record_llm_probe_failure,
+    record_llm_success,
+)
 
 T = TypeVar("T", bound=BaseModel)
 
+_llm_global_lock = asyncio.Lock()
 _rate_lock = asyncio.Lock()
 _last_request_at: float = 0.0
-
-
-class CircuitState(str, Enum):
-    CLOSED = "CLOSED"
-    OPEN = "OPEN"
-    HALF_OPEN = "HALF_OPEN"
-
-
-@dataclass
-class CircuitBreaker:
-    threshold: int
-    recovery_timeout: float = 60.0
-    failure_count: int = 0
-    state: CircuitState = CircuitState.CLOSED
-    last_failure_time: float = 0.0
-
-    def record_success(self) -> None:
-        self.failure_count = 0
-        self.state = CircuitState.CLOSED
-
-    def record_failure(self) -> None:
-        self.failure_count += 1
-        self.last_failure_time = time.monotonic()
-        if self.failure_count >= self.threshold:
-            self.state = CircuitState.OPEN
-            logger.warning("llm_circuit_breaker_open", failures=self.failure_count)
-
-    def can_execute(self) -> bool:
-        if self.state == CircuitState.CLOSED:
-            return True
-        if self.state == CircuitState.OPEN:
-            elapsed = time.monotonic() - self.last_failure_time
-            if elapsed >= self.recovery_timeout:
-                self.state = CircuitState.HALF_OPEN
-                return True
-            return False
-        return True
 
 
 @dataclass
@@ -71,8 +43,7 @@ class LLMClientError(Exception):
     pass
 
 
-class LLMCircuitOpenError(LLMClientError):
-    pass
+# Re-export for callers that import from llm_client.
 
 
 async def _enforce_rate_limit() -> None:
@@ -83,6 +54,15 @@ async def _enforce_rate_limit() -> None:
         if gap > 0:
             await asyncio.sleep(gap)
         _last_request_at = time.monotonic()
+
+
+async def _handle_http_429() -> None:
+    status = await get_circuit_status()
+    if status.state.value == "half_open":
+        await record_llm_probe_failure()
+    else:
+        await record_llm_429()
+    raise LLMClientError("LLM request failed: 429 Too Many Requests")
 
 
 class LLMClient:
@@ -101,9 +81,7 @@ class LLMClient:
         self.model = model or settings.openai_model
         self.timeout = timeout or float(settings.agent_timeout_seconds)
         self.max_retries = max_retries or settings.agent_max_retries
-        self.circuit_breaker = CircuitBreaker(
-            threshold=circuit_threshold or settings.agent_circuit_breaker_threshold
-        )
+        _ = circuit_threshold  # legacy param — Redis circuit breaker replaces in-memory threshold
 
     @property
     def is_configured(self) -> bool:
@@ -134,84 +112,76 @@ class LLMClient:
         if not self.is_configured:
             raise LLMClientError("OpenAI API key not configured")
 
-        if not self.circuit_breaker.can_execute():
-            raise LLMCircuitOpenError("LLM circuit breaker is open")
+        async with _llm_global_lock:
+            await assert_llm_allowed()
 
-        headers = {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json",
-        }
-        payload = {
-            "model": self.model,
-            "temperature": temperature,
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
-            "response_format": {"type": "json_object"},
-        }
+            headers = {
+                "Authorization": f"Bearer {self.api_key}",
+                "Content-Type": "application/json",
+            }
+            payload = {
+                "model": self.model,
+                "temperature": temperature,
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+                "response_format": {"type": "json_object"},
+            }
 
-        last_error: Exception | None = None
-        start = time.monotonic()
-        max_attempts = self.max_retries + 2
+            last_error: Exception | None = None
+            start = time.monotonic()
+            max_attempts = self.max_retries + 1
 
-        for attempt in range(1, max_attempts + 1):
-            await _enforce_rate_limit()
-            try:
-                timeout = httpx.Timeout(self.timeout, connect=5.0)
-                async with httpx.AsyncClient(timeout=timeout) as client:
-                    response = await client.post(
-                        self.OPENAI_CHAT_URL,
-                        headers=headers,
-                        json=payload,
+            for attempt in range(1, max_attempts + 1):
+                await _enforce_rate_limit()
+                try:
+                    timeout = httpx.Timeout(self.timeout, connect=5.0)
+                    async with httpx.AsyncClient(timeout=timeout) as client:
+                        response = await client.post(
+                            self.OPENAI_CHAT_URL,
+                            headers=headers,
+                            json=payload,
+                        )
+                        if response.status_code == 429:
+                            logger.warning("llm_rate_limited", attempt=attempt, action="circuit_open")
+                            await _handle_http_429()
+                        response.raise_for_status()
+                        data = response.json()
+
+                    content = data["choices"][0]["message"]["content"]
+                    latency_ms = (time.monotonic() - start) * 1000
+                    usage = data.get("usage", {})
+
+                    await record_llm_success()
+                    return LLMResponse(
+                        content=content,
+                        model=self.model,
+                        latency_ms=latency_ms,
+                        usage={
+                            "prompt_tokens": usage.get("prompt_tokens", 0),
+                            "completion_tokens": usage.get("completion_tokens", 0),
+                        },
+                        provider="openai",
                     )
-                    if response.status_code == 429:
-                        wait = settings.llm_429_backoff_seconds * (2 ** (attempt - 1))
-                        logger.warning(
-                            "llm_rate_limited",
-                            attempt=attempt,
-                            wait_seconds=wait,
-                        )
-                        await asyncio.sleep(wait)
-                        last_error = httpx.HTTPStatusError(
-                            "429 Too Many Requests",
-                            request=response.request,
-                            response=response,
-                        )
-                        continue
-                    response.raise_for_status()
-                    data = response.json()
+                except LLMClientError:
+                    raise
+                except httpx.HTTPStatusError as exc:
+                    last_error = exc
+                    if exc.response.status_code == 429:
+                        await _handle_http_429()
+                    logger.warning("llm_request_failed", attempt=attempt, error=str(exc))
+                except Exception as exc:
+                    last_error = exc
+                    logger.warning("llm_request_failed", attempt=attempt, error=str(exc))
 
-                content = data["choices"][0]["message"]["content"]
-                latency_ms = (time.monotonic() - start) * 1000
-                usage = data.get("usage", {})
+                if attempt < max_attempts:
+                    await asyncio.sleep(min(2**attempt, 8))
 
-                self.circuit_breaker.record_success()
-                return LLMResponse(
-                    content=content,
-                    model=self.model,
-                    latency_ms=latency_ms,
-                    usage={
-                        "prompt_tokens": usage.get("prompt_tokens", 0),
-                        "completion_tokens": usage.get("completion_tokens", 0),
-                    },
-                    provider="openai",
-                )
-            except httpx.HTTPStatusError as exc:
-                last_error = exc
-                if exc.response.status_code == 429:
-                    continue
-                self.circuit_breaker.record_failure()
-                logger.warning("llm_request_failed", attempt=attempt, error=str(exc))
-            except Exception as exc:
-                last_error = exc
-                self.circuit_breaker.record_failure()
-                logger.warning("llm_request_failed", attempt=attempt, error=str(exc))
-
-            if attempt < max_attempts:
-                await asyncio.sleep(min(2**attempt, 8))
-
-        raise LLMClientError(f"LLM request failed after retries: {last_error}")
+            status = await get_circuit_status()
+            if status.state.value == "half_open":
+                await record_llm_probe_failure()
+            raise LLMClientError(f"LLM request failed after retries: {last_error}")
 
     @staticmethod
     def _extract_responses_text(data: dict) -> str:
@@ -224,7 +194,6 @@ class LLMClient:
                     parts.append(block["text"])
         if parts:
             return "\n".join(parts).strip()
-        # Fallback for alternate response shapes
         if data.get("output_text"):
             return str(data["output_text"]).strip()
         raise LLMClientError("Empty response from OpenAI Responses API")
@@ -237,82 +206,82 @@ class LLMClient:
         conversation_history: list[dict[str, str]] | None = None,
         temperature: float = 0.3,
     ) -> LLMResponse:
-        """Advisor chat via OpenAI Chat Completions — APEX data only, no web search."""
         if not self.is_configured:
             raise LLMClientError("OpenAI API key not configured")
 
-        if not self.circuit_breaker.can_execute():
-            raise LLMCircuitOpenError("LLM circuit breaker is open")
+        async with _llm_global_lock:
+            await assert_llm_allowed()
 
-        messages: list[dict[str, str]] = [{"role": "system", "content": system_prompt}]
-        if conversation_history:
-            for item in conversation_history:
-                if item.get("role") in ("user", "assistant") and item.get("content"):
-                    messages.append({"role": item["role"], "content": item["content"]})
-        messages.append({"role": "user", "content": user_prompt})
+            messages: list[dict[str, str]] = [{"role": "system", "content": system_prompt}]
+            if conversation_history:
+                for item in conversation_history:
+                    if item.get("role") in ("user", "assistant") and item.get("content"):
+                        messages.append({"role": item["role"], "content": item["content"]})
+            messages.append({"role": "user", "content": user_prompt})
 
-        headers = {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json",
-        }
-        payload = {
-            "model": self.model,
-            "temperature": temperature,
-            "messages": messages,
-        }
+            headers = {
+                "Authorization": f"Bearer {self.api_key}",
+                "Content-Type": "application/json",
+            }
+            payload = {
+                "model": self.model,
+                "temperature": temperature,
+                "messages": messages,
+            }
 
-        advisor_timeout = float(getattr(settings, "advisor_timeout_seconds", 90))
-        last_error: Exception | None = None
-        start = time.monotonic()
-        max_attempts = self.max_retries + 1
+            advisor_timeout = float(getattr(settings, "advisor_timeout_seconds", 90))
+            last_error: Exception | None = None
+            start = time.monotonic()
+            max_attempts = self.max_retries + 1
 
-        for attempt in range(1, max_attempts + 1):
-            await _enforce_rate_limit()
-            try:
-                timeout = httpx.Timeout(advisor_timeout, connect=10.0)
-                async with httpx.AsyncClient(timeout=timeout) as client:
-                    response = await client.post(
-                        self.OPENAI_CHAT_URL,
-                        headers=headers,
-                        json=payload,
+            for attempt in range(1, max_attempts + 1):
+                await _enforce_rate_limit()
+                try:
+                    timeout = httpx.Timeout(advisor_timeout, connect=10.0)
+                    async with httpx.AsyncClient(timeout=timeout) as client:
+                        response = await client.post(
+                            self.OPENAI_CHAT_URL,
+                            headers=headers,
+                            json=payload,
+                        )
+                        if response.status_code == 429:
+                            logger.warning("advisor_rate_limited", attempt=attempt, action="circuit_open")
+                            await _handle_http_429()
+                        response.raise_for_status()
+                        data = response.json()
+
+                    content = data["choices"][0]["message"]["content"]
+                    latency_ms = (time.monotonic() - start) * 1000
+                    usage = data.get("usage", {})
+                    await record_llm_success()
+                    return LLMResponse(
+                        content=content,
+                        model=self.model,
+                        latency_ms=latency_ms,
+                        usage={
+                            "prompt_tokens": usage.get("prompt_tokens", 0),
+                            "completion_tokens": usage.get("completion_tokens", 0),
+                        },
+                        provider="openai",
                     )
-                    if response.status_code == 429:
-                        wait = settings.llm_429_backoff_seconds * (2 ** (attempt - 1))
-                        logger.warning("advisor_rate_limited", attempt=attempt, wait_seconds=wait)
-                        await asyncio.sleep(wait)
-                        continue
-                    response.raise_for_status()
-                    data = response.json()
+                except LLMClientError:
+                    raise
+                except httpx.HTTPStatusError as exc:
+                    last_error = exc
+                    if exc.response.status_code == 429:
+                        await _handle_http_429()
+                    logger.warning("advisor_chat_failed", attempt=attempt, error=str(exc))
+                except Exception as exc:
+                    last_error = exc
+                    logger.warning("advisor_chat_failed", attempt=attempt, error=str(exc))
 
-                content = data["choices"][0]["message"]["content"]
-                latency_ms = (time.monotonic() - start) * 1000
-                usage = data.get("usage", {})
-                self.circuit_breaker.record_success()
-                return LLMResponse(
-                    content=content,
-                    model=self.model,
-                    latency_ms=latency_ms,
-                    usage={
-                        "prompt_tokens": usage.get("prompt_tokens", 0),
-                        "completion_tokens": usage.get("completion_tokens", 0),
-                    },
-                    provider="openai",
-                )
-            except httpx.HTTPStatusError as exc:
-                last_error = exc
-                if exc.response.status_code == 429:
-                    continue
-                self.circuit_breaker.record_failure()
-                logger.warning("advisor_chat_failed", attempt=attempt, error=str(exc))
-            except Exception as exc:
-                last_error = exc
-                self.circuit_breaker.record_failure()
-                logger.warning("advisor_chat_failed", attempt=attempt, error=str(exc))
+                if attempt < max_attempts:
+                    await asyncio.sleep(min(2**attempt, 8))
 
-            if attempt < max_attempts:
-                await asyncio.sleep(min(2**attempt, 8))
-
-        raise LLMClientError(f"Advisor chat failed after retries: {last_error}")
+            status = await get_circuit_status()
+            if status.state.value == "half_open":
+                await record_llm_probe_failure()
+            raise LLMClientError(f"Advisor chat failed after retries: {last_error}")
 
     async def advisor_chat_with_web_search(
         self,
@@ -322,99 +291,102 @@ class LLMClient:
         conversation_history: list[dict[str, str]] | None = None,
         temperature: float = 0.3,
     ) -> LLMResponse:
-        """GPT-4o-mini with web_search_preview via OpenAI Responses API."""
         if not self.is_configured:
             raise LLMClientError("OpenAI API key not configured")
 
-        if not self.circuit_breaker.can_execute():
-            raise LLMCircuitOpenError("LLM circuit breaker is open")
+        async with _llm_global_lock:
+            await assert_llm_allowed()
 
-        headers = {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json",
-        }
+            headers = {
+                "Authorization": f"Bearer {self.api_key}",
+                "Content-Type": "application/json",
+            }
 
-        input_payload: list[dict[str, str]] | str
-        if conversation_history:
-            input_payload = [
-                {"role": m["role"], "content": m["content"]}
-                for m in conversation_history
-                if m.get("role") in ("user", "assistant") and m.get("content")
-            ]
-            input_payload.append({"role": "user", "content": user_prompt})
-        else:
-            input_payload = user_prompt
+            input_payload: list[dict[str, str]] | str
+            if conversation_history:
+                input_payload = [
+                    {"role": m["role"], "content": m["content"]}
+                    for m in conversation_history
+                    if m.get("role") in ("user", "assistant") and m.get("content")
+                ]
+                input_payload.append({"role": "user", "content": user_prompt})
+            else:
+                input_payload = user_prompt
 
-        payload = {
-            "model": self.model,
-            "instructions": system_prompt,
-            "tools": [{"type": "web_search_preview"}],
-            "input": input_payload,
-            "temperature": temperature,
-        }
+            payload = {
+                "model": self.model,
+                "instructions": system_prompt,
+                "tools": [{"type": "web_search_preview"}],
+                "input": input_payload,
+                "temperature": temperature,
+            }
 
-        advisor_timeout = float(getattr(settings, "advisor_timeout_seconds", 90))
-        last_error: Exception | None = None
-        start = time.monotonic()
-        max_attempts = self.max_retries + 1
+            advisor_timeout = float(getattr(settings, "advisor_timeout_seconds", 90))
+            last_error: Exception | None = None
+            start = time.monotonic()
+            max_attempts = self.max_retries + 1
 
-        for attempt in range(1, max_attempts + 1):
-            await _enforce_rate_limit()
-            try:
-                timeout = httpx.Timeout(advisor_timeout, connect=10.0)
-                async with httpx.AsyncClient(timeout=timeout) as client:
-                    response = await client.post(
-                        self.OPENAI_RESPONSES_URL,
-                        headers=headers,
-                        json=payload,
+            for attempt in range(1, max_attempts + 1):
+                await _enforce_rate_limit()
+                try:
+                    timeout = httpx.Timeout(advisor_timeout, connect=10.0)
+                    async with httpx.AsyncClient(timeout=timeout) as client:
+                        response = await client.post(
+                            self.OPENAI_RESPONSES_URL,
+                            headers=headers,
+                            json=payload,
+                        )
+                        if response.status_code == 429:
+                            logger.warning(
+                                "advisor_rate_limited",
+                                attempt=attempt,
+                                action="circuit_open",
+                            )
+                            await _handle_http_429()
+                        response.raise_for_status()
+                        data = response.json()
+
+                    content = self._extract_responses_text(data)
+                    latency_ms = (time.monotonic() - start) * 1000
+                    usage = data.get("usage", {})
+                    await record_llm_success()
+                    return LLMResponse(
+                        content=content,
+                        model=self.model,
+                        latency_ms=latency_ms,
+                        usage={
+                            "prompt_tokens": usage.get("input_tokens", 0),
+                            "completion_tokens": usage.get("output_tokens", 0),
+                        },
+                        provider="openai_web",
                     )
-                    if response.status_code == 429:
-                        wait = settings.llm_429_backoff_seconds * (2 ** (attempt - 1))
-                        logger.warning("advisor_rate_limited", attempt=attempt, wait_seconds=wait)
-                        await asyncio.sleep(wait)
-                        continue
-                    response.raise_for_status()
-                    data = response.json()
+                except LLMClientError:
+                    raise
+                except httpx.HTTPStatusError as exc:
+                    last_error = exc
+                    body = exc.response.text[:300] if exc.response else ""
+                    logger.warning(
+                        "advisor_web_search_failed",
+                        attempt=attempt,
+                        status=exc.response.status_code if exc.response else None,
+                        body=body,
+                    )
+                    if exc.response.status_code == 429:
+                        await _handle_http_429()
+                except Exception as exc:
+                    last_error = exc
+                    logger.warning("advisor_web_search_failed", attempt=attempt, error=str(exc))
 
-                content = self._extract_responses_text(data)
-                latency_ms = (time.monotonic() - start) * 1000
-                usage = data.get("usage", {})
-                self.circuit_breaker.record_success()
-                return LLMResponse(
-                    content=content,
-                    model=self.model,
-                    latency_ms=latency_ms,
-                    usage={
-                        "prompt_tokens": usage.get("input_tokens", 0),
-                        "completion_tokens": usage.get("output_tokens", 0),
-                    },
-                    provider="openai_web",
-                )
-            except httpx.HTTPStatusError as exc:
-                last_error = exc
-                body = exc.response.text[:300] if exc.response else ""
-                logger.warning(
-                    "advisor_web_search_failed",
-                    attempt=attempt,
-                    status=exc.response.status_code if exc.response else None,
-                    body=body,
-                )
-                if exc.response.status_code == 429:
-                    continue
-                self.circuit_breaker.record_failure()
-            except Exception as exc:
-                last_error = exc
-                self.circuit_breaker.record_failure()
-                logger.warning("advisor_web_search_failed", attempt=attempt, error=str(exc))
+                if attempt < max_attempts:
+                    await asyncio.sleep(min(2**attempt, 8))
 
-            if attempt < max_attempts:
-                await asyncio.sleep(min(2**attempt, 8))
-
-        # Fallback: plain chat without web search
-        logger.warning("advisor_falling_back_to_chat_without_web_search")
-        fallback = await self._openai_chat_completion_plain(system_prompt, user_prompt, temperature)
-        fallback.provider = "openai"
-        return fallback
+            status = await get_circuit_status()
+            if status.state.value == "half_open":
+                await record_llm_probe_failure()
+            logger.warning("advisor_falling_back_to_chat_without_web_search")
+            fallback = await self._openai_chat_completion_plain(system_prompt, user_prompt, temperature)
+            fallback.provider = "openai"
+            return fallback
 
     async def _openai_chat_completion_plain(
         self,
@@ -422,7 +394,6 @@ class LLMClient:
         user_prompt: str,
         temperature: float = 0.3,
     ) -> LLMResponse:
-        """Chat completion without JSON mode — for advisor fallback."""
         headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
@@ -440,10 +411,13 @@ class LLMClient:
         timeout = httpx.Timeout(advisor_timeout, connect=10.0)
         async with httpx.AsyncClient(timeout=timeout) as client:
             response = await client.post(self.OPENAI_CHAT_URL, headers=headers, json=payload)
+            if response.status_code == 429:
+                await _handle_http_429()
             response.raise_for_status()
             data = response.json()
         content = data["choices"][0]["message"]["content"]
         usage = data.get("usage", {})
+        await record_llm_success()
         return LLMResponse(
             content=content,
             model=self.model,

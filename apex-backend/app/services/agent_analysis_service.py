@@ -78,7 +78,7 @@ def _consensus_from_cache(raw: dict[str, Any] | None) -> AgentConsensus | None:
 
 async def _restore_stale_consensus(symbol: str, error: str | None) -> AgentConsensus | None:
     """On LLM failure, re-publish the last good LLM consensus with a stale flag."""
-    for getter in (get_agent_consensus, get_agent_consensus_last_good):
+    for getter in (get_agent_consensus_last_good, get_agent_consensus):
         cached = _consensus_from_cache(await getter(symbol))
         if not cached or not cached.is_llm_powered():
             continue
@@ -99,6 +99,17 @@ async def _restore_stale_consensus(symbol: str, error: str | None) -> AgentConse
         )
         return stale
     return None
+
+
+async def _serve_stale_if_llm_blocked(symbol: str) -> AgentConsensus | None:
+    from app.utils.llm_circuit_breaker import is_llm_blocked
+
+    if not await is_llm_blocked():
+        return None
+    cached = _consensus_from_cache(await get_agent_consensus(symbol))
+    if cached and (cached.is_llm_powered() or cached.is_stale):
+        return cached
+    return await _restore_stale_consensus(symbol, "LLM circuit open after 429")
 
 
 async def _recompute_market_metrics(symbol: str) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
@@ -184,13 +195,21 @@ async def run_agent_analysis(symbol: str, *, force: bool = False) -> AgentConsen
 
     if not force:
         cached = _consensus_from_cache(await get_agent_consensus(symbol))
-        if cached and cached.is_llm_powered():
+        if cached and (cached.is_llm_powered() or cached.is_stale):
             return cached
+
+    blocked = await _serve_stale_if_llm_blocked(symbol)
+    if blocked:
+        return blocked
 
     async with _agent_analysis_lock:
         global _last_agent_run_finished_at
         await _wait_agent_run_slot()
         try:
+            blocked = await _serve_stale_if_llm_blocked(symbol)
+            if blocked:
+                return blocked
+
             context = await _load_market_context(symbol)
             if not context:
                 return None
@@ -310,9 +329,15 @@ async def ensure_agent_consensus_for_active_symbols(*, force: bool = False) -> N
             if index > 0:
                 await asyncio.sleep(settings.agent_symbol_gap_seconds)
             if force:
+                blocked = await _serve_stale_if_llm_blocked(sym)
+                if blocked:
+                    continue
                 await run_agent_analysis(sym, force=True)
                 continue
             cached = _consensus_from_cache(await get_agent_consensus(sym))
-            if cached and cached.is_llm_powered():
+            if cached and (cached.is_llm_powered() or cached.is_stale):
+                continue
+            blocked = await _serve_stale_if_llm_blocked(sym)
+            if blocked:
                 continue
             await run_agent_analysis(sym)

@@ -186,57 +186,93 @@ async def test_run_agent_analysis_publishes_consensus() -> None:
     mock_session.commit = AsyncMock()
     mock_session.rollback = AsyncMock()
 
-    with patch("app.services.agent_analysis_service.is_market_open", return_value=True):
-        with patch(
+    patches = [
+        patch("app.services.agent_analysis_service.is_market_open", return_value=True),
+        patch(
+            "app.services.agent_analysis_service._serve_stale_if_llm_blocked",
+            new_callable=AsyncMock,
+            return_value=None,
+        ),
+        patch(
             "app.services.agent_analysis_service.get_agent_consensus",
             new_callable=AsyncMock,
             return_value=None,
-        ):
-            with patch(
-                "app.services.agent_analysis_service._load_market_context",
+        ),
+        patch(
+            "app.services.agent_analysis_service._load_market_context",
+            new_callable=AsyncMock,
+            return_value=(price, indicators, regime),
+        ),
+        patch(
+            "app.services.agent_analysis_service.is_feed_poll_stale",
+            new_callable=AsyncMock,
+            return_value=False,
+        ),
+        patch(
+            "app.services.agent_analysis_service.build_market_snapshot",
+            new_callable=AsyncMock,
+            return_value=AsyncMock(),
+        ),
+        patch(
+            "app.services.agent_analysis_service.agent_orchestrator.run",
+            new_callable=AsyncMock,
+            return_value=consensus,
+        ),
+        patch(
+            "app.services.agent_analysis_service.set_agent_consensus_last_good",
+            new_callable=AsyncMock,
+        ),
+        patch(
+            "app.services.pipeline.compute_snr_for_symbol",
+            new_callable=AsyncMock,
+            return_value=None,
+        ),
+        patch(
+            "app.services.pipeline.get_symbol_ohlcv_bars",
+            new_callable=AsyncMock,
+            return_value=[],
+        ),
+    ]
+
+    from contextlib import ExitStack
+
+    with ExitStack() as stack:
+        for item in patches:
+            stack.enter_context(item)
+        mock_local = stack.enter_context(
+            patch("app.services.agent_analysis_service.AsyncSessionLocal")
+        )
+        mock_ks = stack.enter_context(patch("app.services.agent_analysis_service.kill_switch"))
+        mock_set = stack.enter_context(
+            patch(
+                "app.services.agent_analysis_service.set_agent_consensus",
                 new_callable=AsyncMock,
-                return_value=(price, indicators, regime),
-            ):
-                with patch(
-                    "app.services.agent_analysis_service.AsyncSessionLocal"
-                ) as mock_local:
-                            mock_local.return_value.__aenter__ = AsyncMock(return_value=mock_session)
-                            mock_local.return_value.__aexit__ = AsyncMock(return_value=False)
-                            with patch(
-                                "app.services.agent_analysis_service.kill_switch"
-                            ) as mock_ks:
-                                mock_ks.load_from_cache = AsyncMock()
-                                mock_ks.evaluate = AsyncMock(
-                                    return_value=AsyncMock(
-                                        model_dump=lambda **_: {
-                                            "status": "INACTIVE",
-                                            "reason": None,
-                                            "triggered_at": None,
-                                            "drawdown_pct": 0.0,
-                                            "daily_loss_pct": 0.0,
-                                            "consecutive_losses": 0,
-                                        }
-                                    )
-                                )
-                                with patch(
-                                    "app.services.agent_analysis_service.build_market_snapshot",
-                                    new_callable=AsyncMock,
-                                ) as mock_snapshot:
-                                    mock_snapshot.return_value = AsyncMock()
-                                    with patch(
-                                        "app.services.agent_analysis_service.agent_orchestrator.run",
-                                        new_callable=AsyncMock,
-                                        return_value=consensus,
-                                    ):
-                                        with patch(
-                                            "app.services.agent_analysis_service.set_agent_consensus",
-                                            new_callable=AsyncMock,
-                                        ) as mock_set:
-                                            with patch(
-                                                "app.services.agent_analysis_service.broadcaster.broadcast_agent_consensus",
-                                                new_callable=AsyncMock,
-                                            ) as mock_broadcast:
-                                                result = await run_agent_analysis("XAUUSD")
+            )
+        )
+        mock_broadcast = stack.enter_context(
+            patch(
+                "app.services.agent_analysis_service.broadcaster.broadcast_agent_consensus",
+                new_callable=AsyncMock,
+            )
+        )
+
+        mock_local.return_value.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_local.return_value.__aexit__ = AsyncMock(return_value=False)
+        mock_ks.load_from_cache = AsyncMock()
+        mock_ks.evaluate = AsyncMock(
+            return_value=AsyncMock(
+                model_dump=lambda **_: {
+                    "status": "INACTIVE",
+                    "reason": None,
+                    "triggered_at": None,
+                    "drawdown_pct": 0.0,
+                    "daily_loss_pct": 0.0,
+                    "consecutive_losses": 0,
+                }
+            )
+        )
+
+        result = await run_agent_analysis("XAUUSD")
 
     assert result is not None
     mock_set.assert_awaited_once()

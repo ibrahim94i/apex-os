@@ -61,6 +61,7 @@ class Settings(BaseSettings):
     feed_health_interval_seconds: int = 30
     llm_min_request_interval_seconds: float = 10.0
     llm_429_backoff_seconds: float = 30.0
+    llm_circuit_open_seconds: int = 3600
     agent_symbol_gap_seconds: float = 10.0
     agent_consensus_ttl_seconds: int = 1800
     agent_consensus_last_good_ttl_seconds: int = 86400

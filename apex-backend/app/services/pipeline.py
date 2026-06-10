@@ -192,7 +192,19 @@ async def process_bar(raw_bar: dict[str, Any], *, skip_agents: bool = False) -> 
                     snr=snr_snapshot,
                 )
                 eval_time = snapshot.timestamp
-                agent_consensus = await agent_orchestrator.run(snapshot, session=session)
+                from app.utils.llm_circuit_breaker import is_llm_blocked
+
+                if await is_llm_blocked():
+                    cached = await get_agent_consensus(symbol)
+                    if cached:
+                        try:
+                            agent_consensus = AgentConsensus(**cached)
+                        except Exception:
+                            agent_consensus = None
+                    else:
+                        agent_consensus = None
+                else:
+                    agent_consensus = await agent_orchestrator.run(snapshot, session=session)
             elif skip_agents:
                 cached = await get_agent_consensus(symbol)
                 if cached:
