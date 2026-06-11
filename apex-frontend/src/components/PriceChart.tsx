@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   createChart,
   ColorType,
@@ -89,11 +89,14 @@ function applySnrLines(series: ISeriesApi<"Candlestick">, snr: SNRLevels | null)
 
 export default function PriceChart({ currentPrice, symbol }: Props) {
   const [timeframe, setTimeframe] = useState<ChartTimeframe>("H1");
+  const [chartReady, setChartReady] = useState(false);
+  const [loading, setLoading] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const seriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
   const lastBarRef = useRef<CandlestickData | null>(null);
   const snrLinesRef = useRef<IPriceLine[]>([]);
+  const liveUpdatesRef = useRef(true);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -125,6 +128,7 @@ export default function PriceChart({ currentPrice, symbol }: Props) {
 
     chartRef.current = chart;
     seriesRef.current = series;
+    setChartReady(true);
 
     const handleResize = () => {
       if (containerRef.current) {
@@ -140,13 +144,38 @@ export default function PriceChart({ currentPrice, symbol }: Props) {
       seriesRef.current = null;
       lastBarRef.current = null;
       snrLinesRef.current = [];
+      setChartReady(false);
     };
   }, []);
 
+  const applyBarsToChart = useCallback(
+    (candles: CandlestickData[], snr: SNRLevels | null, enableLiveUpdates: boolean) => {
+      if (!seriesRef.current || candles.length === 0) return;
+
+      snrLinesRef.current.forEach((line) => {
+        try {
+          seriesRef.current?.removePriceLine(line);
+        } catch {
+          /* ignore */
+        }
+      });
+      snrLinesRef.current = [];
+
+      seriesRef.current.setData(candles);
+      lastBarRef.current = candles[candles.length - 1] ?? null;
+      snrLinesRef.current = applySnrLines(seriesRef.current, snr);
+      liveUpdatesRef.current = enableLiveUpdates;
+      chartRef.current?.timeScale().fitContent();
+    },
+    []
+  );
+
   useEffect(() => {
-    if (!seriesRef.current || !symbol) return;
+    if (!chartReady || !seriesRef.current || !symbol) return;
 
     let cancelled = false;
+    setLoading(true);
+
     fetchPriceBars(symbol, 200, timeframe)
       .then((data) => {
         if (cancelled || !seriesRef.current || !data.bars.length) return;
@@ -160,29 +189,23 @@ export default function PriceChart({ currentPrice, symbol }: Props) {
           }))
         );
         try {
-          seriesRef.current.setData(candles);
-          lastBarRef.current = candles[candles.length - 1] ?? null;
-          snrLinesRef.current.forEach((line) => {
-            try {
-              seriesRef.current?.removePriceLine(line);
-            } catch {
-              /* ignore */
-            }
-          });
-          snrLinesRef.current = applySnrLines(seriesRef.current, data.snr);
-          chartRef.current?.timeScale().fitContent();
+          applyBarsToChart(candles, data.snr, data.interval === timeframe);
         } catch {
           /* ignore invalid bar ordering from chart library */
         }
       })
-      .catch(() => null);
+      .catch(() => null)
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
 
     return () => {
       cancelled = true;
     };
-  }, [symbol, timeframe]);
+  }, [symbol, timeframe, chartReady, applyBarsToChart]);
 
   useEffect(() => {
+    if (!liveUpdatesRef.current) return;
     if (!currentPrice || !seriesRef.current || !lastBarRef.current) return;
 
     const bucketSec = barBucketSec(timeframe);
@@ -228,7 +251,10 @@ export default function PriceChart({ currentPrice, symbol }: Props) {
                 type="button"
                 className={`chart-timeframe-btn${timeframe === tf ? " active" : ""}`}
                 aria-pressed={timeframe === tf}
-                onClick={() => setTimeframe(tf)}
+                disabled={loading && timeframe === tf}
+                onClick={() => {
+                  if (tf !== timeframe) setTimeframe(tf);
+                }}
               >
                 {tf}
               </button>
@@ -240,7 +266,10 @@ export default function PriceChart({ currentPrice, symbol }: Props) {
           </span>
         </span>
       </div>
-      <div ref={containerRef} className="chart-container" />
+      <div className="chart-wrapper">
+        {loading && <div className="chart-loading">{t.loadingChart}</div>}
+        <div ref={containerRef} className="chart-container" />
+      </div>
     </div>
   );
 }

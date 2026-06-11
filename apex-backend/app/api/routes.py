@@ -202,7 +202,7 @@ async def get_market_bars(
     if symbol not in ACTIVE_SYMBOLS:
         raise HTTPException(status_code=404, detail="Symbol not active")
     try:
-        bars, timeframe = await fetch_chart_bars(symbol, interval=interval, limit=limit)
+        bars, timeframe, data_source = await fetch_chart_bars(symbol, interval=interval, limit=limit)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     snr = await compute_snr_for_symbol(symbol)
@@ -210,6 +210,7 @@ async def get_market_bars(
         "symbol": symbol,
         "interval": timeframe,
         "agent_timeframe": AGENT_TIMEFRAME,
+        "data_source": data_source,
         "bars": bars,
         "snr": snr.model_dump(mode="json") if snr else None,
     }

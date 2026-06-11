@@ -228,6 +228,28 @@ body {
   height: 400px;
 }
 
+.chart-wrapper {
+  position: relative;
+}
+
+.chart-loading {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(22, 27, 34, 0.72);
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+  z-index: 2;
+  pointer-events: none;
+}
+
+.chart-timeframe-btn:disabled {
+  opacity: 0.7;
+  cursor: wait;
+}
+
 .chart-title-row {
   display: flex;
   flex-wrap: wrap;

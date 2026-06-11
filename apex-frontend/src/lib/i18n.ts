@@ -12,6 +12,7 @@ export const t = {
   degraded: "منخفض الثقة",
   livePriceChart: "رسم السعر المباشر",
   chartTimeframe: "إطار الشارت",
+  loadingChart: "جاري تحميل الشارت...",
   livePrice: "السعر المباشر",
   price: "السعر",
   volatility: "التذبذب",

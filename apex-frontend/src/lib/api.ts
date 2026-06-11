@@ -77,6 +77,7 @@ export async function fetchPriceBars(
   symbol: string;
   interval: ChartTimeframe;
   agent_timeframe: ChartTimeframe;
+  data_source?: "db" | "twelvedata" | "resampled";
   bars: PriceBar[];
   snr: SNRLevels | null;
 }> {
