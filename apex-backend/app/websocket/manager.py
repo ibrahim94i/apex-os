@@ -72,6 +72,9 @@ class Broadcaster:
     async def broadcast_price(self, price: dict[str, Any]) -> None:
         await self.manager.broadcast({"type": "price_update", "data": price})
 
+    async def broadcast_display_price(self, price: dict[str, Any]) -> None:
+        await self.manager.broadcast({"type": "display_price_update", "data": price})
+
     async def broadcast_agent_consensus(self, consensus: dict[str, Any]) -> None:
         await self.manager.broadcast({"type": "agent_consensus_update", "data": consensus})
 

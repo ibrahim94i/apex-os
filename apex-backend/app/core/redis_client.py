@@ -50,6 +50,7 @@ class CacheKeys:
     NEWS_VERDICT = "apex:news_verdict:{symbol}"
     HOURLY_REPORT = "apex:hourly_report"
     LATEST_SNR = "apex:snr:{symbol}"
+    DISPLAY_PRICE = "apex:display_price:{symbol}"
 
 
 async def cache_set(key: str, value: Any, ttl: int | None = None) -> None:

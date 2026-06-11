@@ -312,6 +312,12 @@ body {
   font-size: 1.1rem;
 }
 
+.display-price-hint {
+  margin-top: 0.35rem;
+  font-size: 0.7rem;
+  color: var(--text-muted, #8b949e);
+}
+
 .degraded-tag {
   display: inline-block;
   font-size: 0.65rem;

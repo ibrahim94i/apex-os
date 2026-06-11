@@ -76,11 +76,12 @@ export default function AssetColumn({ symbol, state, hideTitle = false }: Props)
           <SignalPanel
             signal={state?.latest_signal ?? null}
             currentPrice={state?.current_price ?? null}
+            displayPrice={state?.display_price ?? null}
             symbol={symbol}
             consensus={state?.agent_consensus ?? null}
           />
           <PriceChart
-            currentPrice={state?.current_price ?? null}
+            currentPrice={state?.display_price ?? state?.current_price ?? null}
             symbol={symbol}
           />
           <SignalHistory signals={state?.signal_history ?? []} />

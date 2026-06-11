@@ -149,6 +149,9 @@ export interface DashboardState {
   kill_switch: KillSwitchState;
   signal_history: TradingSignal[];
   current_price: number | null;
+  display_price?: number | null;
+  display_price_timestamp?: string | null;
+  display_price_source?: string | null;
   symbol: string;
   agent_consensus: AgentConsensus | null;
   market_status: MarketStatus | null;

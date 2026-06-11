@@ -25,6 +25,25 @@ async def get_latest_price(symbol: str) -> dict[str, Any] | None:
     return await cache_get(CacheKeys.LATEST_PRICE.format(symbol=symbol))
 
 
+async def set_display_price(
+    symbol: str,
+    price: float,
+    timestamp: str,
+    *,
+    source: str,
+) -> None:
+    """Dashboard-only live ticker — never used by agents, signals, or TwelveData pipeline."""
+    await cache_set(
+        CacheKeys.DISPLAY_PRICE.format(symbol=symbol),
+        {"price": price, "timestamp": timestamp, "source": source},
+        ttl=300,
+    )
+
+
+async def get_display_price(symbol: str) -> dict[str, Any] | None:
+    return await cache_get(CacheKeys.DISPLAY_PRICE.format(symbol=symbol))
+
+
 async def set_latest_indicators(symbol: str, data: dict[str, Any]) -> None:
     await cache_set(CacheKeys.LATEST_INDICATORS.format(symbol=symbol), data, ttl=1800)
 

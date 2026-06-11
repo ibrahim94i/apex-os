@@ -53,6 +53,24 @@ export function useDashboard(symbol = "XAUUSD") {
           setState((prev) =>
             prev ? { ...prev, current_price: priceData.price } : prev
           );
+        } else if (msg.type === "display_price_update") {
+          const priceData = msg.data as {
+            symbol?: string;
+            price: number;
+            timestamp?: string;
+            source?: string;
+          };
+          setState((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  display_price: priceData.price,
+                  display_price_timestamp:
+                    priceData.timestamp ?? prev.display_price_timestamp,
+                  display_price_source: priceData.source ?? prev.display_price_source,
+                }
+              : prev
+          );
         } else if (msg.type === "agent_consensus_update") {
           setState((prev) =>
             prev

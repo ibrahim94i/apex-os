@@ -7,12 +7,21 @@ import { t, translateDirection } from "@/lib/i18n";
 interface Props {
   signal: TradingSignal | null;
   currentPrice: number | null;
+  displayPrice?: number | null;
   symbol: string;
   consensus?: AgentConsensus | null;
 }
 
-export default function SignalPanel({ signal, currentPrice, symbol, consensus }: Props) {
+export default function SignalPanel({
+  signal,
+  currentPrice,
+  displayPrice = null,
+  symbol,
+  consensus,
+}: Props) {
   const prefix = pricePrefix(symbol);
+  const livePrice = displayPrice ?? currentPrice;
+  const showDisplayHint = displayPrice != null;
 
   const rejectionHeadline =
     !signal && consensus?.signal_decision && consensus.signal_decision !== "none"
@@ -49,13 +58,16 @@ export default function SignalPanel({ signal, currentPrice, symbol, consensus }:
                 )}
               </div>
             )}
-          {currentPrice != null && (
+          {livePrice != null && (
             <div style={{ marginTop: "0.5rem" }}>
-              <span className="card-title">{t.price} </span>
+              <span className="card-title">{t.livePrice} </span>
               <span className="mono metric-value">
                 {prefix}
-                {formatAssetPrice(currentPrice, symbol)}
+                {formatAssetPrice(livePrice, symbol)}
               </span>
+              {showDisplayHint && (
+                <div className="display-price-hint">{t.displayPriceHint}</div>
+              )}
             </div>
           )}
         </div>
@@ -119,13 +131,16 @@ export default function SignalPanel({ signal, currentPrice, symbol, consensus }:
           </div>
         </div>
       </div>
-      {currentPrice != null && (
+      {livePrice != null && (
         <div style={{ marginTop: "0.75rem" }}>
           <span className="card-title">{t.livePrice} </span>
           <span className="mono metric-value">
             {prefix}
-            {formatAssetPrice(currentPrice, symbol)}
+            {formatAssetPrice(livePrice, symbol)}
           </span>
+          {showDisplayHint && (
+            <div className="display-price-hint">{t.displayPriceHint}</div>
+          )}
         </div>
       )}
       {signal.degradation_reason && (

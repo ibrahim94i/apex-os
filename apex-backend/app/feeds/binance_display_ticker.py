@@ -1,0 +1,166 @@
+"""Binance mini-ticker WebSocket — dashboard display price only (no agents/signals)."""
+
+from __future__ import annotations
+
+import asyncio
+import json
+from datetime import datetime, timezone
+from typing import Any
+
+import websockets
+from websockets.exceptions import ConnectionClosed
+
+from app.config import settings
+from app.core.cache import set_display_price
+from app.logging_config import logger
+from app.websocket.manager import broadcaster
+
+
+def parse_mini_ticker_message(message: str, *, binance_symbol: str = "XAUUSDT") -> dict[str, Any] | None:
+    """Parse Binance miniTicker payload; returns price dict or None."""
+    data = json.loads(message)
+    symbol = str(data.get("s", "")).upper()
+    if symbol and symbol != binance_symbol.upper():
+        return None
+    try:
+        price = float(data.get("c", 0))
+    except (TypeError, ValueError):
+        return None
+    if price <= 0:
+        return None
+    event_time = data.get("E")
+    if isinstance(event_time, (int, float)) and event_time > 0:
+        timestamp = datetime.fromtimestamp(event_time / 1000, tz=timezone.utc).isoformat()
+    else:
+        timestamp = datetime.now(timezone.utc).isoformat()
+    return {"price": price, "timestamp": timestamp}
+
+
+class BinanceDisplayTickerFeed:
+    """Streams Binance XAUUSDT last price for XAUUSD dashboard display only."""
+
+    def __init__(
+        self,
+        *,
+        apex_symbol: str = "XAUUSD",
+        binance_symbol: str = "XAUUSDT",
+        ws_url: str | None = None,
+    ) -> None:
+        self.apex_symbol = apex_symbol
+        self.binance_symbol = binance_symbol
+        self.ws_url = ws_url or settings.binance_display_ticker_ws_url
+        self._running = False
+        self._task: asyncio.Task[None] | None = None
+        self._last_message_at: datetime | None = None
+        self._reconnect_count = 0
+
+    @property
+    def is_running(self) -> bool:
+        return self._running and self._task is not None and not self._task.done()
+
+    def status(self) -> dict[str, Any]:
+        return {
+            "apex_symbol": self.apex_symbol,
+            "binance_symbol": self.binance_symbol,
+            "feed_type": "binance_display_ticker",
+            "running": self._running,
+            "task_alive": self._task is not None and not self._task.done(),
+            "last_message_at": self._last_message_at.isoformat() if self._last_message_at else None,
+            "reconnect_count": self._reconnect_count,
+        }
+
+    async def _handle_message(self, message: str) -> None:
+        try:
+            parsed = parse_mini_ticker_message(message, binance_symbol=self.binance_symbol)
+            if not parsed:
+                return
+
+            self._last_message_at = datetime.now(timezone.utc)
+            source = f"binance_{self.binance_symbol.lower()}"
+            await set_display_price(
+                self.apex_symbol,
+                parsed["price"],
+                parsed["timestamp"],
+                source=source,
+            )
+            await broadcaster.broadcast_display_price(
+                {
+                    "symbol": self.apex_symbol,
+                    "price": parsed["price"],
+                    "timestamp": parsed["timestamp"],
+                    "source": source,
+                }
+            )
+        except Exception as exc:
+            logger.error(
+                "binance_display_ticker_message_error",
+                apex_symbol=self.apex_symbol,
+                error=str(exc),
+            )
+
+    async def _connect_loop(self) -> None:
+        backoff = 1
+        while self._running:
+            try:
+                logger.info(
+                    "binance_display_ticker_connecting",
+                    apex_symbol=self.apex_symbol,
+                    url=self.ws_url,
+                )
+                async with websockets.connect(
+                    self.ws_url,
+                    ping_interval=20,
+                    ping_timeout=10,
+                    close_timeout=5,
+                ) as ws:
+                    backoff = 1
+                    logger.info("binance_display_ticker_connected", apex_symbol=self.apex_symbol)
+                    async for message in ws:
+                        if not self._running:
+                            break
+                        await self._handle_message(message)
+            except ConnectionClosed as exc:
+                logger.warning(
+                    "binance_display_ticker_disconnected",
+                    apex_symbol=self.apex_symbol,
+                    code=exc.code,
+                    reason=str(exc.reason),
+                )
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                logger.error(
+                    "binance_display_ticker_error",
+                    apex_symbol=self.apex_symbol,
+                    error=str(exc),
+                )
+
+            if self._running:
+                self._reconnect_count += 1
+                logger.info(
+                    "binance_display_ticker_reconnecting",
+                    apex_symbol=self.apex_symbol,
+                    backoff=backoff,
+                    attempt=self._reconnect_count,
+                )
+                await asyncio.sleep(backoff)
+                backoff = min(backoff * 2, 60)
+
+    def start(self) -> None:
+        if self.is_running:
+            return
+        self._running = True
+        self._task = asyncio.create_task(
+            self._connect_loop(),
+            name=f"display_ticker_{self.apex_symbol}",
+        )
+
+    async def stop(self) -> None:
+        self._running = False
+        if self._task:
+            self._task.cancel()
+            try:
+                await self._task
+            except asyncio.CancelledError:
+                pass
+            self._task = None

@@ -107,6 +107,8 @@ class Settings(BaseSettings):
     signal_emission_interval_hours: float = 1.0
     advisor_timeout_seconds: int = 90
     admin_api_key: str = ""
+    binance_display_ticker_enabled: bool = True
+    binance_display_ticker_ws_url: str = "wss://stream.binance.com:9443/ws/xauusdt@miniTicker"
 
     @field_validator("database_url", mode="before")
     @classmethod

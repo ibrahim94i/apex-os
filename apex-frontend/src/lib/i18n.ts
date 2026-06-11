@@ -14,6 +14,7 @@ export const t = {
   chartTimeframe: "إطار الشارت",
   loadingChart: "جاري تحميل الشارت...",
   livePrice: "السعر المباشر",
+  displayPriceHint: "Binance XAUUSDT · للعرض فقط",
   price: "السعر",
   volatility: "التذبذب",
   drawdown: "الهبوط",

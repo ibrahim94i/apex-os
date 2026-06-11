@@ -20,6 +20,7 @@ from app.services.background_tasks import start_background_tasks
 from app.services.hourly_report_service import publish_hourly_report
 from app.services.telegram_notifier import telegram_notifier
 from app.feeds.history_bootstrap import bootstrap_all_assets, refresh_dashboard_cache
+from app.feeds.display_price_manager import display_price_manager
 from app.feeds.manager import feed_manager
 from app.logging_config import configure_logging, logger
 
@@ -60,6 +61,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     mark_app_started()
     _bg_tasks = start_background_tasks()
+    display_price_manager.start_all()
     asyncio.create_task(_startup_warmup(), name="apex_warmup")
 
     yield
@@ -67,6 +69,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     for task in _bg_tasks:
         task.cancel()
     await feed_manager.stop_all()
+    await display_price_manager.stop_all()
     await close_redis()
     logger.info("apex_shutdown")
 

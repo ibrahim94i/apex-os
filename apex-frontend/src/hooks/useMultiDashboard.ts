@@ -156,6 +156,14 @@ export function useMultiDashboard() {
 
                     current_price: single.current_price ?? existing.current_price,
 
+                    display_price: single.display_price ?? existing.display_price,
+
+                    display_price_timestamp:
+                      single.display_price_timestamp ?? existing.display_price_timestamp,
+
+                    display_price_source:
+                      single.display_price_source ?? existing.display_price_source,
+
                     agent_consensus: single.agent_consensus ?? existing.agent_consensus,
 
                     market_status: single.market_status ?? existing.market_status,
@@ -279,6 +287,47 @@ export function useMultiDashboard() {
                   ...asset,
 
                   current_price: priceData.price,
+
+                },
+
+              },
+
+            };
+
+          });
+
+        } else if (msg.type === "display_price_update") {
+
+          const priceData = msg.data as {
+            symbol: string;
+            price: number;
+            timestamp?: string;
+            source?: string;
+          };
+
+          setState((prev) => {
+
+            const asset = prev?.assets[priceData.symbol];
+
+            if (!asset || asset.market_status?.is_open === false) return prev;
+
+            return {
+
+              ...prev!,
+
+              assets: {
+
+                ...prev!.assets,
+
+                [priceData.symbol]: {
+
+                  ...asset,
+
+                  display_price: priceData.price,
+
+                  display_price_timestamp: priceData.timestamp ?? asset.display_price_timestamp,
+
+                  display_price_source: priceData.source ?? asset.display_price_source,
 
                 },
 
@@ -448,6 +497,7 @@ export function useMultiDashboard() {
                     agent_consensus: asset.agent_consensus ?? existing.agent_consensus,
                     regime: asset.regime ?? existing.regime,
                     current_price: asset.current_price ?? existing.current_price,
+                    display_price: asset.display_price ?? existing.display_price,
                   }
                 : asset;
             }

@@ -2,6 +2,7 @@
 
 from app.core.cache import (
     get_agent_consensus,
+    get_display_price,
     get_kill_switch_status,
     get_latest_price,
     get_latest_regime,
@@ -69,6 +70,9 @@ async def build_asset_dashboard_state(symbol: str) -> DashboardStateSchema:
         kill_switch=kill,
         signal_history=[TradingSignalSchema(**s) for s in history],
         current_price=price_data["price"] if price_data else None,
+        display_price=display_data["price"] if display_data else None,
+        display_price_timestamp=display_data["timestamp"] if display_data else None,
+        display_price_source=display_data["source"] if display_data else None,
         symbol=symbol,
         agent_consensus=consensus,
         market_status=market_status,

@@ -71,6 +71,9 @@ class DashboardStateSchema(BaseModel):
     kill_switch: KillSwitchStatusSchema
     signal_history: list[TradingSignalSchema] = []
     current_price: float | None = None
+    display_price: float | None = None
+    display_price_timestamp: str | None = None
+    display_price_source: str | None = None
     symbol: str = "XAUUSD"
     agent_consensus: AgentConsensus | None = None
     market_status: MarketStatusSchema | None = None
