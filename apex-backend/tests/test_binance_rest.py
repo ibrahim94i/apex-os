@@ -13,6 +13,7 @@ from app.feeds.binance_client import (
     fetch_binance_ticker_price,
     kline_row_to_bar,
 )
+from app.feeds.binance_futures_kline_ws import BinanceFuturesKlineWsFeed
 from app.feeds.binance_rest import BinanceRestFeed
 from app.feeds.manager import feed_manager
 
@@ -133,13 +134,12 @@ async def test_binance_rest_feed_poll_once_uses_poll_time_for_price() -> None:
     assert update_kwargs["received_at"] == price_ts
 
 
-def test_xauusd_uses_binance_rest_feed() -> None:
+def test_xauusd_uses_futures_kline_ws_feed() -> None:
     asset = ASSETS["XAUUSD"]
     assert asset.feed_type == "binance"
     assert asset.binance_symbol == "XAUUSDT"
     feed = feed_manager._create_feed(asset)
-    assert isinstance(feed, BinanceRestFeed)
-    assert feed.binance_symbol == "XAUUSDT"
+    assert isinstance(feed, BinanceFuturesKlineWsFeed)
     assert feed.twelvedata_symbol == "XAU/USD"
 
 

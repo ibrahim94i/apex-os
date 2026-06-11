@@ -7,6 +7,7 @@ from typing import Any
 from app.config.assets import ACTIVE_SYMBOLS, ASSETS, AssetConfig, get_asset
 from app.config import settings
 from app.feeds.alphavantage import AlphaVantageFeed
+from app.feeds.binance_futures_kline_ws import BinanceFuturesKlineWsFeed
 from app.feeds.binance_rest import BinanceRestFeed
 from app.feeds.binance_ws import BinanceWebSocketFeed
 from app.feeds.frankfurter import FrankfurterFeed
@@ -14,7 +15,14 @@ from app.feeds.twelvedata import TwelveDataFeed
 from app.logging_config import logger
 from app.services.pipeline import process_bar
 
-FeedHandle = BinanceWebSocketFeed | BinanceRestFeed | TwelveDataFeed | AlphaVantageFeed | FrankfurterFeed
+FeedHandle = (
+    BinanceWebSocketFeed
+    | BinanceFuturesKlineWsFeed
+    | BinanceRestFeed
+    | TwelveDataFeed
+    | AlphaVantageFeed
+    | FrankfurterFeed
+)
 
 
 async def _handle_feed_bar(raw_bar: dict[str, Any]) -> None:
@@ -113,6 +121,18 @@ class FeedManager:
                     ws_url=asset.binance_ws_url,
                     on_bar=_handle_feed_bar,
                     apex_symbol=asset.symbol,
+                )
+            if asset.binance_market == "futures" and asset.binance_symbol:
+                ws_url = (
+                    f"wss://fstream.binance.com/ws/"
+                    f"{asset.binance_symbol.lower()}@kline_{asset.candle_interval}"
+                )
+                return BinanceFuturesKlineWsFeed(
+                    ws_url=ws_url,
+                    binance_symbol=asset.binance_symbol,
+                    apex_symbol=asset.symbol,
+                    twelvedata_symbol=asset.twelvedata_symbol,
+                    on_bar=_handle_feed_bar,
                 )
             return BinanceRestFeed(
                 symbol=asset.binance_symbol or asset.symbol,
