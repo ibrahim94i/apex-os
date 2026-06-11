@@ -228,13 +228,53 @@ body {
   height: 400px;
 }
 
+.chart-title-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.chart-title-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.chart-timeframe-group {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.chart-timeframe-btn {
+  border: 1px solid #30363d;
+  background: #21262d;
+  color: #8b949e;
+  border-radius: 6px;
+  padding: 2px 8px;
+  font-size: 0.72rem;
+  font-family: ui-monospace, monospace;
+  cursor: pointer;
+}
+
+.chart-timeframe-btn:hover {
+  color: #c9d1d9;
+  border-color: #484f58;
+}
+
+.chart-timeframe-btn.active {
+  color: #00e87a;
+  border-color: #238636;
+  background: rgba(35, 134, 54, 0.15);
+}
+
 .chart-snr-legend {
-  float: inline-end;
   display: inline-flex;
   gap: 10px;
   font-size: 0.75rem;
   font-weight: normal;
-  margin-inline-start: 12px;
 }
 
 .snr-legend-item.support {

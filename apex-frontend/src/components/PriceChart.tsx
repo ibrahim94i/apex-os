@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   createChart,
   ColorType,
@@ -13,7 +13,7 @@ import {
   type IPriceLine,
 } from "lightweight-charts";
 import { t } from "@/lib/i18n";
-import { fetchPriceBars } from "@/lib/api";
+import { CHART_TIMEFRAMES, fetchPriceBars, type ChartTimeframe } from "@/lib/api";
 import type { SNRLevels } from "@/types";
 
 interface Props {
@@ -34,6 +34,27 @@ function normalizeCandles(raw: CandlestickData[]): CandlestickData[] {
   return Array.from(byTime.entries())
     .sort(([a], [b]) => a - b)
     .map(([, bar]) => bar);
+}
+
+function barBucketSec(timeframe: ChartTimeframe, nowMs = Date.now()): number {
+  const sec = Math.floor(nowMs / 1000);
+  switch (timeframe) {
+    case "M5":
+      return Math.floor(sec / 300) * 300;
+    case "M15":
+      return Math.floor(sec / 900) * 900;
+    case "H1":
+      return Math.floor(sec / 3600) * 3600;
+    case "H4":
+      return Math.floor(sec / 14400) * 14400;
+    case "D1": {
+      const day = new Date(nowMs);
+      day.setUTCHours(0, 0, 0, 0);
+      return Math.floor(day.getTime() / 1000);
+    }
+    default:
+      return Math.floor(sec / 3600) * 3600;
+  }
 }
 
 const SUPPORT_COLOR = "#3fb950";
@@ -67,6 +88,7 @@ function applySnrLines(series: ISeriesApi<"Candlestick">, snr: SNRLevels | null)
 }
 
 export default function PriceChart({ currentPrice, symbol }: Props) {
+  const [timeframe, setTimeframe] = useState<ChartTimeframe>("H1");
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const seriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
@@ -125,7 +147,7 @@ export default function PriceChart({ currentPrice, symbol }: Props) {
     if (!seriesRef.current || !symbol) return;
 
     let cancelled = false;
-    fetchPriceBars(symbol, 200)
+    fetchPriceBars(symbol, 200, timeframe)
       .then((data) => {
         if (cancelled || !seriesRef.current || !data.bars.length) return;
         const candles = normalizeCandles(
@@ -158,18 +180,18 @@ export default function PriceChart({ currentPrice, symbol }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [symbol]);
+  }, [symbol, timeframe]);
 
   useEffect(() => {
     if (!currentPrice || !seriesRef.current || !lastBarRef.current) return;
 
-    const hourSec = Math.floor(Date.now() / 3600000) * 3600;
+    const bucketSec = barBucketSec(timeframe);
     const lastTime = lastBarRef.current.time as number;
 
-    if (hourSec < lastTime) return;
+    if (bucketSec < lastTime) return;
 
     try {
-      if (hourSec === lastTime) {
+      if (bucketSec === lastTime) {
         const bar = { ...lastBarRef.current };
         bar.close = currentPrice;
         bar.high = Math.max(bar.high, currentPrice);
@@ -178,7 +200,7 @@ export default function PriceChart({ currentPrice, symbol }: Props) {
         lastBarRef.current = bar;
       } else {
         const newBar: CandlestickData = {
-          time: hourSec as Time,
+          time: bucketSec as Time,
           open: lastBarRef.current.close,
           high: Math.max(lastBarRef.current.close, currentPrice),
           low: Math.min(lastBarRef.current.close, currentPrice),
@@ -190,15 +212,32 @@ export default function PriceChart({ currentPrice, symbol }: Props) {
     } catch {
       /* ignore out-of-order live tick */
     }
-  }, [currentPrice]);
+  }, [currentPrice, timeframe]);
 
   return (
     <div className="card col-8">
-      <div className="card-title">
-        {t.livePriceChart} — <span className="mono">{symbol}</span>
-        <span className="chart-snr-legend">
-          <span className="snr-legend-item support">S1–S3</span>
-          <span className="snr-legend-item resistance">R1–R3</span>
+      <div className="card-title chart-title-row">
+        <span>
+          {t.livePriceChart} — <span className="mono">{symbol}</span>
+        </span>
+        <span className="chart-title-controls">
+          <span className="chart-timeframe-group" role="group" aria-label={t.chartTimeframe}>
+            {CHART_TIMEFRAMES.map((tf) => (
+              <button
+                key={tf}
+                type="button"
+                className={`chart-timeframe-btn${timeframe === tf ? " active" : ""}`}
+                aria-pressed={timeframe === tf}
+                onClick={() => setTimeframe(tf)}
+              >
+                {tf}
+              </button>
+            ))}
+          </span>
+          <span className="chart-snr-legend">
+            <span className="snr-legend-item support">S1–S3</span>
+            <span className="snr-legend-item resistance">R1–R3</span>
+          </span>
         </span>
       </div>
       <div ref={containerRef} className="chart-container" />

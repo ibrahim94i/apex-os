@@ -65,12 +65,23 @@ export async function setAccountBalance(balance: number): Promise<AccountMode> {
   return res.json();
 }
 
+export type ChartTimeframe = "M5" | "M15" | "H1" | "H4" | "D1";
+
+export const CHART_TIMEFRAMES: ChartTimeframe[] = ["M5", "M15", "H1", "H4", "D1"];
+
 export async function fetchPriceBars(
   symbol: string,
-  limit = 200
-): Promise<{ symbol: string; bars: PriceBar[]; snr: SNRLevels | null }> {
+  limit = 200,
+  interval: ChartTimeframe = "H1"
+): Promise<{
+  symbol: string;
+  interval: ChartTimeframe;
+  agent_timeframe: ChartTimeframe;
+  bars: PriceBar[];
+  snr: SNRLevels | null;
+}> {
   const res = await fetch(
-    `${API_URL}/api/v1/market/bars?symbol=${symbol}&limit=${limit}`,
+    `${API_URL}/api/v1/market/bars?symbol=${symbol}&limit=${limit}&interval=${interval}`,
     { cache: "no-store" }
   );
   if (!res.ok) throw new Error("Failed to fetch price bars");

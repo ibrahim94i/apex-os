@@ -190,17 +190,26 @@ async def get_regime_from_db(
 
 
 @router.get("/market/bars")
-async def get_market_bars(symbol: str = "XAUUSD", limit: int = 200) -> dict:
+async def get_market_bars(
+    symbol: str = "XAUUSD",
+    limit: int = 200,
+    interval: str = "H1",
+) -> dict:
     from app.config.assets import ACTIVE_SYMBOLS
-    from app.services.market_data_store import fetch_bars_from_db
+    from app.services.chart_bars_service import AGENT_TIMEFRAME, fetch_chart_bars
     from app.services.pipeline import compute_snr_for_symbol
 
     if symbol not in ACTIVE_SYMBOLS:
         raise HTTPException(status_code=404, detail="Symbol not active")
-    bars = await fetch_bars_from_db(symbol, min(limit, 500))
+    try:
+        bars, timeframe = await fetch_chart_bars(symbol, interval=interval, limit=limit)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     snr = await compute_snr_for_symbol(symbol)
     return {
         "symbol": symbol,
+        "interval": timeframe,
+        "agent_timeframe": AGENT_TIMEFRAME,
         "bars": bars,
         "snr": snr.model_dump(mode="json") if snr else None,
     }

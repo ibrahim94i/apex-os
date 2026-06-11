@@ -11,6 +11,7 @@ export const t = {
   reconnecting: "إعادة الاتصال...",
   degraded: "منخفض الثقة",
   livePriceChart: "رسم السعر المباشر",
+  chartTimeframe: "إطار الشارت",
   livePrice: "السعر المباشر",
   price: "السعر",
   volatility: "التذبذب",
