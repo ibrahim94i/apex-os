@@ -32,7 +32,8 @@ def test_multi_asset_config() -> None:
     assert ASSETS["GBPUSD"].frankfurter_from_symbol == "GBP"
     assert ASSETS["GBPUSD"].frankfurter_to_symbol == "USD"
     assert "XAGUSD" not in ASSETS
-    assert ASSETS["XAUUSD"].feed_type == "twelvedata"
+    assert ASSETS["XAUUSD"].feed_type == "binance"
+    assert ASSETS["XAUUSD"].binance_symbol == "XAUUSDT"
     assert ASSETS["EURUSD"].feed_type == "twelvedata"
     assert ASSETS["EURUSD"].twelvedata_symbol == "EUR/USD"
     assert ASSETS["EURUSD"].poll_interval == 300

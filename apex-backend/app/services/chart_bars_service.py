@@ -16,7 +16,7 @@ from app.logging_config import logger
 from app.services.market_data_store import fetch_bars_from_db
 
 ChartTimeframe = Literal["M5", "M15", "H1", "H4", "D1"]
-ChartDataSource = Literal["db", "twelvedata", "resampled"]
+ChartDataSource = Literal["db", "binance", "twelvedata", "resampled"]
 
 CHART_TIMEFRAMES: dict[str, str] = {
     "M5": "5min",
@@ -159,6 +159,35 @@ def _parse_twelvedata_datetime(value: str) -> datetime:
     raise ValueError(f"Unsupported TwelveData datetime: {value}")
 
 
+async def _fetch_binance_chart_series(
+    *,
+    binance_symbol: str,
+    apex_symbol: str,
+    interval: str,
+    limit: int,
+    market: str = "spot",
+) -> list[dict[str, Any]]:
+    from app.feeds.binance_client import fetch_binance_klines
+
+    try:
+        bars = await fetch_binance_klines(
+            binance_symbol,
+            limit=limit,
+            interval=interval,
+            market=market,  # type: ignore[arg-type]
+            apex_symbol=apex_symbol,
+        )
+        return [_finalize_bar(bar) for bar in bars]
+    except Exception as exc:
+        logger.warning(
+            "chart_bars_binance_failed",
+            symbol=apex_symbol,
+            interval=interval,
+            error=str(exc)[:200],
+        )
+        return []
+
+
 async def _fetch_twelvedata_chart_series(
     *,
     td_symbol: str,
@@ -243,7 +272,18 @@ async def fetch_chart_bars(
         return h1_bars[-capped_limit:], timeframe, "db"
 
     asset = get_asset(symbol)
-    if asset and asset.feed_type == "twelvedata" and asset.twelvedata_symbol:
+    if asset and asset.binance_symbol:
+        bars = await _fetch_binance_chart_series(
+            binance_symbol=asset.binance_symbol,
+            apex_symbol=symbol,
+            interval=CHART_TIMEFRAMES[timeframe],
+            limit=capped_limit,
+            market=asset.binance_market,
+        )
+        if bars:
+            return bars[-capped_limit:], timeframe, "binance"
+
+    if asset and asset.twelvedata_symbol:
         bars = await _fetch_twelvedata_chart_series(
             td_symbol=asset.twelvedata_symbol,
             apex_symbol=symbol,

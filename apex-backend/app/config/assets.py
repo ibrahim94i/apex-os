@@ -6,11 +6,10 @@ from typing import Literal
 SIGNAL_TIMEFRAME = "1h"
 POLL_INTERVAL_SECONDS = 180  # XAUUSD TwelveData — 480 calls/day (86400/180)
 EURUSD_POLL_INTERVAL_SECONDS = 300  # EURUSD TwelveData — 288 calls/day (86400/300)
-# TwelveData credits: 1 credit per data point returned (not per HTTP call).
-# Live polls (outputsize=1): XAUUSD 480/day + EURUSD 288/day = 768 credits/day.
-# Bootstrap is DB-first; API bootstrap only when DB is below threshold.
+# TwelveData credits: bootstrap/fallback for XAUUSD; live polls for EURUSD.
 
 MarketSchedule = Literal["24_7", "xauusd", "forex_24_5"]
+BinanceMarket = Literal["spot", "futures"]
 
 
 @dataclass(frozen=True)
@@ -20,6 +19,8 @@ class AssetConfig:
     feed_type: Literal["binance", "twelvedata", "alphavantage", "frankfurter"]
     market_schedule: MarketSchedule = "24_7"
     binance_ws_url: str | None = None
+    binance_symbol: str | None = None
+    binance_market: BinanceMarket = "spot"
     twelvedata_symbol: str | None = None
     alphavantage_from_symbol: str | None = None
     alphavantage_to_symbol: str | None = None
@@ -48,11 +49,14 @@ ASSETS: dict[str, AssetConfig] = {
         default_spread=15.0,
         price_decimals=2,
     ),
+# XAUUSD: Binance futures XAUUSDT (free) — TwelveData kept as fallback only.
     "XAUUSD": AssetConfig(
         symbol="XAUUSD",
         display_name_ar="الذهب",
-        feed_type="twelvedata",
+        feed_type="binance",
         market_schedule="xauusd",
+        binance_symbol="XAUUSDT",
+        binance_market="futures",
         twelvedata_symbol="XAU/USD",
         finnhub_symbol="OANDA:XAU_USD",
         candle_interval="1h",

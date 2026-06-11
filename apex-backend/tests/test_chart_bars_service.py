@@ -65,7 +65,7 @@ async def test_fetch_chart_bars_h1_uses_db() -> None:
 
 
 @pytest.mark.asyncio
-async def test_fetch_chart_bars_m5_uses_twelvedata() -> None:
+async def test_fetch_chart_bars_m5_uses_binance() -> None:
     sample = [{"symbol": "XAUUSD", "timestamp": "2026-06-01T00:05:00+00:00", "close": 1.0}]
     with patch(
         "app.services.chart_bars_service.fetch_bars_from_db",
@@ -73,19 +73,19 @@ async def test_fetch_chart_bars_m5_uses_twelvedata() -> None:
         return_value=[_h1_bar(0)],
     ):
         with patch(
-            "app.services.chart_bars_service._fetch_twelvedata_chart_series",
+            "app.services.chart_bars_service._fetch_binance_chart_series",
             new_callable=AsyncMock,
             return_value=sample,
-        ) as mock_td:
+        ) as mock_bn:
             bars, timeframe, source = await fetch_chart_bars("XAUUSD", interval="M5", limit=120)
-    mock_td.assert_awaited_once()
+    mock_bn.assert_awaited_once()
     assert bars == sample
     assert timeframe == "M5"
-    assert source == "twelvedata"
+    assert source == "binance"
 
 
 @pytest.mark.asyncio
-async def test_fetch_chart_bars_m5_resamples_when_twelvedata_unavailable() -> None:
+async def test_fetch_chart_bars_m5_resamples_when_binance_unavailable() -> None:
     h1 = [_h1_bar(h) for h in range(4)]
     with patch(
         "app.services.chart_bars_service.fetch_bars_from_db",
@@ -93,11 +93,16 @@ async def test_fetch_chart_bars_m5_resamples_when_twelvedata_unavailable() -> No
         return_value=h1,
     ):
         with patch(
-            "app.services.chart_bars_service._fetch_twelvedata_chart_series",
+            "app.services.chart_bars_service._fetch_binance_chart_series",
             new_callable=AsyncMock,
             return_value=[],
         ):
-            bars, timeframe, source = await fetch_chart_bars("XAUUSD", interval="M5", limit=120)
+            with patch(
+                "app.services.chart_bars_service._fetch_twelvedata_chart_series",
+                new_callable=AsyncMock,
+                return_value=[],
+            ):
+                bars, timeframe, source = await fetch_chart_bars("XAUUSD", interval="M5", limit=120)
     assert timeframe == "M5"
     assert source == "resampled"
     assert len(bars) == 48

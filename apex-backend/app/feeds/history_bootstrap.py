@@ -18,19 +18,19 @@ XAUUSD_BOOTSTRAP_BARS = 500
 
 
 def bootstrap_limit_for(asset: AssetConfig) -> int:
-    if asset.feed_type == "binance":
-        return BINANCE_BOOTSTRAP_BARS
     if asset.symbol == "XAUUSD":
         return XAUUSD_BOOTSTRAP_BARS
+    if asset.feed_type == "binance":
+        return BINANCE_BOOTSTRAP_BARS
     return DEFAULT_BOOTSTRAP_BARS
 
 
 def bootstrap_success_threshold(asset: AssetConfig, bar_limit: int) -> int:
     """Minimum bars required to treat bootstrap as successful."""
-    if asset.feed_type == "binance":
-        return min(bar_limit, BINANCE_BOOTSTRAP_BARS)
     if asset.symbol == "XAUUSD":
         return min(bar_limit, 200)
+    if asset.feed_type == "binance":
+        return min(bar_limit, BINANCE_BOOTSTRAP_BARS)
     return min(bar_limit, 50)
 
 
@@ -66,11 +66,22 @@ def _finalize_bar(bar: dict[str, Any]) -> dict[str, Any]:
 
 
 async def fetch_binance_history(
-    symbol: str, limit: int = 100, interval: str = "1h"
+    symbol: str,
+    limit: int = 100,
+    interval: str = "1h",
+    *,
+    market: str = "spot",
+    apex_symbol: str | None = None,
 ) -> list[dict[str, Any]]:
     from app.feeds.binance_client import fetch_binance_klines
 
-    return await fetch_binance_klines(symbol, limit=limit, interval=interval)
+    return await fetch_binance_klines(
+        symbol,
+        limit=limit,
+        interval=interval,
+        market=market,  # type: ignore[arg-type]
+        apex_symbol=apex_symbol,
+    )
 
 
 async def fetch_twelvedata_history(
@@ -286,7 +297,33 @@ async def fetch_bootstrap_history(asset: AssetConfig, limit: int = 250) -> list[
 
 async def fetch_history_for_asset(asset: AssetConfig, limit: int = 100) -> list[dict[str, Any]]:
     if asset.feed_type == "binance":
-        return await fetch_binance_history(asset.symbol, limit, asset.candle_interval)
+        binance_symbol = asset.binance_symbol or asset.symbol
+        try:
+            bars = await fetch_binance_history(
+                binance_symbol,
+                limit,
+                asset.candle_interval,
+                market=asset.binance_market,
+                apex_symbol=asset.symbol,
+            )
+            if bars:
+                return bars
+        except Exception as exc:
+            logger.warning(
+                "binance_history_failed",
+                symbol=asset.symbol,
+                binance_symbol=binance_symbol,
+                error=str(exc)[:200],
+            )
+        if asset.twelvedata_symbol:
+            logger.info("history_bootstrap_twelvedata_fallback", symbol=asset.symbol)
+            return await fetch_twelvedata_history(
+                asset.twelvedata_symbol,
+                asset.symbol,
+                limit,
+                asset.candle_interval,
+            )
+        return []
     if asset.feed_type == "twelvedata" and asset.twelvedata_symbol:
         return await fetch_twelvedata_history(
             asset.twelvedata_symbol,
@@ -334,7 +371,7 @@ async def bootstrap_asset(symbol: str, limit: int | None = None) -> bool:
             logger.warning("history_bootstrap_empty", symbol=symbol)
             return False
 
-        if asset.feed_type == "binance" and len(bars) < BINANCE_BOOTSTRAP_BARS:
+        if asset.feed_type == "binance" and asset.symbol != "XAUUSD" and len(bars) < BINANCE_BOOTSTRAP_BARS:
             logger.warning(
                 "history_bootstrap_insufficient_bars",
                 symbol=symbol,

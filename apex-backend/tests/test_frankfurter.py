@@ -31,9 +31,11 @@ def test_eurusd_uses_twelvedata_feed() -> None:
     assert asset.poll_interval == 300
 
 
-def test_xauusd_uses_twelvedata_feed() -> None:
+def test_xauusd_uses_binance_feed_with_twelvedata_fallback() -> None:
     asset = ASSETS["XAUUSD"]
-    assert asset.feed_type == "twelvedata"
+    assert asset.feed_type == "binance"
+    assert asset.binance_symbol == "XAUUSDT"
+    assert asset.binance_market == "futures"
     assert asset.twelvedata_symbol == "XAU/USD"
     assert asset.finnhub_symbol == "OANDA:XAU_USD"
     assert asset.poll_interval == POLL_INTERVAL_SECONDS

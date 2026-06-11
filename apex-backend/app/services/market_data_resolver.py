@@ -1,8 +1,4 @@
-"""Live market data resolution for TwelveData assets (XAUUSD, EURUSD).
-
-TwelveData (primary) → DB (silent last resort).
-USDJPY/GBPUSD use FrankfurterFeed directly — not this resolver.
-"""
+"""Live market data resolution — Binance primary for gold, TwelveData fallback."""
 
 from __future__ import annotations
 
@@ -12,16 +8,38 @@ from typing import Any, Literal
 import httpx
 
 from app.config import settings
+from app.config.assets import BinanceMarket, get_asset
+from app.feeds.binance_client import fetch_binance_latest_bar
 from app.feeds.twelvedata_limiter import throttled_get
 from app.logging_config import logger
 from app.services.data_source_monitor import report_live_bar_source
 from app.services.market_data_store import fetch_bars_from_db
 
-LiveDataSource = Literal["twelvedata", "db"]
-PRIMARY_LIVE_SOURCE: LiveDataSource = "twelvedata"
+LiveDataSource = Literal["binance", "twelvedata", "db"]
+PRIMARY_LIVE_SOURCE: LiveDataSource = "binance"
+FALLBACK_LIVE_SOURCE: LiveDataSource = "twelvedata"
 LAST_RESORT_LIVE_SOURCE: LiveDataSource = "db"
 
 TWELVEDATA_URL = "https://api.twelvedata.com/time_series"
+
+
+async def _fetch_binance_latest(
+    apex_symbol: str,
+    binance_symbol: str,
+    interval: str,
+    market: BinanceMarket,
+) -> dict[str, Any] | None:
+    bar = await fetch_binance_latest_bar(
+        binance_symbol,
+        interval=interval,
+        market=market,
+        apex_symbol=apex_symbol,
+    )
+    if not bar:
+        return None
+    from app.utils.volume_policy import apply_volume_policy_to_bar
+
+    return apply_volume_policy_to_bar(bar)
 
 
 async def _fetch_twelvedata_latest(
@@ -107,10 +125,24 @@ async def _fetch_db_latest(apex_symbol: str) -> dict[str, Any] | None:
 
 
 async def fetch_twelvedata_live_close(symbol: str) -> float | None:
-    """Latest close from TwelveData only (no DB/cache) — for Telegram live price."""
-    from app.config.assets import get_asset
-
+    """Latest close from live feeds — Binance first for gold, else TwelveData."""
     asset = get_asset(symbol)
+    if asset and asset.feed_type == "binance":
+        binance_symbol = asset.binance_symbol or asset.symbol
+        bar = await _fetch_binance_latest(
+            symbol,
+            binance_symbol,
+            asset.candle_interval,
+            asset.binance_market,
+        )
+        if bar:
+            return float(bar["close"])
+        if asset.twelvedata_symbol:
+            bar = await _fetch_twelvedata_latest(symbol, asset.twelvedata_symbol, asset.candle_interval)
+            if bar:
+                return float(bar["close"])
+        return None
+
     if not asset or asset.feed_type != "twelvedata" or not asset.twelvedata_symbol:
         return None
     bar = await _fetch_twelvedata_latest(
@@ -125,15 +157,32 @@ async def fetch_twelvedata_live_close(symbol: str) -> float | None:
 
 async def fetch_live_bar_with_fallback(
     apex_symbol: str,
-    td_symbol: str,
+    td_symbol: str | None = None,
     *,
     interval: str = "1h",
 ) -> tuple[dict[str, Any] | None, LiveDataSource | None]:
-    """Resolve latest bar for gold: TwelveData → DB (silent)."""
-    bar = await _fetch_twelvedata_latest(apex_symbol, td_symbol, interval)
-    if bar:
-        await report_live_bar_source(apex_symbol, PRIMARY_LIVE_SOURCE)
-        return bar, PRIMARY_LIVE_SOURCE
+    """Resolve latest bar: Binance (XAUUSD) → TwelveData → DB."""
+    asset = get_asset(apex_symbol)
+
+    if asset and asset.feed_type == "binance":
+        binance_symbol = asset.binance_symbol or asset.symbol
+        bar = await _fetch_binance_latest(
+            apex_symbol,
+            binance_symbol,
+            interval,
+            asset.binance_market,
+        )
+        if bar:
+            await report_live_bar_source(apex_symbol, PRIMARY_LIVE_SOURCE)
+            return bar, PRIMARY_LIVE_SOURCE
+
+    td = td_symbol or (asset.twelvedata_symbol if asset else None)
+    if td:
+        bar = await _fetch_twelvedata_latest(apex_symbol, td, interval)
+        if bar:
+            await report_live_bar_source(apex_symbol, FALLBACK_LIVE_SOURCE)
+            logger.info("live_bar_twelvedata_fallback", symbol=apex_symbol)
+            return bar, FALLBACK_LIVE_SOURCE
 
     bar = await _fetch_db_latest(apex_symbol)
     if bar:

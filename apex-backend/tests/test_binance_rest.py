@@ -45,6 +45,28 @@ def test_binance_uses_vision_mirror_first() -> None:
 
 
 @pytest.mark.asyncio
+async def test_fetch_binance_klines_futures_xauusdt() -> None:
+    ok_response = MagicMock()
+    ok_response.raise_for_status = MagicMock()
+    ok_response.json.return_value = [KLINE_ROW]
+
+    async def fake_get(url, params=None):
+        assert params["symbol"] == "XAUUSDT"
+        return ok_response
+
+    with patch("app.feeds.binance_client.httpx.AsyncClient") as mock_client:
+        mock_client.return_value.__aenter__.return_value.get = AsyncMock(side_effect=fake_get)
+        bars = await fetch_binance_klines(
+            "XAUUSDT",
+            limit=500,
+            market="futures",
+            apex_symbol="XAUUSD",
+        )
+    assert len(bars) == 1
+    assert bars[0]["symbol"] == "XAUUSD"
+
+
+@pytest.mark.asyncio
 async def test_fetch_binance_klines_tries_next_endpoint_on_451() -> None:
     ok_response = MagicMock()
     ok_response.raise_for_status = MagicMock()
@@ -97,8 +119,8 @@ async def test_binance_rest_feed_poll_once_uses_poll_time_for_price() -> None:
     mock_set_price = AsyncMock()
     mock_set_update = AsyncMock()
     with patch(
-        "app.feeds.binance_rest.fetch_binance_latest_bar",
-        new=AsyncMock(return_value=mock_bar),
+        "app.services.market_data_resolver.fetch_live_bar_with_fallback",
+        new=AsyncMock(return_value=(mock_bar, "binance")),
     ):
         with patch("app.feeds.binance_rest.set_latest_price", mock_set_price):
             with patch("app.feeds.binance_rest.set_feed_last_update", mock_set_update):
@@ -109,6 +131,16 @@ async def test_binance_rest_feed_poll_once_uses_poll_time_for_price() -> None:
     update_kwargs = mock_set_update.await_args.kwargs
     assert price_ts != mock_bar["timestamp"]
     assert update_kwargs["received_at"] == price_ts
+
+
+def test_xauusd_uses_binance_rest_feed() -> None:
+    asset = ASSETS["XAUUSD"]
+    assert asset.feed_type == "binance"
+    assert asset.binance_symbol == "XAUUSDT"
+    feed = feed_manager._create_feed(asset)
+    assert isinstance(feed, BinanceRestFeed)
+    assert feed.binance_symbol == "XAUUSDT"
+    assert feed.twelvedata_symbol == "XAU/USD"
 
 
 def test_btcusdt_uses_binance_rest_feed() -> None:

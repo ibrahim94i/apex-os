@@ -115,8 +115,11 @@ class FeedManager:
                     apex_symbol=asset.symbol,
                 )
             return BinanceRestFeed(
-                symbol=asset.symbol,
+                symbol=asset.binance_symbol or asset.symbol,
                 apex_symbol=asset.symbol,
+                binance_symbol=asset.binance_symbol or asset.symbol,
+                binance_market=asset.binance_market,
+                twelvedata_symbol=asset.twelvedata_symbol,
                 interval=asset.candle_interval,
                 poll_interval=asset.poll_interval,
                 on_bar=_handle_feed_bar,

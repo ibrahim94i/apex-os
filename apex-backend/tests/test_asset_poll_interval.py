@@ -15,9 +15,11 @@ def test_btcusdt_binance_rest_poll_three_minutes() -> None:
     assert asset.market_schedule == "24_7"
 
 
-def test_xauusd_twelvedata_poll_three_minutes() -> None:
+def test_xauusd_binance_poll_three_minutes() -> None:
     asset = ASSETS["XAUUSD"]
-    assert asset.feed_type == "twelvedata"
+    assert asset.feed_type == "binance"
+    assert asset.binance_symbol == "XAUUSDT"
+    assert asset.binance_market == "futures"
     assert asset.twelvedata_symbol == "XAU/USD"
     assert asset.poll_interval == POLL_INTERVAL_SECONDS
     assert asset.poll_interval == 180
@@ -32,12 +34,9 @@ def test_eurusd_twelvedata_poll_five_minutes() -> None:
 
 
 def test_twelvedata_daily_live_poll_budget_within_free_tier() -> None:
-    """Live polls use outputsize=1 → 1 credit each (bootstrap is separate)."""
-    xau_calls = 86400 // ASSETS["XAUUSD"].poll_interval
+    """EURUSD live polls only (XAUUSD uses free Binance REST)."""
     eur_calls = 86400 // ASSETS["EURUSD"].poll_interval
-    assert xau_calls == 480
     assert eur_calls == 288
-    assert xau_calls + eur_calls == 768
 
 
 def test_usdjpy_gbpusd_use_frankfurter() -> None:

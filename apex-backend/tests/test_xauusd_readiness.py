@@ -25,7 +25,10 @@ def _iraq(y, m, d, h, mi=0) -> datetime:
 def test_xauusd_h1_config() -> None:
     asset = ASSETS["XAUUSD"]
     assert asset.candle_interval == "1h"
-    assert asset.feed_type == "twelvedata"
+    assert asset.feed_type == "binance"
+    assert asset.binance_symbol == "XAUUSDT"
+    assert asset.binance_market == "futures"
+    assert asset.twelvedata_symbol == "XAU/USD"
     assert asset.min_price_move == 0.50
     assert asset.default_spread == 0.30
     assert settings.min_signal_confidence_pct == 75.0
