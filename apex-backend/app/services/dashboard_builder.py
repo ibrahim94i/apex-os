@@ -53,6 +53,7 @@ async def build_asset_dashboard_state(symbol: str) -> DashboardStateSchema:
     price_data = await get_latest_price(symbol)
     if not price_data:
         price_data = await get_latest_price_from_db(symbol)
+    display_data = await get_display_price(symbol)
     consensus_data = await get_agent_consensus(symbol)
 
     consensus = AgentConsensus(**consensus_data) if consensus_data else None
