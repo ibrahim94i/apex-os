@@ -18,12 +18,26 @@ from app.websocket.manager import broadcaster
 
 
 def parse_display_ticker_message(message: str, *, binance_symbol: str = "XAUUSDT") -> dict[str, Any] | None:
-    """Parse Binance miniTicker or futures markPrice payloads."""
+    """Parse Binance miniTicker, markPrice, or bookTicker payloads."""
     data = json.loads(message)
     symbol = str(data.get("s", "")).upper()
     if symbol and symbol != binance_symbol.upper():
         return None
-    price_raw = data.get("c") or data.get("p")
+
+    price_raw: Any = data.get("c") or data.get("p")
+    if price_raw is None and data.get("e") == "bookTicker":
+        try:
+            bid = float(data.get("b", 0))
+            ask = float(data.get("a", 0))
+        except (TypeError, ValueError):
+            bid = ask = 0.0
+        if bid > 0 and ask > 0:
+            price_raw = (bid + ask) / 2
+        elif ask > 0:
+            price_raw = ask
+        elif bid > 0:
+            price_raw = bid
+
     try:
         price = float(price_raw)
     except (TypeError, ValueError):
@@ -167,7 +181,30 @@ class BinanceDisplayTickerFeed:
                     )
                 await asyncio.sleep(settings.binance_display_ticker_poll_seconds)
 
+    async def _fetch_and_publish_rest_once(self) -> bool:
+        source = f"binance_{self.binance_symbol.lower()}_rest"
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.get(self.rest_url)
+                if not response.is_success:
+                    return False
+                parsed = parse_rest_ticker_payload(
+                    response.json(),
+                    binance_symbol=self.binance_symbol,
+                )
+                if parsed:
+                    await self._publish_price(parsed, source=source)
+                    return True
+        except Exception as exc:
+            logger.warning(
+                "binance_display_ticker_rest_bootstrap_error",
+                apex_symbol=self.apex_symbol,
+                error=str(exc),
+            )
+        return False
+
     async def _connect_loop(self) -> None:
+        await self._fetch_and_publish_rest_once()
         backoff = 1
         ws_attempts = 0
         while self._running:
@@ -187,6 +224,23 @@ class BinanceDisplayTickerFeed:
                     backoff = 1
                     ws_attempts = 0
                     logger.info("binance_display_ticker_connected", apex_symbol=self.apex_symbol)
+                    try:
+                        first = await asyncio.wait_for(ws.recv(), timeout=12)
+                        await self._handle_message(first)
+                    except TimeoutError:
+                        logger.warning(
+                            "binance_display_ticker_no_messages",
+                            apex_symbol=self.apex_symbol,
+                            url=self.ws_url,
+                        )
+                        if await self._fetch_and_publish_rest_once():
+                            await self._rest_poll_loop()
+                            return
+                        ws_attempts += 1
+                        if self._should_fallback_to_rest(TimeoutError("no ws messages"), ws_attempts):
+                            await self._rest_poll_loop()
+                            return
+                        continue
                     async for message in ws:
                         if not self._running:
                             break

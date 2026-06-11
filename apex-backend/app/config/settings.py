@@ -108,7 +108,7 @@ class Settings(BaseSettings):
     advisor_timeout_seconds: int = 90
     admin_api_key: str = ""
     binance_display_ticker_enabled: bool = True
-    binance_display_ticker_ws_url: str = "wss://fstream.binance.com/ws/xauusdt@markPrice@1s"
+    binance_display_ticker_ws_url: str = "wss://fstream.binance.com/ws/xauusdt@bookTicker"
     binance_display_ticker_rest_url: str = "https://fapi.binance.com/fapi/v1/ticker/price?symbol=XAUUSDT"
     binance_display_ticker_poll_seconds: float = 2.0
 

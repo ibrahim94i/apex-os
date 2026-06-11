@@ -28,6 +28,15 @@ def test_parse_mini_ticker_message() -> None:
     assert parsed["timestamp"].endswith("+00:00")
 
 
+def test_parse_book_ticker_message() -> None:
+    message = (
+        '{"e":"bookTicker","u":1,"s":"XAUUSDT","b":"4068.31","B":"1","a":"4068.32","A":"1","T":1718112000123,"E":1718112000123}'
+    )
+    parsed = parse_mini_ticker_message(message)
+    assert parsed is not None
+    assert parsed["price"] == pytest.approx(4068.315)
+
+
 def test_parse_mark_price_message() -> None:
     message = (
         '{"e":"markPriceUpdate","E":1718112000123,"s":"XAUUSDT","p":"2650.12","i":"XAUUSDT"}'
