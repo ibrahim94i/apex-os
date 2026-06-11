@@ -172,3 +172,38 @@ def test_near_resistance_rejection_penalizes_long_below_r1() -> None:
 
 def test_snr_module_singleton() -> None:
     assert snr_engine is not None
+
+
+def test_snr_fallback_levels_when_no_pivots() -> None:
+    """Monotonic flat bars produce no pivots — fallback uses range extrema."""
+    base = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    bars: list[OHLCVBar] = []
+    for i in range(39):
+        price = 2650.0 + i * 0.5
+        bars.append(
+            OHLCVBar(
+                base + timedelta(hours=i),
+                price,
+                price,
+                price,
+                price,
+                0,
+            )
+        )
+    pullback = 2665.0
+    bars.append(
+        OHLCVBar(
+            base + timedelta(hours=39),
+            pullback,
+            pullback,
+            pullback,
+            pullback,
+            0,
+        )
+    )
+
+    snr = snr_engine.compute(bars, "XAUUSD")
+    assert snr is not None
+    assert snr.support_1 is not None
+    assert snr.resistance_1 is not None
+    assert snr.support_1 < snr.price < snr.resistance_1

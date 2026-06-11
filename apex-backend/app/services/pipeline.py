@@ -173,6 +173,9 @@ async def process_bar(raw_bar: dict[str, Any], *, skip_agents: bool = False) -> 
             indicators, regime = signal_generator.analyze(_bar_buffer[symbol], symbol)
 
             if not run_h1_pipeline and not skip_agents:
+                snr_snapshot = await compute_snr_for_symbol(symbol)
+                if snr_snapshot:
+                    await set_latest_snr(symbol, snr_snapshot.model_dump(mode="json"))
                 if indicators:
                     ind_data = indicators.model_dump(mode="json")
                     await set_latest_indicators(symbol, ind_data)

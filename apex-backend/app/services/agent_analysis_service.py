@@ -196,10 +196,18 @@ async def run_agent_analysis(symbol: str, *, force: bool = False) -> AgentConsen
     if not force:
         cached = _consensus_from_cache(await get_agent_consensus(symbol))
         if cached and (cached.is_llm_powered() or cached.is_stale):
+            if not cached.snr_state_ar:
+                from app.services.snr_service import enrich_consensus_with_snr
+
+                return await enrich_consensus_with_snr(cached, symbol, persist=True)
             return cached
 
     blocked = await _serve_stale_if_llm_blocked(symbol)
     if blocked:
+        if not blocked.snr_state_ar:
+            from app.services.snr_service import enrich_consensus_with_snr
+
+            return await enrich_consensus_with_snr(blocked, symbol, persist=True)
         return blocked
 
     async with _agent_analysis_lock:
@@ -208,6 +216,10 @@ async def run_agent_analysis(symbol: str, *, force: bool = False) -> AgentConsen
         try:
             blocked = await _serve_stale_if_llm_blocked(symbol)
             if blocked:
+                if not blocked.snr_state_ar:
+                    from app.services.snr_service import enrich_consensus_with_snr
+
+                    return await enrich_consensus_with_snr(blocked, symbol, persist=True)
                 return blocked
 
             context = await _load_market_context(symbol)
@@ -250,18 +262,17 @@ async def run_agent_analysis(symbol: str, *, force: bool = False) -> AgentConsen
                         )
                         stale = await _restore_stale_consensus(symbol, error)
                         if stale:
-                            return stale
-                        return consensus
-                    from app.engines.final_decision_engine import apply_final_decision_to_consensus
-                    from app.services.pipeline import compute_snr_for_symbol, get_symbol_ohlcv_bars
+                            if not stale.snr_state_ar:
+                                from app.services.snr_service import enrich_consensus_with_snr
 
-                    snr_snapshot = await compute_snr_for_symbol(symbol)
-                    bars = await get_symbol_ohlcv_bars(symbol)
-                    consensus = apply_final_decision_to_consensus(
-                        consensus,
-                        bars=bars,
-                        snr=snr_snapshot,
-                    )
+                                return await enrich_consensus_with_snr(stale, symbol, persist=True)
+                            return stale
+                        from app.services.snr_service import enrich_consensus_with_snr
+
+                        return await enrich_consensus_with_snr(consensus, symbol, persist=True)
+                    from app.services.snr_service import enrich_consensus_with_snr
+
+                    consensus = await enrich_consensus_with_snr(consensus, symbol, persist=False)
                     from app.services.signal_rejection_i18n import normalize_snr_consensus_fields
 
                     rr, rr_ar, warning = normalize_snr_consensus_fields(

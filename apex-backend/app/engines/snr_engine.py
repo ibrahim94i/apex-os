@@ -7,6 +7,7 @@ from datetime import datetime
 from typing import Literal
 
 from app.engines.indicator_engine import OHLCVBar
+from app.logging_config import logger
 from app.schemas.enums import SignalDirection
 from app.schemas.snr import SNRLevelZone, SNRSnapshotSchema
 from app.utils.price_zones import level_zone_bounds, price_in_zone
@@ -49,16 +50,26 @@ class SNREngine:
         pivot_highs = self._find_pivot_highs(window)
         pivot_lows = self._find_pivot_lows(window)
 
-        resistances = self._select_levels(
-            [level for _, level in pivot_highs if level > price],
-            ascending=True,
-            count=3,
-        )
-        supports = self._select_levels(
-            [level for _, level in pivot_lows if level < price],
-            ascending=False,
-            count=3,
-        )
+        res_levels = [level for _, level in pivot_highs if level > price]
+        sup_levels = [level for _, level in pivot_lows if level < price]
+
+        if not res_levels:
+            res_levels = self._fallback_levels_above(window, price)
+        if not sup_levels:
+            sup_levels = self._fallback_levels_below(window, price)
+
+        if not res_levels and not sup_levels:
+            logger.warning(
+                "snr_no_levels",
+                symbol=symbol,
+                bars=len(window),
+                price=price,
+                pivot_highs=len(pivot_highs),
+                pivot_lows=len(pivot_lows),
+            )
+
+        resistances = self._select_levels(res_levels, ascending=True, count=3)
+        supports = self._select_levels(sup_levels, ascending=False, count=3)
 
         dist_support = self._distance_pct(price, supports[0], below=True) if supports[0] else None
         dist_resistance = (
@@ -291,6 +302,16 @@ class SNREngine:
                 f"({zone.low:.2f} – {zone.high:.2f})"
             )
         return "انتظار — السعر داخل منطقة SNR (±0.25%)"
+
+    @staticmethod
+    def _fallback_levels_above(bars: list[OHLCVBar], price: float) -> list[float]:
+        """Use distinct bar highs above price when pivot detection finds none."""
+        return sorted({b.high for b in bars if b.high > price})
+
+    @staticmethod
+    def _fallback_levels_below(bars: list[OHLCVBar], price: float) -> list[float]:
+        """Use distinct bar lows below price when pivot detection finds none."""
+        return sorted({b.low for b in bars if b.low < price}, reverse=True)
 
     @staticmethod
     def _find_pivot_highs(bars: list[OHLCVBar]) -> list[tuple[int, float]]:

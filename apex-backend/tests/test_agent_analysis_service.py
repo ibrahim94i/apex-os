@@ -32,6 +32,8 @@ def _sample_consensus() -> AgentConsensus:
             )
         ],
         vote_scores={"market_analyst": -0.2},
+        snr_state="NORMAL",
+        snr_state_ar="عادي",
     )
 
 
@@ -53,16 +55,21 @@ async def test_run_agent_analysis_returns_cached_when_present() -> None:
 async def test_run_agent_analysis_skips_without_warm_data() -> None:
     with patch("app.services.agent_analysis_service.is_market_open", return_value=True):
         with patch(
-            "app.services.agent_analysis_service.get_agent_consensus",
+            "app.services.agent_analysis_service._serve_stale_if_llm_blocked",
             new_callable=AsyncMock,
             return_value=None,
         ):
             with patch(
-                "app.services.agent_analysis_service._load_market_context",
+                "app.services.agent_analysis_service.get_agent_consensus",
                 new_callable=AsyncMock,
                 return_value=None,
             ):
-                result = await run_agent_analysis("EURUSD")
+                with patch(
+                    "app.services.agent_analysis_service._load_market_context",
+                    new_callable=AsyncMock,
+                    return_value=None,
+                ):
+                    result = await run_agent_analysis("EURUSD")
     assert result is None
 
 
@@ -223,14 +230,16 @@ async def test_run_agent_analysis_publishes_consensus() -> None:
             new_callable=AsyncMock,
         ),
         patch(
-            "app.services.pipeline.compute_snr_for_symbol",
+            "app.services.snr_service.enrich_consensus_with_snr",
             new_callable=AsyncMock,
-            return_value=None,
-        ),
-        patch(
-            "app.services.pipeline.get_symbol_ohlcv_bars",
-            new_callable=AsyncMock,
-            return_value=[],
+            side_effect=lambda consensus, symbol, persist=False: consensus.model_copy(
+                update={
+                    "snr_state": "NORMAL",
+                    "snr_state_ar": "عادي",
+                    "final_decision": "SELL",
+                    "final_decision_ar": "بيع",
+                }
+            ),
         ),
     ]
 

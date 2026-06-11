@@ -58,6 +58,10 @@ async def build_asset_dashboard_state(symbol: str) -> DashboardStateSchema:
     if consensus:
         live_balance = await account_service.get_balance()
         consensus = patch_consensus_account_balance(consensus, live_balance)
+        if not consensus.snr_state_ar:
+            from app.services.snr_service import enrich_consensus_with_snr
+
+            consensus = await enrich_consensus_with_snr(consensus, symbol, persist=False)
 
     return DashboardStateSchema(
         regime=RegimeSnapshotSchema(**regime_data) if regime_data else None,

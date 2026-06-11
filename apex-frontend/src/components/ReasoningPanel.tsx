@@ -112,12 +112,13 @@ function formatSnrState(consensus: AgentConsensus): string {
   if (consensus.snr_state_ar) {
     return consensus.snr_state_ar;
   }
-  if (consensus.snr_state === "INSIDE_ZONE" || consensus.snr_state === "WAIT") {
+  const state = (consensus.snr_state ?? "").toUpperCase();
+  if (state === "INSIDE_ZONE" || state === "WAIT") {
     return "داخل المنطقة";
   }
-  if (consensus.snr_state === "ZONE_EDGE") return "قرب الكسر";
-  if (consensus.snr_state === "BREAKOUT_CONFIRMED") return "كسر مؤكد";
-  if (consensus.snr_state === "NORMAL") return "عادي";
+  if (state === "ZONE_EDGE") return "قرب الكسر";
+  if (state === "BREAKOUT_CONFIRMED") return "كسر مؤكد";
+  if (state === "NORMAL") return "عادي";
   return "—";
 }
 
