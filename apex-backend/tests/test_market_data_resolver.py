@@ -15,8 +15,39 @@ def _reset_monitor() -> None:
     clear_failover_state()
 
 
+@pytest.fixture
+def _mock_binance_none() -> AsyncMock:
+    with patch(
+        "app.services.market_data_resolver._fetch_binance_latest",
+        new=AsyncMock(return_value=None),
+    ) as mock:
+        yield mock
+
+
 @pytest.mark.asyncio
-async def test_resolver_uses_twelvedata_when_available() -> None:
+async def test_resolver_uses_binance_when_available() -> None:
+    bn_bar = {
+        "symbol": "XAUUSD",
+        "timestamp": "2026-06-01T12:00:00+00:00",
+        "open": 4400.0,
+        "high": 4410.0,
+        "low": 4390.0,
+        "close": 4405.0,
+        "volume": 10.0,
+        "source": "binance",
+        "is_closed": True,
+    }
+    with patch(
+        "app.services.market_data_resolver._fetch_binance_latest",
+        new=AsyncMock(return_value=bn_bar),
+    ):
+        bar, source = await fetch_live_bar_with_fallback("XAUUSD", "XAU/USD")
+    assert source == "binance"
+    assert bar == bn_bar
+
+
+@pytest.mark.asyncio
+async def test_resolver_falls_back_to_twelvedata(_mock_binance_none: AsyncMock) -> None:
     td_bar = {
         "symbol": "XAUUSD",
         "timestamp": "2026-06-01T12:00:00+00:00",
@@ -38,7 +69,7 @@ async def test_resolver_uses_twelvedata_when_available() -> None:
 
 
 @pytest.mark.asyncio
-async def test_resolver_falls_back_to_db_without_telegram() -> None:
+async def test_resolver_falls_back_to_db_without_telegram(_mock_binance_none: AsyncMock) -> None:
     db_bar = {
         "symbol": "XAUUSD",
         "timestamp": "2026-06-01T12:00:00+00:00",
@@ -69,35 +100,41 @@ async def test_resolver_falls_back_to_db_without_telegram() -> None:
 
 
 @pytest.mark.asyncio
-async def test_db_not_called_when_twelvedata_succeeds() -> None:
-    td_bar = {
+async def test_db_not_called_when_binance_succeeds() -> None:
+    bn_bar = {
         "symbol": "XAUUSD",
         "timestamp": "2026-06-01T12:00:00+00:00",
         "open": 4400.0,
         "high": 4410.0,
         "low": 4390.0,
         "close": 4405.0,
-        "volume": 0.0,
-        "source": "twelvedata",
+        "volume": 10.0,
+        "source": "binance",
         "is_closed": True,
     }
+    mock_td = AsyncMock()
     mock_db = AsyncMock()
     with patch(
-        "app.services.market_data_resolver._fetch_twelvedata_latest",
-        new=AsyncMock(return_value=td_bar),
+        "app.services.market_data_resolver._fetch_binance_latest",
+        new=AsyncMock(return_value=bn_bar),
     ):
         with patch(
-            "app.services.market_data_resolver._fetch_db_latest",
-            mock_db,
+            "app.services.market_data_resolver._fetch_twelvedata_latest",
+            mock_td,
         ):
-            bar, source = await fetch_live_bar_with_fallback("XAUUSD", "XAU/USD")
-    assert source == "twelvedata"
-    assert bar == td_bar
+            with patch(
+                "app.services.market_data_resolver._fetch_db_latest",
+                mock_db,
+            ):
+                bar, source = await fetch_live_bar_with_fallback("XAUUSD", "XAU/USD")
+    assert source == "binance"
+    assert bar == bn_bar
+    mock_td.assert_not_awaited()
     mock_db.assert_not_awaited()
 
 
 @pytest.mark.asyncio
-async def test_auto_return_to_twelvedata_after_db() -> None:
+async def test_auto_return_to_twelvedata_after_db(_mock_binance_none: AsyncMock) -> None:
     db_bar = {
         "symbol": "XAUUSD",
         "timestamp": "2026-06-01T11:00:00+00:00",
