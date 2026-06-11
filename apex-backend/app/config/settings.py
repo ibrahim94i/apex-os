@@ -106,6 +106,7 @@ class Settings(BaseSettings):
     emergency_signal_confidence_threshold: float = 0.75
     signal_emission_interval_hours: float = 1.0
     advisor_timeout_seconds: int = 90
+    admin_api_key: str = ""
 
     @field_validator("database_url", mode="before")
     @classmethod

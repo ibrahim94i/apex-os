@@ -198,6 +198,28 @@ async def clear_credit_tracking() -> None:
     await cache_delete(_credits_redis_key(today))
 
 
+async def reset_twelvedata_credits() -> dict[str, int | str | bool]:
+    """Admin reset — clear stuck exhausted flag and 429 recovery pause for today."""
+    global _credit_state
+    today = _utc_day()
+    redis_key = _credits_redis_key(today)
+
+    async with _credit_lock:
+        await cache_delete(redis_key)
+        clear_feed_recovery_pause()
+        _credit_state = _CreditState(day=today, used=0, exhausted=False, loaded=True)
+        await _persist_credits()
+
+    report = await get_credit_usage_report()
+    logger.info(
+        "twelvedata_credits_reset",
+        redis_key=redis_key,
+        exhausted=report["exhausted"],
+        recovery_paused=report["recovery_paused"],
+    )
+    return report
+
+
 def _is_credits_exhausted_message(body: dict | None) -> bool:
     if not body:
         return False
