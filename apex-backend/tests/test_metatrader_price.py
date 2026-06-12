@@ -29,6 +29,16 @@ def mt_key(monkeypatch: pytest.MonkeyPatch) -> str:
     return key
 
 
+def test_parse_mt4_body_with_trailing_null_byte() -> None:
+    raw = (
+        b'{"symbol":"XAUUSD","bid":4189.16,"ask":4189.35,'
+        b'"time":"2026.06.12 02:57:07Z"}\x00'
+    )
+    parsed = parse_metatrader_request_body(raw)
+    assert parsed["symbol"] == "XAUUSD"
+    assert parsed["bid"] == pytest.approx(4189.16)
+
+
 def test_parse_mt_body_flexible_time_and_strings() -> None:
     raw = b'{"symbol":"XAUUSD","bid":"4313.87","ask":"4314.07","time":"2026.06.12 12:00:00"}'
     parsed = parse_metatrader_request_body(raw)

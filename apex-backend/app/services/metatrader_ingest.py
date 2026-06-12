@@ -85,8 +85,11 @@ def _parse_time(value: Any) -> datetime:
         raise ValueError(f"invalid time format: {value}") from exc
 
 
-def _normalize_json_text(raw_text: str) -> str:
-    text = raw_text.strip()
+def _normalize_json_bytes(raw_body: bytes) -> str:
+    """Strip MT4 WebRequest trailing NUL and BOM before JSON parse."""
+    cleaned = raw_body.rstrip(b"\x00").strip()
+    text = cleaned.decode("utf-8", errors="replace")
+    text = text.replace("\x00", "").strip()
     if text.startswith("\ufeff"):
         text = text[1:]
     return text
@@ -97,7 +100,7 @@ def parse_metatrader_request_body(raw_body: bytes) -> dict[str, Any]:
     if not raw_body:
         raise ValueError("empty request body")
 
-    text = _normalize_json_text(raw_body.decode("utf-8", errors="replace"))
+    text = _normalize_json_bytes(raw_body)
     try:
         payload = json.loads(text)
     except json.JSONDecodeError as exc:
