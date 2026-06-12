@@ -80,8 +80,11 @@ async def ingest_metatrader_price(
         "received_at": received_at.isoformat(),
         "source": "metatrader",
     }
-    await set_metatrader_price(apex_symbol, payload)
-    await record_metatrader_ingest(apex_symbol, received_at.isoformat())
+    try:
+        await set_metatrader_price(apex_symbol, payload)
+        await record_metatrader_ingest(apex_symbol, received_at.isoformat())
+    except Exception:
+        raise
     await set_display_price(
         apex_symbol,
         price,

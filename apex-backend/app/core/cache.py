@@ -47,11 +47,22 @@ async def get_display_price(symbol: str) -> dict[str, Any] | None:
 
 async def set_metatrader_price(symbol: str, data: dict[str, Any]) -> None:
     """Latest MetaTrader quote — display price layer only."""
-    await cache_set(
-        CacheKeys.METATRADER_PRICE.format(symbol=symbol),
-        data,
-        ttl=3600,
-    )
+    key = CacheKeys.METATRADER_PRICE.format(symbol=symbol)
+    try:
+        await cache_set(key, data, ttl=3600)
+        stored = await cache_get(key)
+        if not stored:
+            raise RuntimeError(f"redis read-back empty for {key}")
+    except Exception as exc:
+        from app.logging_config import logger
+
+        logger.error(
+            "metatrader_redis_write_failed",
+            symbol=symbol,
+            redis_key=key,
+            error=str(exc),
+        )
+        raise
 
 
 async def get_metatrader_price(symbol: str) -> dict[str, Any] | None:

@@ -1,14 +1,15 @@
 """MetaTrader price ingest — display layer only (no trade execution)."""
 
-from fastapi import APIRouter, Header, HTTPException
+from __future__ import annotations
+
+from typing import Any
+
+from fastapi import APIRouter, HTTPException, Request
 
 from app.config import settings
 from app.config.assets import ACTIVE_SYMBOLS
-from app.schemas.price import (
-    MetaTraderHealthStatus,
-    MetaTraderPriceUpdate,
-    MetaTraderPriceUpdateResponse,
-)
+from app.logging_config import logger
+from app.schemas.price import MetaTraderPriceUpdateResponse
 from app.services.live_price_resolver import (
     build_price_diagnostics,
     get_metatrader_health,
@@ -16,51 +17,92 @@ from app.services.live_price_resolver import (
     resolve_display_price,
 )
 from app.core.cache import get_metatrader_price
+from app.services.metatrader_ingest import (
+    MT_AUTH_HEADER,
+    extract_mt_api_key,
+    parse_metatrader_request_body,
+    sanitize_headers_for_log,
+    verify_metatrader_api_key,
+)
 
 price_router = APIRouter(prefix="/prices", tags=["prices"])
 
 
-def _verify_metatrader_key(api_key: str | None) -> None:
-    if not settings.metatrader_api_key:
-        if settings.environment == "production":
-            raise HTTPException(status_code=503, detail="MetaTrader API not configured")
-        return
-    if not api_key or api_key != settings.metatrader_api_key:
-        raise HTTPException(status_code=403, detail="Forbidden")
-
-
 @price_router.post("/update", response_model=MetaTraderPriceUpdateResponse)
-async def update_metatrader_price(
-    body: MetaTraderPriceUpdate,
-    x_mt_key: str | None = Header(default=None, alias="X-MT-Key"),
-) -> MetaTraderPriceUpdateResponse:
+async def update_metatrader_price(request: Request) -> MetaTraderPriceUpdateResponse:
     """Receive live quotes from MetaTrader EA — prices only, no orders."""
-    _verify_metatrader_key(x_mt_key)
+    raw_body = await request.body()
+    headers = {k: v for k, v in request.headers.items()}
+    header_log = sanitize_headers_for_log(headers)
+    body_preview = raw_body.decode("utf-8", errors="replace")[:2000]
 
-    symbol = body.symbol.strip().upper()
+    logger.info(
+        "metatrader_request_received",
+        method=request.method,
+        path=str(request.url.path),
+        headers=header_log,
+        body=body_preview,
+        body_bytes=len(raw_body),
+    )
+
+    received_key = extract_mt_api_key(headers)
+    ok, auth_error = verify_metatrader_api_key(received_key)
+    if not ok:
+        logger.warning(
+            "metatrader_auth_failed",
+            reason=auth_error,
+            received_key=received_key,
+            header_name=MT_AUTH_HEADER,
+            key_configured=bool((settings.metatrader_api_key or "").strip()),
+        )
+        if auth_error and "not configured" in auth_error.lower():
+            raise HTTPException(status_code=503, detail=auth_error)
+        raise HTTPException(
+            status_code=403,
+            detail={"error": "Forbidden", "reason": auth_error, "header": MT_AUTH_HEADER},
+        )
+
+    try:
+        parsed = parse_metatrader_request_body(raw_body)
+    except ValueError as exc:
+        logger.warning(
+            "metatrader_request_parse_failed",
+            error=str(exc),
+            body=body_preview,
+        )
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    symbol = parsed["symbol"]
     if symbol not in ACTIVE_SYMBOLS:
         raise HTTPException(status_code=400, detail=f"Symbol not active: {symbol}")
-    if body.ask < body.bid:
-        raise HTTPException(status_code=400, detail="ask must be >= bid")
 
-    payload = await ingest_metatrader_price(
-        symbol=symbol,
-        bid=body.bid,
-        ask=body.ask,
-        quote_time=body.time,
-    )
+    try:
+        payload = await ingest_metatrader_price(
+            symbol=symbol,
+            bid=parsed["bid"],
+            ask=parsed["ask"],
+            quote_time=parsed["time"],
+        )
+    except Exception as exc:
+        logger.error(
+            "metatrader_redis_write_failed",
+            symbol=symbol,
+            error=str(exc),
+        )
+        raise HTTPException(status_code=500, detail="Failed to persist MetaTrader price") from exc
+
     return MetaTraderPriceUpdateResponse(
         symbol=symbol,
         price=float(payload["price"]),
-        bid=body.bid,
-        ask=body.ask,
+        bid=parsed["bid"],
+        ask=parsed["ask"],
         received_at=str(payload["received_at"]),
     )
 
 
 @price_router.get("/status")
-async def get_prices_status() -> dict:
-    """MetaTrader connection health per active symbol."""
+async def get_prices_status() -> dict[str, Any]:
+    """MetaTrader connection health per active symbol (Redis last update age)."""
     items = [await get_metatrader_health(sym) for sym in ACTIVE_SYMBOLS]
     return {
         "metatrader": {item.symbol: item.model_dump(mode="json") for item in items},
