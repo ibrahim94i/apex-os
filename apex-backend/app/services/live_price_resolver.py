@@ -9,7 +9,14 @@ import httpx
 
 from app.config import settings
 from app.config.assets import get_asset
-from app.core.cache import get_metatrader_price, set_display_price, set_metatrader_price
+from app.core.cache import (
+    count_metatrader_ingests_last_hour,
+    get_display_price,
+    get_metatrader_price,
+    record_metatrader_ingest,
+    set_display_price,
+    set_metatrader_price,
+)
 from app.feeds.twelvedata_limiter import throttled_get
 from app.logging_config import logger
 from app.schemas.price import MetaTraderHealthStatus
@@ -74,6 +81,7 @@ async def ingest_metatrader_price(
         "source": "metatrader",
     }
     await set_metatrader_price(apex_symbol, payload)
+    await record_metatrader_ingest(apex_symbol, received_at.isoformat())
     await set_display_price(
         apex_symbol,
         price,
@@ -189,3 +197,68 @@ async def resolve_display_price(symbol: str) -> dict[str, Any] | None:
         return td
 
     return None
+
+
+async def build_price_diagnostics(symbol: str) -> dict[str, Any]:
+    """Read-only diagnostics snapshot for MetaTrader price layer verification."""
+    from app.core.redis_client import redis_health_check
+
+    apex_symbol = _normalize_symbol(symbol)
+    mt_raw = await get_metatrader_price(apex_symbol)
+    display_raw = await get_display_price(apex_symbol)
+    resolved = await resolve_display_price(apex_symbol)
+    health = await get_metatrader_health(apex_symbol)
+    age = _mt_age_seconds(mt_raw)
+    stale_threshold = settings.metatrader_stale_seconds
+    mt_connected = is_metatrader_connected(apex_symbol, mt_raw)
+    resolved_source = resolved.get("source") if resolved else None
+
+    if mt_connected:
+        fallback_state = "inactive"
+        fallback_reason = "metatrader_fresh"
+    elif resolved_source == "twelvedata":
+        fallback_state = "active"
+        fallback_reason = "metatrader_stale_or_missing"
+    else:
+        fallback_state = "unavailable"
+        fallback_reason = "no_price_source"
+
+    auth_configured = bool(settings.metatrader_api_key)
+
+    return {
+        "symbol": apex_symbol,
+        "checked_at": datetime.now(timezone.utc).isoformat(),
+        "current_source": resolved_source,
+        "resolved_price": resolved,
+        "metatrader": {
+            "connected": mt_connected,
+            "status": health.status,
+            "status_ar": health.status_ar,
+            "last_update": mt_raw.get("received_at") if mt_raw else None,
+            "quote_time": mt_raw.get("time") if mt_raw else None,
+            "age_seconds": age,
+            "stale_threshold_seconds": stale_threshold,
+            "is_stale": age is None or age > stale_threshold,
+            "bid": mt_raw.get("bid") if mt_raw else None,
+            "ask": mt_raw.get("ask") if mt_raw else None,
+            "price": mt_raw.get("price") if mt_raw else None,
+            "redis_key": f"apex:metatrader_price:{apex_symbol}",
+            "redis_present": mt_raw is not None,
+            "ingests_last_hour": await count_metatrader_ingests_last_hour(apex_symbol),
+        },
+        "display_cache": display_raw,
+        "fallback": {
+            "state": fallback_state,
+            "reason": fallback_reason,
+            "active_source": resolved_source if fallback_state == "active" else None,
+            "stale_after_seconds": stale_threshold,
+        },
+        "redis": {
+            "status": "ok" if await redis_health_check() else "error",
+        },
+        "auth": {
+            "metatrader_api_key_configured": auth_configured,
+            "header_name": "X-MT-Key",
+            "production_requires_key": settings.environment == "production",
+        },
+    }

@@ -10,10 +10,12 @@ from app.schemas.price import (
     MetaTraderPriceUpdateResponse,
 )
 from app.services.live_price_resolver import (
+    build_price_diagnostics,
     get_metatrader_health,
     ingest_metatrader_price,
     resolve_display_price,
 )
+from app.core.cache import get_metatrader_price
 
 price_router = APIRouter(prefix="/prices", tags=["prices"])
 
@@ -66,6 +68,15 @@ async def get_prices_status() -> dict:
     }
 
 
+@price_router.get("/diagnostics")
+async def get_prices_diagnostics(symbol: str = "XAUUSD") -> dict:
+    """Verification snapshot — MetaTrader ingest, Redis, fallback, and active source."""
+    sym = symbol.strip().upper()
+    if sym not in ACTIVE_SYMBOLS:
+        raise HTTPException(status_code=404, detail="Symbol not active")
+    return await build_price_diagnostics(sym)
+
+
 @price_router.get("/live/{symbol}")
 async def get_live_display_price(symbol: str) -> dict:
     """Resolved display price (MetaTrader → TwelveData)."""
@@ -76,8 +87,16 @@ async def get_live_display_price(symbol: str) -> dict:
     if not data:
         raise HTTPException(status_code=404, detail="No live price available")
     health = await get_metatrader_health(sym)
+    mt_raw = await get_metatrader_price(sym)
+    received_at = None
+    if mt_raw:
+        received_at = mt_raw.get("received_at")
+    elif data.get("source") == "twelvedata":
+        received_at = data.get("timestamp")
     return {
         **data,
         "price_source": data.get("source"),
+        "received_at": received_at or data.get("timestamp"),
+        "age_seconds": health.age_seconds if data.get("source") == "metatrader" else None,
         "metatrader": health.model_dump(mode="json"),
     }

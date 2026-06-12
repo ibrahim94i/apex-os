@@ -133,6 +133,26 @@ async def test_prices_update_endpoint(mt_key: str) -> None:
 
 
 @pytest.mark.asyncio
+async def test_prices_diagnostics_endpoint() -> None:
+    mock_diag = {
+        "symbol": "XAUUSD",
+        "current_source": "twelvedata",
+        "metatrader": {"connected": False, "ingests_last_hour": 0},
+        "redis": {"status": "ok"},
+        "fallback": {"state": "active"},
+    }
+    with patch(
+        "app.api.price_routes.build_price_diagnostics",
+        new=AsyncMock(return_value=mock_diag),
+    ):
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.get("/api/v1/prices/diagnostics?symbol=XAUUSD")
+    assert resp.status_code == 200
+    assert resp.json()["current_source"] == "twelvedata"
+
+
+@pytest.mark.asyncio
 async def test_prices_status_endpoint() -> None:
     from app.schemas.price import MetaTraderHealthStatus
 

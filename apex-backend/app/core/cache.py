@@ -11,6 +11,7 @@ from app.core.redis_client import (
     cache_push_list,
     cache_set,
 )
+from app.utils.time_utils import parse_utc_timestamp
 
 
 async def set_latest_price(symbol: str, price: float, timestamp: str) -> None:
@@ -55,6 +56,32 @@ async def set_metatrader_price(symbol: str, data: dict[str, Any]) -> None:
 
 async def get_metatrader_price(symbol: str) -> dict[str, Any] | None:
     return await cache_get(CacheKeys.METATRADER_PRICE.format(symbol=symbol))
+
+
+async def record_metatrader_ingest(symbol: str, received_at: str) -> None:
+    """Diagnostics only — rolling ingest timestamps (last hour)."""
+    key = CacheKeys.METATRADER_INGEST_LOG.format(symbol=symbol)
+    await cache_push_list(key, {"received_at": received_at}, max_len=5000)
+
+
+async def count_metatrader_ingests_last_hour(symbol: str) -> int:
+    key = CacheKeys.METATRADER_INGEST_LOG.format(symbol=symbol)
+    items = await cache_get_list(key, 0, 4999)
+    if not items:
+        return 0
+    cutoff = datetime.now(timezone.utc).timestamp() - 3600
+    count = 0
+    for item in items:
+        ts_raw = item.get("received_at")
+        if not ts_raw:
+            continue
+        try:
+            ts = parse_utc_timestamp(str(ts_raw)).timestamp()
+        except (TypeError, ValueError):
+            continue
+        if ts >= cutoff:
+            count += 1
+    return count
 
 
 async def set_latest_indicators(symbol: str, data: dict[str, Any]) -> None:
