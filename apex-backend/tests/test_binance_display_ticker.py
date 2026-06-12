@@ -88,3 +88,29 @@ async def test_handle_message_does_not_touch_latest_price() -> None:
         await feed._handle_message(message)
 
     mock_latest.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_publish_skips_when_metatrader_connected() -> None:
+    feed = BinanceDisplayTickerFeed()
+    parsed = {"price": 2651.55, "timestamp": "2024-06-11T12:00:00+00:00"}
+
+    with (
+        patch(
+            "app.services.live_price_resolver.get_metatrader_price",
+            new=AsyncMock(return_value={"price": 2650.0, "received_at": "2024-06-11T12:00:00+00:00"}),
+        ),
+        patch(
+            "app.services.live_price_resolver.is_metatrader_connected",
+            return_value=True,
+        ),
+        patch("app.feeds.binance_display_ticker.set_display_price", new=AsyncMock()) as mock_set,
+        patch(
+            "app.feeds.binance_display_ticker.broadcaster.broadcast_display_price",
+            new=AsyncMock(),
+        ) as mock_broadcast,
+    ):
+        await feed._publish_price(parsed, source="binance_xauusdt_ws")
+
+    mock_set.assert_not_called()
+    mock_broadcast.assert_not_called()

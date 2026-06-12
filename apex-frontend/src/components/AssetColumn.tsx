@@ -77,6 +77,7 @@ export default function AssetColumn({ symbol, state, hideTitle = false }: Props)
             signal={state?.latest_signal ?? null}
             currentPrice={state?.current_price ?? null}
             displayPrice={state?.display_price ?? null}
+            displayPriceSource={state?.display_price_source ?? null}
             symbol={symbol}
             consensus={state?.agent_consensus ?? null}
           />

@@ -13,6 +13,7 @@ import { playAlertSound } from "@/lib/alertSounds";
 import { showDesktopNotification } from "@/lib/notifications";
 
 import { t } from "@/lib/i18n";
+import { shouldApplyDisplayPriceUpdate } from "@/lib/displayPrice";
 
 
 
@@ -310,6 +311,15 @@ export function useMultiDashboard() {
             const asset = prev?.assets[priceData.symbol];
 
             if (!asset || asset.market_status?.is_open === false) return prev;
+
+            if (
+              !shouldApplyDisplayPriceUpdate(
+                asset.display_price_source,
+                priceData.source,
+              )
+            ) {
+              return prev;
+            }
 
             return {
 

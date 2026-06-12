@@ -108,6 +108,12 @@ class BinanceDisplayTickerFeed:
         }
 
     async def _publish_price(self, parsed: dict[str, Any], *, source: str) -> None:
+        from app.services.live_price_resolver import get_metatrader_price, is_metatrader_connected
+
+        mt_raw = await get_metatrader_price(self.apex_symbol)
+        if is_metatrader_connected(self.apex_symbol, mt_raw):
+            return
+
         self._last_message_at = datetime.now(timezone.utc)
         await set_display_price(
             self.apex_symbol,

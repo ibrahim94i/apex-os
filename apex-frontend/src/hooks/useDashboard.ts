@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { DashboardState, WSMessage } from "@/types";
 import { fetchDashboard, getWebSocketUrl } from "@/lib/api";
 import { t } from "@/lib/i18n";
+import { shouldApplyDisplayPriceUpdate } from "@/lib/displayPrice";
 
 export function useDashboard(symbol = "XAUUSD") {
   const [state, setState] = useState<DashboardState | null>(null);
@@ -60,17 +61,21 @@ export function useDashboard(symbol = "XAUUSD") {
             timestamp?: string;
             source?: string;
           };
-          setState((prev) =>
-            prev
-              ? {
-                  ...prev,
-                  display_price: priceData.price,
-                  display_price_timestamp:
-                    priceData.timestamp ?? prev.display_price_timestamp,
-                  display_price_source: priceData.source ?? prev.display_price_source,
-                }
-              : prev
-          );
+          setState((prev) => {
+            if (!prev) return prev;
+            if (
+              !shouldApplyDisplayPriceUpdate(prev.display_price_source, priceData.source)
+            ) {
+              return prev;
+            }
+            return {
+              ...prev,
+              display_price: priceData.price,
+              display_price_timestamp:
+                priceData.timestamp ?? prev.display_price_timestamp,
+              display_price_source: priceData.source ?? prev.display_price_source,
+            };
+          });
         } else if (msg.type === "agent_consensus_update") {
           setState((prev) =>
             prev

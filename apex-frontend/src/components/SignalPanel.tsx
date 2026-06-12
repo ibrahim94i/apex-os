@@ -2,12 +2,14 @@
 
 import type { AgentConsensus, TradingSignal } from "@/types";
 import { formatAssetPrice, pricePrefix } from "@/lib/formatPrice";
+import { displayPriceHint } from "@/lib/displayPrice";
 import { t, translateDirection } from "@/lib/i18n";
 
 interface Props {
   signal: TradingSignal | null;
   currentPrice: number | null;
   displayPrice?: number | null;
+  displayPriceSource?: string | null;
   symbol: string;
   consensus?: AgentConsensus | null;
 }
@@ -16,6 +18,7 @@ export default function SignalPanel({
   signal,
   currentPrice,
   displayPrice = null,
+  displayPriceSource = null,
   symbol,
   consensus,
 }: Props) {
@@ -66,7 +69,7 @@ export default function SignalPanel({
                 {formatAssetPrice(livePrice, symbol)}
               </span>
               {showDisplayHint && (
-                <div className="display-price-hint">{t.displayPriceHint}</div>
+                <div className="display-price-hint">{displayPriceHint(displayPriceSource)}</div>
               )}
             </div>
           )}
@@ -139,7 +142,7 @@ export default function SignalPanel({
             {formatAssetPrice(livePrice, symbol)}
           </span>
           {showDisplayHint && (
-            <div className="display-price-hint">{t.displayPriceHint}</div>
+            <div className="display-price-hint">{displayPriceHint(displayPriceSource)}</div>
           )}
         </div>
       )}
