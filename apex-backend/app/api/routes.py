@@ -265,10 +265,15 @@ async def get_feeds_status() -> dict:
     from app.services.feed_health_service import check_feed_health
     from app.config.assets import ACTIVE_SYMBOLS
     from app.feeds.manager import feed_manager
+    from app.services.live_price_resolver import get_metatrader_health
 
     health = [await check_feed_health(sym) for sym in ACTIVE_SYMBOLS]
+    metatrader_health = {
+        sym: (await get_metatrader_health(sym)).model_dump(mode="json") for sym in ACTIVE_SYMBOLS
+    }
     return {
         "manager": feed_manager.get_status(),
+        "metatrader": metatrader_health,
         "twelvedata_credits": await get_credit_usage_report(),
         "llm_circuit": await get_llm_circuit_report(),
         "health": [

@@ -111,6 +111,9 @@ class Settings(BaseSettings):
     binance_display_ticker_ws_url: str = "wss://fstream.binance.com/ws/xauusdt@bookTicker"
     binance_display_ticker_rest_url: str = "https://fapi.binance.com/fapi/v1/ticker/price?symbol=XAUUSDT"
     binance_display_ticker_poll_seconds: float = 2.0
+    metatrader_api_key: str = ""
+    metatrader_stale_seconds: int = 30
+    metatrader_twelvedata_cache_seconds: int = 30
 
     @field_validator("database_url", mode="before")
     @classmethod

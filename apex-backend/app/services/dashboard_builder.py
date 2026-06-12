@@ -2,7 +2,6 @@
 
 from app.core.cache import (
     get_agent_consensus,
-    get_display_price,
     get_kill_switch_status,
     get_latest_price,
     get_latest_regime,
@@ -17,6 +16,7 @@ from app.schemas import (
     RegimeSnapshotSchema,
     TradingSignalSchema,
 )
+from app.services.live_price_resolver import resolve_display_price
 from app.services.market_status_service import build_market_status
 from app.services.market_data_store import get_latest_price_from_db, get_latest_regime_from_db
 from app.services.account_service import account_service
@@ -53,7 +53,11 @@ async def build_asset_dashboard_state(symbol: str) -> DashboardStateSchema:
     price_data = await get_latest_price(symbol)
     if not price_data:
         price_data = await get_latest_price_from_db(symbol)
-    display_data = await get_display_price(symbol)
+    display_data = await resolve_display_price(symbol)
+    if not display_data:
+        from app.core.cache import get_display_price
+
+        display_data = await get_display_price(symbol)
     consensus_data = await get_agent_consensus(symbol)
 
     consensus = AgentConsensus(**consensus_data) if consensus_data else None

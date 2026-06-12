@@ -44,6 +44,19 @@ async def get_display_price(symbol: str) -> dict[str, Any] | None:
     return await cache_get(CacheKeys.DISPLAY_PRICE.format(symbol=symbol))
 
 
+async def set_metatrader_price(symbol: str, data: dict[str, Any]) -> None:
+    """Latest MetaTrader quote — display price layer only."""
+    await cache_set(
+        CacheKeys.METATRADER_PRICE.format(symbol=symbol),
+        data,
+        ttl=3600,
+    )
+
+
+async def get_metatrader_price(symbol: str) -> dict[str, Any] | None:
+    return await cache_get(CacheKeys.METATRADER_PRICE.format(symbol=symbol))
+
+
 async def set_latest_indicators(symbol: str, data: dict[str, Any]) -> None:
     await cache_set(CacheKeys.LATEST_INDICATORS.format(symbol=symbol), data, ttl=1800)
 

@@ -13,6 +13,7 @@ from app.api.account_routes import account_router
 from app.api.journal_routes import journal_router
 from app.api.advisor_routes import advisor_router
 from app.api.admin_routes import admin_router
+from app.api.price_routes import price_router
 from app.api.websocket_routes import ws_router
 from app.config import settings
 from app.core.redis_client import close_redis, redis_health_check
@@ -94,6 +95,7 @@ app.include_router(journal_router, prefix="/api/v1")
 app.include_router(account_router, prefix="/api/v1")
 app.include_router(advisor_router, prefix="/api/v1")
 app.include_router(admin_router, prefix="/api/v1")
+app.include_router(price_router, prefix="/api/v1")
 app.include_router(ws_router)
 
 
