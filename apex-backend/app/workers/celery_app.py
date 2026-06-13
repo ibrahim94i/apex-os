@@ -2,6 +2,7 @@
 
 from celery import Celery
 from celery.schedules import crontab
+from celery.signals import worker_process_shutdown
 
 from app.config import settings
 
@@ -36,3 +37,10 @@ celery_app.conf.update(
 )
 
 celery_app.autodiscover_tasks(["app.workers"])
+
+
+@worker_process_shutdown.connect
+def _shutdown_worker_async_resources(**kwargs: object) -> None:
+    from app.workers.async_runner import shutdown_worker_event_loop
+
+    shutdown_worker_event_loop()

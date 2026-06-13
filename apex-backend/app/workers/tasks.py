@@ -1,6 +1,5 @@
 """Celery background tasks."""
 
-import asyncio
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import delete, select
@@ -11,15 +10,8 @@ from app.database import AsyncSessionLocal
 from app.engines.kill_switch import kill_switch
 from app.logging_config import logger
 from app.models import PriceBar
+from app.workers.async_runner import run_async
 from app.workers.celery_app import celery_app
-
-
-def _run_async(coro):  # type: ignore[no-untyped-def]
-    loop = asyncio.new_event_loop()
-    try:
-        return loop.run_until_complete(coro)
-    finally:
-        loop.close()
 
 
 @celery_app.task(name="app.workers.tasks.evaluate_kill_switch")
@@ -31,7 +23,7 @@ def evaluate_kill_switch() -> dict:
             await session.commit()
             return status.model_dump(mode="json")
 
-    result = _run_async(_evaluate())
+    result = run_async(_evaluate())
     logger.info("kill_switch_evaluated", status=result.get("status"))
     return result
 
@@ -65,7 +57,7 @@ def check_feed_staleness() -> dict:
 
         return {"stale_symbols": stale_symbols, "checked_at": now.isoformat()}
 
-    return _run_async(_check())
+    return run_async(_check())
 
 
 @celery_app.task(name="app.workers.tasks.cleanup_old_bars")
@@ -79,4 +71,4 @@ def cleanup_old_bars(days: int = 30) -> dict:
             await session.commit()
             return {"deleted": result.rowcount, "cutoff": cutoff.isoformat()}
 
-    return _run_async(_cleanup())
+    return run_async(_cleanup())
