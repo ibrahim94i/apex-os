@@ -6,6 +6,7 @@ from app.agents.risk.prompt import SYSTEM_PROMPT, build_user_prompt
 from app.schemas.agent import AgentLLMOutput, AgentRole, AgentVerdict, MarketSnapshot
 from app.schemas import SignalDirection
 from app.utils.llm_client import LLMClient, LLMClientError, llm_client
+from app.utils.llm_circuit_breaker import LLMCircuitOpenError
 
 
 AGENT_NAME_AR = "وكيل المخاطر"
@@ -83,7 +84,7 @@ class RiskAgent:
             else:
                 output = _rule_based(snapshot)
                 latency_ms = (time.monotonic() - start) * 1000
-        except LLMClientError as exc:
+        except (LLMClientError, LLMCircuitOpenError) as exc:
             error = str(exc)
             output = _rule_based(snapshot)
             latency_ms = (time.monotonic() - start) * 1000

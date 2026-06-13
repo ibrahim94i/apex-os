@@ -7,6 +7,7 @@ import json
 
 from app.config import settings
 from app.core.redis_client import cache_delete_pattern, cache_get, cache_set
+from app.logging_config import logger
 from app.schemas.agent import AgentConsensus, MarketSnapshot
 from app.services.account_service import account_service
 
@@ -32,7 +33,10 @@ async def _cache_key(snapshot: MarketSnapshot) -> str:
 
 
 async def invalidate_agent_llm_cache() -> None:
-    await cache_delete_pattern("apex:agent_llm_cache:*")
+    try:
+        await cache_delete_pattern("apex:agent_llm_cache:*")
+    except Exception as exc:
+        logger.warning("agent_llm_cache_invalidation_failed", error=str(exc))
 
 
 async def get_cached_consensus(snapshot: MarketSnapshot) -> AgentConsensus | None:

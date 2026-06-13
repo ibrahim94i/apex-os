@@ -141,15 +141,21 @@ class AlertService:
 
     async def _should_send(self, key: str, ttl: int = 3600) -> bool:
         redis_key = f"apex:alert_dedup:{key}"
-        if await cache_get(redis_key):
-            return False
-        await cache_set(redis_key, {"sent": True}, ttl=ttl)
+        try:
+            if await cache_get(redis_key):
+                return False
+            await cache_set(redis_key, {"sent": True}, ttl=ttl)
+        except Exception:
+            return True
         return True
 
     async def _clear_dedup(self, key: str) -> None:
         from app.core.redis_client import cache_delete
 
-        await cache_delete(f"apex:alert_dedup:{key}")
+        try:
+            await cache_delete(f"apex:alert_dedup:{key}")
+        except Exception:
+            return None
 
     async def _push(self, alert: Alert) -> None:
         await manager.broadcast({"type": "alert", "data": alert.model_dump(mode="json")})

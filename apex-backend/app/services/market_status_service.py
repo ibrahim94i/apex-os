@@ -34,7 +34,10 @@ async def build_market_status(symbol: str, at: datetime | None = None) -> Market
     seconds_open = _seconds_until(next_open, now) if not open_now else None
 
     last_signal_at: datetime | None = None
-    last_data = await get_latest_signal(symbol)
+    try:
+        last_data = await get_latest_signal(symbol)
+    except Exception:
+        last_data = None
     if last_data and last_data.get("timestamp"):
         ts = last_data["timestamp"]
         last_signal_at = datetime.fromisoformat(str(ts).replace("Z", "+00:00"))

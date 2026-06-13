@@ -20,13 +20,25 @@ from app.logging_config import logger
 METALS_LIVE_GOLD_URL = "https://api.metals.live/v1/spot/gold"
 
 
+def _fx_pair_from_asset(asset: AssetConfig) -> tuple[str, str] | None:
+    if asset.frankfurter_from_symbol and asset.frankfurter_to_symbol:
+        return asset.frankfurter_from_symbol, asset.frankfurter_to_symbol
+    if asset.twelvedata_symbol and "/" in asset.twelvedata_symbol:
+        base, quote = asset.twelvedata_symbol.split("/", 1)
+        if base and quote:
+            return base, quote
+    return None
+
+
 async def fetch_fx_live_bar(asset: AssetConfig) -> tuple[dict[str, Any] | None, str | None]:
-    if not asset.frankfurter_from_symbol or not asset.frankfurter_to_symbol:
+    pair = _fx_pair_from_asset(asset)
+    if pair is None:
         return None, None
+    base, quote = pair
     try:
         rate, source = await fetch_latest_rate_with_source(
-            asset.frankfurter_from_symbol,
-            asset.frankfurter_to_symbol,
+            base,
+            quote,
         )
     except Exception as exc:
         logger.warning("fx_live_fetch_failed", symbol=asset.symbol, error=str(exc))
@@ -109,7 +121,7 @@ async def fetch_finnhub_live_bar(asset: AssetConfig) -> dict[str, Any] | None:
 
 async def fetch_live_fallback_bar(asset: AssetConfig) -> tuple[dict[str, Any] | None, str | None]:
     """Try free fallbacks first, then Finnhub (premium), in priority order."""
-    if asset.frankfurter_from_symbol and asset.frankfurter_to_symbol:
+    if _fx_pair_from_asset(asset) is not None:
         bar, source = await fetch_fx_live_bar(asset)
         if bar and source:
             return bar, source

@@ -27,7 +27,7 @@ from app.schemas import (
 
 class SignalGenerator:
     def __init__(self) -> None:
-        self.indicator_engine = IndicatorEngine()
+        self.indicator_engine = IndicatorEngine(min_bars=60)
         self.regime_engine = RegimeEngine()
         self.sl_tp_engine = SLTPEngine()
         self.risk_calculator = RiskCalculator()

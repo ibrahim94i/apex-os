@@ -208,9 +208,6 @@ async def fetch_finnhub_latest_bar(
     interval: str = "1h",
 ) -> dict[str, Any] | None:
     """Fetch live price from Finnhub: candle → forex/rates → quote."""
-    if not _is_configured():
-        return None
-
     bars = await fetch_finnhub_history(
         apex_symbol,
         finnhub_symbol,
@@ -219,6 +216,8 @@ async def fetch_finnhub_latest_bar(
     )
     if bars:
         return bars[-1]
+    if not _is_configured():
+        return None
 
     pair = _parse_oanda_pair(finnhub_symbol)
     if pair:
