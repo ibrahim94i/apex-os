@@ -1,4 +1,4 @@
-"""LLM client — Groq primary with OpenAI fallback, circuit breaker, and structured logging."""
+"""LLM client — OpenAI primary (gpt-4o-mini) with optional Groq fallback."""
 
 from __future__ import annotations
 

@@ -16,7 +16,7 @@ Deploy APEX OS on [Railway.app](https://railway.app) with five services:
 
 1. GitHub account with APEX OS pushed to a repository
 2. [Railway account](https://railway.app)
-3. API keys: **TwelveData**, **Groq** (optional: Telegram)
+3. API keys: **TwelveData**, **OpenAI** (optional: Groq, Telegram)
 
 ---
 
@@ -72,7 +72,9 @@ CELERY_RESULT_BACKEND=${{Redis.REDIS_URL}}
 FRONTEND_URL=https://YOUR-FRONTEND.up.railway.app
 CORS_ORIGINS=https://YOUR-FRONTEND.up.railway.app
 TWELVEDATA_API_KEY=your_key
-GROQ_API_KEY=your_key
+OPENAI_API_KEY=your_key
+OPENAI_MODEL=gpt-4o-mini
+LLM_PRIMARY_PROVIDER=openai
 TELEGRAM_BOT_TOKEN=optional
 TELEGRAM_CHAT_ID=optional
 ```
@@ -173,7 +175,10 @@ Full template: [`.env.production`](.env.production)
 | `NEXT_PUBLIC_API_URL` | Frontend | Backend HTTPS URL |
 | `NEXT_PUBLIC_WS_URL` | Frontend | Backend WSS URL |
 | `TWELVEDATA_API_KEY` | Backend, Celery | Gold/EURUSD data |
-| `GROQ_API_KEY` | Backend | AI agents |
+| `OPENAI_API_KEY` | Backend, Celery | AI agents (primary) |
+| `OPENAI_MODEL` | Backend, Celery | Default: `gpt-4o-mini` |
+| `LLM_PRIMARY_PROVIDER` | Backend, Celery | Default: `openai` |
+| `GROQ_API_KEY` | Backend | Optional Groq fallback |
 | `TELEGRAM_*` | Backend | Optional alerts |
 
 ---

@@ -75,7 +75,9 @@ NEXT_PUBLIC_WS_URL=wss://apex-os-production-9adc.up.railway.app
 DATABASE_URL=${{Postgres.DATABASE_URL}}
 ENVIRONMENT=production
 TWELVEDATA_API_KEY=...
-GROQ_API_KEY=...
+OPENAI_API_KEY=...
+OPENAI_MODEL=gpt-4o-mini
+LLM_PRIMARY_PROVIDER=openai
 ```
 
 ---
