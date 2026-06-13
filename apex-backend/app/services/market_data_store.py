@@ -100,6 +100,43 @@ async def persist_bars_batch(bars: list[dict[str, Any]]) -> int:
     return len(values)
 
 
+async def upsert_metatrader_bar(bar: dict[str, Any]) -> None:
+    """Insert or replace an H1 bar from MetaTrader (overrides Binance at same timestamp)."""
+    from sqlalchemy.dialects.postgresql import insert
+
+    ts = bar["timestamp"]
+    if isinstance(ts, str):
+        ts = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+    if ts.tzinfo is None:
+        ts = ts.replace(tzinfo=timezone.utc)
+
+    values = {
+        "symbol": bar["symbol"],
+        "source": bar.get("source", "metatrader"),
+        "timestamp": ts,
+        "open": bar["open"],
+        "high": bar["high"],
+        "low": bar["low"],
+        "close": bar["close"],
+        "volume": bar.get("volume", 0.0),
+    }
+
+    async with AsyncSessionLocal() as session:
+        stmt = insert(PriceBar).values(values).on_conflict_do_update(
+            index_elements=["symbol", "timestamp"],
+            set_={
+                "source": values["source"],
+                "open": values["open"],
+                "high": values["high"],
+                "low": values["low"],
+                "close": values["close"],
+                "volume": values["volume"],
+            },
+        )
+        await session.execute(stmt)
+        await session.commit()
+
+
 async def get_latest_price_from_db(symbol: str) -> dict[str, Any] | None:
     bars = await fetch_bars_from_db(symbol, limit=1)
     if not bars:

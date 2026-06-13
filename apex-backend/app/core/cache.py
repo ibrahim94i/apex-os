@@ -115,6 +115,14 @@ async def count_metatrader_ingests_last_hour(symbol: str) -> int:
     return count
 
 
+async def set_metatrader_candle_state(symbol: str, data: dict[str, Any]) -> None:
+    await cache_set(CacheKeys.METATRADER_CANDLE.format(symbol=symbol), data, ttl=86400)
+
+
+async def get_metatrader_candle_state(symbol: str) -> dict[str, Any] | None:
+    return await cache_get(CacheKeys.METATRADER_CANDLE.format(symbol=symbol))
+
+
 async def set_latest_indicators(symbol: str, data: dict[str, Any]) -> None:
     await cache_set(CacheKeys.LATEST_INDICATORS.format(symbol=symbol), data, ttl=1800)
 

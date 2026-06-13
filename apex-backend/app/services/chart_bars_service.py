@@ -16,7 +16,7 @@ from app.logging_config import logger
 from app.services.market_data_store import fetch_bars_from_db
 
 ChartTimeframe = Literal["M5", "M15", "H1", "H4", "D1"]
-ChartDataSource = Literal["db", "binance", "twelvedata", "resampled"]
+ChartDataSource = Literal["db", "binance", "twelvedata", "resampled", "metatrader"]
 
 CHART_TIMEFRAMES: dict[str, str] = {
     "M5": "5min",
@@ -268,8 +268,13 @@ async def fetch_chart_bars(
 
     h1_bars = await fetch_bars_from_db(symbol, _RESAMPLE_DB_LIMIT)
 
+    from app.services.metatrader_candle_service import is_metatrader_candles_connected
+
+    mt_candles = await is_metatrader_candles_connected(symbol)
+
     if timeframe == "H1":
-        return h1_bars[-capped_limit:], timeframe, "db"
+        source: ChartDataSource = "metatrader" if mt_candles else "db"
+        return h1_bars[-capped_limit:], timeframe, source
 
     asset = get_asset(symbol)
     if asset and asset.binance_symbol:

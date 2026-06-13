@@ -1,28 +1,32 @@
 //+------------------------------------------------------------------+
-//| ApexPriceFeed.mq4 — APEX OS MetaTrader price stream (timer-based)|
-//| Sends bid/ask every 5 seconds to POST /api/v1/prices/update    |
-//| Display price layer only — no trading execution                  |
+//| ApexPriceFeed.mq4 — APEX OS MetaTrader price + H1 candle stream  |
+//| Price: POST /api/v1/prices/update every 5s                       |
+//| H1 candle: POST /api/v1/candles/update on each H1 close          |
 //+------------------------------------------------------------------+
 #property copyright "APEX OS"
 #property link      "https://github.com/ibrahim94i/apex-os"
-#property version   "2.00"
+#property version   "3.00"
 #property strict
 
 //--- inputs
-input string InpApiUrl      = "https://apex-os-production-9adc.up.railway.app/api/v1/prices/update";
-input string InpApiKey      = "apex_mt_CNj4vVEZvXwkPBKXkNGEoRndbg3J9mgaybydnWO0H50";
-input string InpApexSymbol  = "XAUUSD";   // symbol name expected by APEX backend
-input int    InpTimerSeconds = 5;         // fixed send interval (seconds)
-input int    InpTimeoutMs   = 8000;       // WebRequest timeout
-input bool   InpShowComment = true;       // show status on chart
+input string InpApiUrl       = "https://apex-os-production-9adc.up.railway.app/api/v1/prices/update";
+input string InpCandleApiUrl = "https://apex-os-production-9adc.up.railway.app/api/v1/candles/update";
+input string InpApiKey       = "apex_mt_CNj4vVEZvXwkPBKXkNGEoRndbg3J9mgaybydnWO0H50";
+input string InpApexSymbol   = "XAUUSD";
+input int    InpTimerSeconds = 5;
+input int    InpTimeoutMs    = 8000;
+input bool   InpShowComment   = true;
+
+#define H1_PERIOD_SECONDS 3600
 
 //--- state
-datetime g_last_ok_utc = 0;
-int      g_fail_count  = 0;
-int      g_ok_count    = 0;
+datetime g_last_ok_utc      = 0;
+datetime g_last_h1_open_sent = 0;
+int      g_fail_count       = 0;
+int      g_ok_count         = 0;
+int      g_candle_ok_count  = 0;
+int      g_candle_fail_count = 0;
 
-//+------------------------------------------------------------------+
-//| Expert initialization                                            |
 //+------------------------------------------------------------------+
 int OnInit()
 {
@@ -44,49 +48,40 @@ int OnInit()
       return(INIT_FAILED);
    }
 
-   Print("APEX Price Feed started | timer=", InpTimerSeconds, "s | apex_symbol=", InpApexSymbol);
+   Print("APEX Feed started | price timer=", InpTimerSeconds, "s | symbol=", InpApexSymbol);
    SendPriceToApex("init");
+   CheckAndSendH1Candle("init");
    return(INIT_SUCCEEDED);
 }
 
-//+------------------------------------------------------------------+
-//| Expert deinitialization                                          |
 //+------------------------------------------------------------------+
 void OnDeinit(const int reason)
 {
    EventKillTimer();
    if(InpShowComment)
       Comment("");
-   Print("APEX Price Feed stopped, reason=", reason);
+   Print("APEX Feed stopped, reason=", reason);
 }
 
-//+------------------------------------------------------------------+
-//| Timer event — primary send loop (every 5 seconds)                |
 //+------------------------------------------------------------------+
 void OnTimer()
 {
    SendPriceToApex("timer");
+   CheckAndSendH1Candle("timer");
 }
 
-//+------------------------------------------------------------------+
-//| Tick event — intentionally unused (timer-based streaming)        |
 //+------------------------------------------------------------------+
 void OnTick()
 {
-   // Timer-based only — do not send on tick.
+   // Timer-based only.
 }
 
 //+------------------------------------------------------------------+
-//| Build UTC timestamp string for backend (YYYY.MM.DD HH:MM:SS)     |
-//+------------------------------------------------------------------+
-string BuildUtcTimeString()
+string BuildUtcTimeString(datetime utc_time)
 {
-   datetime utc = TimeGMT();
-   return(TimeToString(utc, TIME_DATE | TIME_SECONDS));
+   return(TimeToString(utc_time, TIME_DATE | TIME_SECONDS));
 }
 
-//+------------------------------------------------------------------+
-//| Resolve bid/ask from chart symbol                                |
 //+------------------------------------------------------------------+
 bool GetQuote(double &bid, double &ask)
 {
@@ -115,7 +110,70 @@ bool GetQuote(double &bid, double &ask)
 }
 
 //+------------------------------------------------------------------+
-//| POST JSON price update to APEX backend                           |
+bool PostJsonToApex(
+   const string url,
+   const string json,
+   const string trigger,
+   const string label,
+   int &ok_counter,
+   int &fail_counter
+)
+{
+   char post[];
+   char result[];
+   string req_headers = "Content-Type: application/json\r\n"
+                        + "X-MT-Key: " + InpApiKey + "\r\n";
+   string resp_headers = "";
+
+   StringToCharArray(json, post, 0, WHOLE_ARRAY, CP_UTF8);
+   if(ArraySize(post) > 0)
+      ArrayResize(post, ArraySize(post) - 1);
+
+   ResetLastError();
+   int http_status = WebRequest(
+      "POST",
+      url,
+      req_headers,
+      InpTimeoutMs,
+      post,
+      result,
+      resp_headers
+   );
+
+   if(http_status == -1)
+   {
+      int err = GetLastError();
+      fail_counter++;
+      Print(
+         "APEX ", label, " WebRequest failed err=", err,
+         " trigger=", trigger,
+         " url=", url
+      );
+      UpdateChartComment(false, label + " err " + IntegerToString(err));
+      return(false);
+   }
+
+   string response = CharArrayToString(result, 0, WHOLE_ARRAY, CP_UTF8);
+
+   if(http_status >= 200 && http_status < 300)
+   {
+      ok_counter++;
+      g_last_ok_utc = TimeGMT();
+      Print("APEX ", label, " OK http=", http_status, " trigger=", trigger, " response=", response);
+      UpdateChartComment(true, label + " HTTP " + IntegerToString(http_status));
+      return(true);
+   }
+
+   fail_counter++;
+   Print(
+      "APEX ", label, " HTTP error status=", http_status,
+      " trigger=", trigger,
+      " response=", response
+   );
+   UpdateChartComment(false, label + " HTTP " + IntegerToString(http_status));
+   return(false);
+}
+
 //+------------------------------------------------------------------+
 bool SendPriceToApex(const string trigger)
 {
@@ -133,7 +191,7 @@ bool SendPriceToApex(const string trigger)
    if(digits < 0)
       digits = 2;
 
-   string time_utc = BuildUtcTimeString();
+   string time_utc = BuildUtcTimeString(TimeGMT());
    string json = StringFormat(
       "{\"symbol\":\"%s\",\"bid\":%.*f,\"ask\":%.*f,\"time\":\"%s\"}",
       InpApexSymbol,
@@ -142,64 +200,67 @@ bool SendPriceToApex(const string trigger)
       time_utc
    );
 
-   char post[];
-   char result[];
-   string req_headers = "Content-Type: application/json\r\n"
-                        + "X-MT-Key: " + InpApiKey + "\r\n";
-   string resp_headers = "";
-
-   StringToCharArray(json, post, 0, WHOLE_ARRAY, CP_UTF8);
-   if(ArraySize(post) > 0)
-      ArrayResize(post, ArraySize(post) - 1);
-
-   ResetLastError();
-   int http_status = WebRequest(
-      "POST",
-      InpApiUrl,
-      req_headers,
-      InpTimeoutMs,
-      post,
-      result,
-      resp_headers
-   );
-
-   if(http_status == -1)
-   {
-      int err = GetLastError();
-      g_fail_count++;
-      Print(
-         "APEX WebRequest failed err=", err,
-         " | add URL to Tools->Options->Expert Advisors->Allow WebRequest",
-         " | url=", InpApiUrl,
-         " | trigger=", trigger
-      );
-      UpdateChartComment(false, "WebRequest err " + IntegerToString(err));
-      return(false);
-   }
-
-   string response = CharArrayToString(result, 0, WHOLE_ARRAY, CP_UTF8);
-
-   if(http_status >= 200 && http_status < 300)
-   {
-      g_ok_count++;
-      g_last_ok_utc = TimeGMT();
-      Print("APEX OK http=", http_status, " trigger=", trigger, " response=", response);
-      UpdateChartComment(true, "HTTP " + IntegerToString(http_status));
-      return(true);
-   }
-
-   g_fail_count++;
-   Print(
-      "APEX HTTP error status=", http_status,
-      " trigger=", trigger,
-      " response=", response
-   );
-   UpdateChartComment(false, "HTTP " + IntegerToString(http_status));
-   return(false);
+   return PostJsonToApex(InpApiUrl, json, trigger, "PRICE", g_ok_count, g_fail_count);
 }
 
 //+------------------------------------------------------------------+
-//| Chart comment helper                                             |
+void CheckAndSendH1Candle(const string trigger)
+{
+   datetime bar_open = iTime(Symbol(), PERIOD_H1, 1);
+   if(bar_open <= 0)
+      return;
+
+   if(bar_open == g_last_h1_open_sent)
+      return;
+
+   if(SendH1CandleToApex(bar_open, trigger))
+      g_last_h1_open_sent = bar_open;
+}
+
+//+------------------------------------------------------------------+
+bool SendH1CandleToApex(datetime bar_open, const string trigger)
+{
+   double open  = iOpen(Symbol(), PERIOD_H1, 1);
+   double high  = iHigh(Symbol(), PERIOD_H1, 1);
+   double low   = iLow(Symbol(), PERIOD_H1, 1);
+   double close = iClose(Symbol(), PERIOD_H1, 1);
+   long   volume = iVolume(Symbol(), PERIOD_H1, 1);
+
+   if(open <= 0.0 || high <= 0.0 || low <= 0.0 || close <= 0.0)
+   {
+      g_candle_fail_count++;
+      Print("APEX H1 candle: invalid OHLC for ", Symbol(), " trigger=", trigger);
+      return(false);
+   }
+
+   int digits = (int)MarketInfo(Symbol(), MODE_DIGITS);
+   if(digits < 0)
+      digits = 2;
+
+   datetime bar_close = bar_open + H1_PERIOD_SECONDS;
+   string close_utc = BuildUtcTimeString(bar_close);
+
+   string json = StringFormat(
+      "{\"symbol\":\"%s\",\"timeframe\":\"H1\",\"open\":%.*f,\"high\":%.*f,\"low\":%.*f,\"close\":%.*f,\"volume\":%d,\"time\":\"%s\"}",
+      InpApexSymbol,
+      digits, open,
+      digits, high,
+      digits, low,
+      digits, close,
+      (int)volume,
+      close_utc
+   );
+
+   return PostJsonToApex(
+      InpCandleApiUrl,
+      json,
+      trigger,
+      "H1",
+      g_candle_ok_count,
+      g_candle_fail_count
+   );
+}
+
 //+------------------------------------------------------------------+
 void UpdateChartComment(const bool ok, const string detail)
 {
@@ -210,10 +271,13 @@ void UpdateChartComment(const bool ok, const string detail)
    Comment(
       status,
       " | ", InpApexSymbol,
-      " | every ", InpTimerSeconds, "s",
+      " | price ", InpTimerSeconds, "s",
+      " | H1 on close",
       " | ", detail,
-      "\nok=", g_ok_count,
+      "\nprice ok=", g_ok_count,
       " fail=", g_fail_count,
+      " | H1 ok=", g_candle_ok_count,
+      " fail=", g_candle_fail_count,
       "\nlast=", TimeToString(g_last_ok_utc, TIME_DATE | TIME_SECONDS)
    );
 }

@@ -27,6 +27,16 @@ FeedHandle = (
 
 async def _handle_feed_bar(raw_bar: dict[str, Any]) -> None:
     symbol = raw_bar.get("symbol", "")
+    from app.services.metatrader_candle_service import is_metatrader_candles_connected
+
+    if symbol and await is_metatrader_candles_connected(symbol):
+        logger.debug(
+            "feed_bar_skipped_metatrader_candles",
+            symbol=symbol,
+            source=raw_bar.get("source"),
+        )
+        return
+
     asset = get_asset(symbol)
     skip_agents = bool(
         raw_bar.get("is_closed", True)

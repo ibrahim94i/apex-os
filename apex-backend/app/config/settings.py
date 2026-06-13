@@ -113,6 +113,7 @@ class Settings(BaseSettings):
     binance_display_ticker_poll_seconds: float = 2.0
     metatrader_api_key: str = ""
     metatrader_stale_seconds: int = 30
+    metatrader_candle_stale_seconds: int = 7200
     metatrader_twelvedata_cache_seconds: int = 30
 
     @field_validator("database_url", mode="before")

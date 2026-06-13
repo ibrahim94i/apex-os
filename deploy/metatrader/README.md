@@ -24,11 +24,13 @@ Timer-based price stream to APEX backend — **every 5 seconds**.
 ## Verify
 
 - Chart comment: `APEX OK | HTTP 200`
-- Backend: `GET /api/v1/prices/status` → `connected: true`
+- Backend price: `GET /api/v1/prices/status` → `connected: true`
+- Backend H1 candles: `GET /api/v1/candles/status` → `connected: true`
 
 ## Notes
 
 - Uses `OnTimer` only — **not** `OnTick`.
 - Sends UTC time as `YYYY.MM.DD HH:MM:SS` (backend-compatible).
-- Does not place trades or modify APEX signals directly.
-- When connected, MetaTrader is the **primary analysis price** for agents and SNR.
+- **Price:** every 5 seconds → `POST /api/v1/prices/update`
+- **H1 candle:** on each H1 close (+ once on attach) → `POST /api/v1/candles/update`
+- When H1 candles are connected, backend **replaces Binance H1** for XAUUSD in PostgreSQL.
