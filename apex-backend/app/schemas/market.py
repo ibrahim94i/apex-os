@@ -11,8 +11,10 @@ class MarketStatusSchema(BaseModel):
     timezone: str = "Asia/Baghdad"
     schedule_ar: str
     next_open_at: datetime | None = None
+    next_close_at: datetime | None = None
     next_signal_at: datetime | None = None
     seconds_until_open: int | None = None
+    seconds_until_close: int | None = None
     seconds_until_next_signal: int | None = None
 
 

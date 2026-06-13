@@ -108,8 +108,6 @@ def _is_forex_24_5_open(at: datetime | None = None) -> bool:
 
 def next_market_open(symbol: str, at: datetime | None = None) -> datetime | None:
 
-    """Next open time in UTC, or None if already open (BTC) or open now."""
-
     if is_market_open(symbol, at):
 
         return None
@@ -203,7 +201,42 @@ def next_market_open(symbol: str, at: datetime | None = None) -> datetime | None
     return None
 
 
+def next_market_close(symbol: str, at: datetime | None = None) -> datetime | None:
+    """Next scheduled close time in UTC, or None when market is already closed or 24/7."""
+    if not is_market_open(symbol, at):
+        return None
 
+    asset = ASSETS.get(symbol)
+    if asset is None:
+        return None
+
+    local = (at or datetime.now(timezone.utc)).astimezone(BAGHDAD)
+
+    if asset.market_schedule == "xauusd":
+        weekday = local.weekday()
+        if weekday > 4 or (weekday == 4 and local.hour >= 23):
+            return None
+        days_until_friday = 4 - weekday
+        close_local = (local + timedelta(days=days_until_friday)).replace(
+            hour=23, minute=0, second=0, microsecond=0
+        )
+        if close_local <= local:
+            return None
+        return close_local.astimezone(timezone.utc)
+
+    if asset.market_schedule == "forex_24_5":
+        weekday = local.weekday()
+        if weekday > 4:
+            return None
+        days_until_friday = 4 - weekday
+        close_local = (local + timedelta(days=days_until_friday)).replace(
+            hour=23, minute=59, second=59, microsecond=0
+        )
+        if close_local <= local:
+            return None
+        return close_local.astimezone(timezone.utc)
+
+    return None
 
 
 def next_h1_bar_close(at: datetime | None = None) -> datetime:

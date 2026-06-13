@@ -5,6 +5,7 @@ from zoneinfo import ZoneInfo
 
 from app.services.market_hours import (
     is_market_open,
+    next_market_close,
     next_market_open,
     next_signal_opportunity,
 )
@@ -57,6 +58,25 @@ def test_next_open_from_saturday() -> None:
     assert nxt is not None
     local = nxt.astimezone(BAGHDAD)
     assert local.weekday() == 0 and local.hour == 1
+
+
+def test_next_close_on_tuesday_is_friday_11pm() -> None:
+    dt = _iraq(2026, 6, 2, 10)
+    close = next_market_close("XAUUSD", dt)
+    assert close is not None
+    local = close.astimezone(BAGHDAD)
+    assert local.weekday() == 4
+    assert local.hour == 23
+    assert local.minute == 0
+
+
+def test_next_close_none_when_market_closed() -> None:
+    sat = _iraq(2026, 6, 6, 15)
+    assert next_market_close("XAUUSD", sat) is None
+
+
+def test_btc_has_no_close() -> None:
+    assert next_market_close("BTCUSDT") is None
 
 
 def test_next_signal_none_when_closed() -> None:

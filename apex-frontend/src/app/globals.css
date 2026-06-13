@@ -846,6 +846,61 @@ body {
   font-weight: 600;
 }
 
+.mt-session-panel {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 0.85rem 1rem;
+  margin-bottom: 0.75rem;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.mt-session-panel.closed {
+  border-color: rgba(255, 61, 61, 0.25);
+}
+
+.mt-session-panel.open {
+  border-color: rgba(0, 200, 120, 0.25);
+}
+
+.mt-countdown-block {
+  margin-top: 0.65rem;
+  padding-top: 0.65rem;
+  border-top: 1px solid var(--border);
+}
+
+.mt-countdown-label {
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+  margin-bottom: 0.25rem;
+}
+
+.mt-countdown-value {
+  font-size: 1.75rem;
+  font-weight: 700;
+  color: var(--gold);
+  letter-spacing: 0.04em;
+  line-height: 1.2;
+}
+
+.mt-countdown-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.5rem;
+  margin-top: 0.45rem;
+  font-size: 0.76rem;
+  color: var(--text-secondary);
+}
+
+.mt-countdown-tz {
+  opacity: 0.85;
+}
+
+.mt-countdown-soon {
+  margin-top: 0.35rem;
+  font-size: 0.74rem;
+  color: #ffb347;
+}
+
 .market-closed-overlay {
   text-align: center;
   padding: 2.5rem 1.5rem;

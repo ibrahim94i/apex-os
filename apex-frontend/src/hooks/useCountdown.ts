@@ -40,3 +40,47 @@ export function minutesFromSeconds(seconds: number | null | undefined): number {
   if (seconds == null) return 0;
   return Math.ceil(seconds / 60);
 }
+
+const BAGHDAD_TZ = "Asia/Baghdad";
+
+export function formatBaghdadDateTime(iso: string | null | undefined): string {
+  if (!iso) return "—";
+  try {
+    return new Intl.DateTimeFormat("ar-IQ", {
+      timeZone: BAGHDAD_TZ,
+      weekday: "long",
+      day: "numeric",
+      month: "short",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    }).format(new Date(iso));
+  } catch {
+    return "—";
+  }
+}
+
+export function useCountdownParts(
+  targetIso: string | null | undefined,
+): { label: string; totalSeconds: number } {
+  const [state, setState] = useState({ label: "—", totalSeconds: 0 });
+
+  useEffect(() => {
+    if (!targetIso) {
+      setState({ label: "—", totalSeconds: 0 });
+      return;
+    }
+
+    const tick = () => {
+      const diffMs = new Date(targetIso).getTime() - Date.now();
+      const secs = Math.max(0, Math.floor(diffMs / 1000));
+      setState({ label: formatRemaining(secs), totalSeconds: secs });
+    };
+
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, [targetIso]);
+
+  return state;
+}

@@ -11,6 +11,7 @@ from app.schemas.market import MarketStatusSchema
 from app.services.market_hours import (
     SCHEDULE_LABELS,
     is_market_open,
+    next_market_close,
     next_market_open,
     next_signal_opportunity,
 )
@@ -33,6 +34,9 @@ async def build_market_status(symbol: str, at: datetime | None = None) -> Market
     next_open = next_market_open(symbol, now)
     seconds_open = _seconds_until(next_open, now) if not open_now else None
 
+    next_close = next_market_close(symbol, now) if open_now else None
+    seconds_close = _seconds_until(next_close, now) if open_now else None
+
     last_signal_at: datetime | None = None
     last_data = await get_latest_signal(symbol)
     if last_data and last_data.get("timestamp"):
@@ -52,8 +56,10 @@ async def build_market_status(symbol: str, at: datetime | None = None) -> Market
         is_open=open_now,
         schedule_ar=schedule,
         next_open_at=next_open,
+        next_close_at=next_close,
         next_signal_at=next_signal,
         seconds_until_open=seconds_open,
+        seconds_until_close=seconds_close,
         seconds_until_next_signal=seconds_signal,
     )
 

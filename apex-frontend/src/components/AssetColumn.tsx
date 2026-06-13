@@ -37,10 +37,6 @@ export default function AssetColumn({ symbol, state, hideTitle = false }: Props)
 
   const marketStatus = state?.market_status ?? null;
 
-  const isClosed = marketStatus?.is_open === false;
-
-
-
   return (
 
     <div className="asset-column">
@@ -53,23 +49,7 @@ export default function AssetColumn({ symbol, state, hideTitle = false }: Props)
 
       <MarketStatusPanel status={marketStatus} />
 
-      {isClosed ? (
-
-        <div className="market-closed-overlay card col-12">
-
-          <div className="market-closed-icon">🔒</div>
-
-          <h3>{t.marketClosed}</h3>
-
-          <p>{marketStatus?.schedule_ar}</p>
-
-          <p className="market-closed-hint">{t.marketClosedHint}</p>
-
-        </div>
-
-      ) : (
-
-        <div className="grid asset-grid">
+      <div className="grid asset-grid">
 
           <RegimePanel regime={state?.regime ?? null} />
 
@@ -91,9 +71,7 @@ export default function AssetColumn({ symbol, state, hideTitle = false }: Props)
             regime={state?.regime ?? null}
           />
 
-        </div>
-
-      )}
+      </div>
 
     </div>
 

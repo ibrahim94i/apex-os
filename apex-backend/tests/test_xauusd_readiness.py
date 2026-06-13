@@ -75,6 +75,18 @@ async def test_xauusd_market_status_shows_closed_with_countdown() -> None:
     assert status.next_open_at is not None
     assert status.seconds_until_open is not None
     assert status.seconds_until_open > 0
+    assert status.next_close_at is None
+
+
+@pytest.mark.asyncio
+async def test_xauusd_market_status_shows_close_countdown_when_open() -> None:
+    tue = _iraq(2026, 6, 2, 10)
+    with patch("app.services.market_status_service.get_latest_signal", new_callable=AsyncMock, return_value=None):
+        status = await build_market_status("XAUUSD", tue)
+    assert status.is_open is True
+    assert status.next_close_at is not None
+    assert status.seconds_until_close is not None
+    assert status.seconds_until_close > 0
 
 
 @pytest.mark.asyncio

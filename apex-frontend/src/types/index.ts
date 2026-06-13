@@ -121,8 +121,10 @@ export interface MarketStatus {
   timezone: string;
   schedule_ar: string;
   next_open_at: string | null;
+  next_close_at: string | null;
   next_signal_at: string | null;
   seconds_until_open: number | null;
+  seconds_until_close: number | null;
   seconds_until_next_signal: number | null;
 }
 
