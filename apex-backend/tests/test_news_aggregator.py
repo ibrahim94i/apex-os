@@ -71,10 +71,15 @@ async def test_fetch_news_for_symbol_merges_sources() -> None:
     ]
     rss = [
         NewsHeadline(
-            headline="Dollar weakens",
+            headline="Dollar weakens on Fed outlook",
             provider="fxstreet",
             published_at=datetime(2026, 6, 4, 9, 0, tzinfo=timezone.utc),
-        )
+        ),
+        NewsHeadline(
+            headline="Apple hits new record high",
+            provider="cnbc",
+            published_at=datetime(2026, 6, 4, 8, 0, tzinfo=timezone.utc),
+        ),
     ]
 
     with patch(
@@ -92,12 +97,14 @@ async def test_fetch_news_for_symbol_merges_sources() -> None:
     assert len(headlines) == 3
     assert headlines[0].headline == "Fed signals pause"
     assert headlines[0].sentiment_label == "إيجابي"
+    assert all("Apple" not in h.headline for h in headlines)
 
 
 @pytest.mark.asyncio
 async def test_fetch_news_dedupes_across_sources() -> None:
     duplicate = NewsHeadline(
-        headline="Same story",
+        headline="Eurozone inflation cools as ECB watches EUR",
+        summary="EURUSD traders focus on euro area CPI",
         provider="reuters",
         published_at=datetime(2026, 6, 4, 12, 0, tzinfo=timezone.utc),
     )

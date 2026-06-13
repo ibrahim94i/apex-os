@@ -12,6 +12,7 @@ from app.schemas.agent import NewsHeadline
 from app.services.finnhub_news import fetch_finnhub_headlines
 from app.services.news_sources.alphavantage_news import fetch_alphavantage_news
 from app.services.news_sources.rss_feeds import fetch_all_rss_feeds
+from app.services.news_symbol_filter import filter_headlines_for_symbol
 
 
 def _normalize_headline_key(headline: str) -> str:
@@ -63,13 +64,15 @@ async def fetch_news_for_symbol(symbol: str, *, limit: int | None = None) -> lis
             provider = headline.provider or "unknown"
             source_counts[provider] = source_counts.get(provider, 0) + 1
 
-    deduped = dedupe_headlines(merged)
+    filtered = filter_headlines_for_symbol(symbol, merged)
+    deduped = dedupe_headlines(filtered)
     sorted_headlines = sort_headlines_newest_first(deduped)[:max_items]
 
     logger.info(
         "news_aggregated",
         symbol=symbol,
         total=len(merged),
+        filtered=len(filtered),
         deduped=len(deduped),
         returned=len(sorted_headlines),
         sources=source_counts,

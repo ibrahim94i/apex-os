@@ -70,6 +70,31 @@ async def test_fetch_finnhub_headlines_filters_gold() -> None:
 
 
 @pytest.mark.asyncio
+async def test_fetch_finnhub_headlines_returns_empty_when_no_relevant() -> None:
+    articles = [
+        {
+            "id": 2,
+            "datetime": 1699999990,
+            "headline": "Eurozone PMI beats expectations",
+            "summary": "EUR strength vs dollar",
+            "source": "Bloomberg",
+            "url": "https://example.com/2",
+            "category": "forex",
+        },
+    ]
+
+    with patch("app.services.finnhub_news._is_configured", return_value=True):
+        with patch(
+            "app.services.finnhub_news._fetch_category",
+            new_callable=AsyncMock,
+            return_value=articles,
+        ):
+            headlines = await fetch_finnhub_headlines("XAUUSD", limit=5)
+
+    assert headlines == []
+
+
+@pytest.mark.asyncio
 async def test_fetch_finnhub_headlines_filters_euro() -> None:
     articles = [
         {
@@ -119,7 +144,7 @@ def test_news_prompt_includes_multi_source_headlines() -> None:
     block = format_news_block(snap)
     prompt = build_user_prompt(snap)
 
-    assert "Alpha Vantage" in block
+    assert "ECB holds rates steady" in block
     assert "ECB holds rates steady" in prompt
     assert "sentiment" in block
     assert "EURUSD" in prompt

@@ -12,6 +12,7 @@ from app.config import settings
 from app.feeds.alphavantage_limiter import throttled_get
 from app.logging_config import logger
 from app.schemas.agent import NewsHeadline
+from app.services.news_symbol_filter import filter_headlines_for_symbol
 
 AV_NEWS_URL = "https://www.alphavantage.co/query"
 
@@ -135,8 +136,10 @@ async def fetch_alphavantage_news(symbol: str, *, limit: int = 15) -> list[NewsH
         headline = _article_to_headline(article)
         if headline:
             headlines.append(headline)
-        if len(headlines) >= limit:
+        if len(headlines) >= limit * 3:
             break
+
+    headlines = filter_headlines_for_symbol(symbol, headlines)[:limit]
 
     _CACHE[cache_key] = (now, headlines)
     logger.info("alphavantage_news_fetched", symbol=symbol, count=len(headlines))

@@ -11,96 +11,9 @@ import httpx
 from app.config import settings
 from app.logging_config import logger
 from app.schemas.agent import NewsHeadline
+from app.services.news_symbol_filter import SYMBOL_NEWS_KEYWORDS, headline_matches_symbol
 
 FINNHUB_NEWS_URL = "https://finnhub.io/api/v1/news"
-
-# Keywords to rank headlines per tradable symbol (headline + summary, lowercased).
-_SYMBOL_KEYWORDS: dict[str, tuple[str, ...]] = {
-    "XAUUSD": (
-        "gold",
-        "xau",
-        "precious",
-        "bullion",
-        "safe haven",
-        "fed",
-        "federal reserve",
-        "inflation",
-        "cpi",
-        "treasury",
-        "dollar",
-        "dxy",
-        "rate",
-        "powell",
-        "geopolit",
-        "war",
-        "middle east",
-        "yield",
-    ),
-    "EURUSD": (
-        "eur",
-        "euro",
-        "ecb",
-        "europe",
-        "eurozone",
-        "german",
-        "france",
-        "italy",
-        "fed",
-        "dollar",
-        "inflation",
-        "cpi",
-        "rate",
-        "forex",
-        "currency",
-        "trade",
-        "pmi",
-    ),
-    "USDJPY": (
-        "yen",
-        "jpy",
-        "japan",
-        "boj",
-        "bank of japan",
-        "tokyo",
-        "usd",
-        "dollar",
-        "fed",
-        "rate",
-        "inflation",
-        "cpi",
-        "forex",
-        "carry",
-        "intervention",
-    ),
-    "GBPUSD": (
-        "gbp",
-        "pound",
-        "sterling",
-        "uk",
-        "britain",
-        "boe",
-        "bank of england",
-        "london",
-        "brexit",
-        "fed",
-        "dollar",
-        "inflation",
-        "cpi",
-        "rate",
-        "forex",
-        "currency",
-        "pmi",
-    ),
-    "BTCUSDT": (
-        "bitcoin",
-        "btc",
-        "crypto",
-        "fed",
-        "dollar",
-        "regulation",
-        "etf",
-    ),
-}
 
 _CATEGORY_CACHE: dict[str, tuple[float, list[dict[str, Any]]]] = {}
 _CACHE_TTL_SECONDS = 300.0
@@ -112,7 +25,7 @@ def _is_configured() -> bool:
 
 
 def _keyword_score(symbol: str, article: dict[str, Any]) -> int:
-    keywords = _SYMBOL_KEYWORDS.get(symbol, ())
+    keywords = SYMBOL_NEWS_KEYWORDS.get(symbol.upper(), ())
     if not keywords:
         return 0
     text = f"{article.get('headline', '')} {article.get('summary', '')}".lower()
@@ -202,15 +115,18 @@ async def fetch_finnhub_headlines(symbol: str, *, limit: int | None = None) -> l
         reverse=True,
     )
 
-    # Prefer symbol-relevant items; if none match keywords, use latest forex headlines.
+    # Only symbol-relevant headlines — no fallback to unrelated general news.
     relevant = [a for a, score in scored if score > 0]
-    pool = relevant if relevant else [a for a, _ in scored]
+    pool = relevant
 
     headlines: list[NewsHeadline] = []
     for article in pool:
         if not article.get("headline"):
             continue
-        headlines.append(_to_headline(article))
+        headline = _to_headline(article)
+        if not headline_matches_symbol(symbol, headline):
+            continue
+        headlines.append(headline)
         if len(headlines) >= max_items:
             break
 
