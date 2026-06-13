@@ -290,6 +290,26 @@ async def test_run_agent_analysis_publishes_consensus() -> None:
 
 
 @pytest.mark.asyncio
+async def test_run_agent_analysis_skips_when_market_closed_and_flag_off() -> None:
+    with patch("app.services.agent_analysis_service.settings.agents_run_when_market_closed", False):
+        with patch("app.services.agent_analysis_service.is_market_open", return_value=False):
+            result = await run_agent_analysis("XAUUSD", force=True)
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_run_agent_analysis_not_blocked_when_market_closed_for_testing() -> None:
+    with patch("app.services.agent_analysis_service.is_market_open", return_value=False):
+        with patch(
+            "app.services.agent_analysis_service.get_agent_consensus",
+            new_callable=AsyncMock,
+            return_value=_sample_consensus().model_dump(mode="json"),
+        ):
+            result = await run_agent_analysis("XAUUSD")
+    assert result is not None
+
+
+@pytest.mark.asyncio
 async def test_run_agent_analysis_does_not_cache_rule_based_fallback() -> None:
     rule_consensus = _sample_consensus().model_copy(
         update={

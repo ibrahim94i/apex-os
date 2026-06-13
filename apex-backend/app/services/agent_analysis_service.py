@@ -190,7 +190,7 @@ async def _load_market_context(
 
 async def run_agent_analysis(symbol: str, *, force: bool = False) -> AgentConsensus | None:
     """Build consensus from cached price/indicators/regime and publish to Redis + WS."""
-    if not is_market_open(symbol):
+    if not is_market_open(symbol) and not settings.agents_run_when_market_closed:
         return None
 
     if not force:
@@ -331,9 +331,12 @@ async def ensure_agent_consensus_for_active_symbols(*, force: bool = False) -> N
     """Run agent analysis sequentially for active symbols with a gap between each."""
     from app.config.assets import ACTIVE_SYMBOLS
 
-    symbols = [sym for sym in ACTIVE_SYMBOLS if is_market_open(sym)]
-    if not symbols:
-        return
+    if settings.agents_run_when_market_closed:
+        symbols = list(ACTIVE_SYMBOLS)
+    else:
+        symbols = [sym for sym in ACTIVE_SYMBOLS if is_market_open(sym)]
+        if not symbols:
+            return
 
     async with _batch_consensus_lock:
         for index, sym in enumerate(symbols):

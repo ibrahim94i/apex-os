@@ -102,19 +102,20 @@ async def test_pipeline_skips_gold_when_market_closed() -> None:
         "source": "twelvedata",
         "is_closed": True,
     }
-    with patch("app.services.pipeline.is_market_open", return_value=False):
-        with patch("app.services.pipeline.build_market_status", new_callable=AsyncMock) as mock_status:
-            with patch("app.services.pipeline.build_asset_dashboard_state", new_callable=AsyncMock) as mock_dash:
-                mock_state = MagicMock()
-                mock_state.model_dump.return_value = {"symbol": "XAUUSD"}
-                mock_dash.return_value = mock_state
-                with patch("app.services.pipeline.set_dashboard_state", new_callable=AsyncMock):
-                    with patch("app.services.pipeline.broadcaster") as mock_bc:
-                        mock_bc.broadcast_dashboard_update = AsyncMock()
-                        mock_bc.broadcast_market_status = AsyncMock()
-                        await process_bar(bar)
-                        mock_status.assert_awaited_once()
-                        mock_bc.broadcast_price.assert_not_called()
+    with patch("app.services.pipeline.settings.agents_run_when_market_closed", False):
+        with patch("app.services.pipeline.pipeline_blocked_by_market_hours", return_value=True):
+            with patch("app.services.pipeline.build_market_status", new_callable=AsyncMock) as mock_status:
+                with patch("app.services.pipeline.build_asset_dashboard_state", new_callable=AsyncMock) as mock_dash:
+                    mock_state = MagicMock()
+                    mock_state.model_dump.return_value = {"symbol": "XAUUSD"}
+                    mock_dash.return_value = mock_state
+                    with patch("app.services.pipeline.set_dashboard_state", new_callable=AsyncMock):
+                        with patch("app.services.pipeline.broadcaster") as mock_bc:
+                            mock_bc.broadcast_dashboard_update = AsyncMock()
+                            mock_bc.broadcast_market_status = AsyncMock()
+                            await process_bar(bar)
+                            mock_status.assert_awaited_once()
+                            mock_bc.broadcast_price.assert_not_called()
 
 
 @pytest.mark.asyncio

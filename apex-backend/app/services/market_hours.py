@@ -38,6 +38,15 @@ SCHEDULE_LABELS: dict[str, str] = {
 
 
 
+def pipeline_blocked_by_market_hours(symbol: str, at: datetime | None = None) -> bool:
+    """True when H1 pipeline should skip processing due to market schedule."""
+    from app.config import settings
+
+    if settings.agents_run_when_market_closed:
+        return False
+    return not is_market_open(symbol, at)
+
+
 def is_market_open(symbol: str, at: datetime | None = None) -> bool:
 
     """Return True if trading/signals are allowed for the symbol."""

@@ -1,5 +1,6 @@
 """Build dashboard asset state with market hours masking."""
 
+from app.config import settings
 from app.core.cache import (
     get_agent_consensus,
     get_kill_switch_status,
@@ -32,7 +33,7 @@ async def build_asset_dashboard_state(symbol: str) -> DashboardStateSchema:
         else KillSwitchStatusSchema(status=KillSwitchStatus.INACTIVE)
     )
 
-    if not market_status.is_open:
+    if not market_status.is_open and not settings.agents_run_when_market_closed:
         return DashboardStateSchema(
             symbol=symbol,
             kill_switch=kill,

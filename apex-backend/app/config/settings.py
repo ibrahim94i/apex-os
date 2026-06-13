@@ -91,6 +91,7 @@ class Settings(BaseSettings):
     agent_max_retries: int = 2
     agent_circuit_breaker_threshold: int = 3
     agent_data_max_age_seconds: int = 300
+    agents_run_when_market_closed: bool = True
     twelvedata_stale_retry_count: int = 2
     twelvedata_stale_retry_delay_seconds: float = 5.0
     twelvedata_min_gap_seconds: float = 12.0

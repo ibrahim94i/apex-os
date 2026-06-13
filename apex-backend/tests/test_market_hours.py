@@ -8,6 +8,7 @@ from app.services.market_hours import (
     next_market_close,
     next_market_open,
     next_signal_opportunity,
+    pipeline_blocked_by_market_hours,
 )
 
 BAGHDAD = ZoneInfo("Asia/Baghdad")
@@ -50,6 +51,21 @@ def test_gold_closed_monday_early() -> None:
 def test_gold_opens_monday_1am() -> None:
     dt = _iraq(2026, 6, 8, 1, 0)  # Monday 1:00 AM
     assert is_market_open("XAUUSD", dt) is True
+
+
+def test_pipeline_blocked_respects_testing_flag() -> None:
+    from app.config import settings
+
+    sat = _iraq(2026, 6, 6, 15)
+    assert is_market_open("XAUUSD", sat) is False
+    original = settings.agents_run_when_market_closed
+    try:
+        settings.agents_run_when_market_closed = False
+        assert pipeline_blocked_by_market_hours("XAUUSD", sat) is True
+        settings.agents_run_when_market_closed = True
+        assert pipeline_blocked_by_market_hours("XAUUSD", sat) is False
+    finally:
+        settings.agents_run_when_market_closed = original
 
 
 def test_next_open_from_saturday() -> None:

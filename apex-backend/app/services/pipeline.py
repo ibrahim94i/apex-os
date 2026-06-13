@@ -36,7 +36,7 @@ from app.schemas.snr import SNRSnapshotSchema
 from app.services.signal_rejection_i18n import rejection_reason_ar
 from app.services.alert_service import alert_service
 from app.services.dashboard_builder import build_asset_dashboard_state
-from app.services.market_hours import is_market_open
+from app.services.market_hours import pipeline_blocked_by_market_hours
 from app.services.market_snapshot import bind_indicator_regime_to_symbol, build_market_snapshot
 from app.services.market_status_service import build_market_status
 from app.services.selectivity import selectivity_confidence_floor
@@ -142,7 +142,7 @@ def seed_bars_to_buffer(raw_bars: list[dict[str, Any]]) -> None:
 async def process_bar(raw_bar: dict[str, Any], *, skip_agents: bool = False) -> None:
     symbol = raw_bar["symbol"]
 
-    if not is_market_open(symbol):
+    if pipeline_blocked_by_market_hours(symbol):
         logger.debug("market_closed_skip", symbol=symbol)
         status = await build_market_status(symbol)
         dashboard = await build_asset_dashboard_state(symbol)
