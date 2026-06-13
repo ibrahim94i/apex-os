@@ -11,6 +11,12 @@ from app.config import settings
 from app.schemas.agent import AgentRole, AgentVerdict, MarketSnapshot, NewsAgentLLMOutput
 from app.schemas import SignalDirection
 from app.services.finnhub_calendar import find_imminent_event, minutes_until_event
+from app.services.news_freshness import (
+    NEWS_STALE_WARNING_AR,
+    NewsFreshnessInfo,
+    filter_fresh_headlines,
+    stale_news_neutral_output,
+)
 from app.utils.llm_client import LLMClient, LLMClientError, llm_client
 from app.utils.llm_circuit_breaker import LLMCircuitOpenError
 
@@ -82,7 +88,7 @@ def _rule_based(snapshot: MarketSnapshot) -> NewsAgentLLMOutput:
                 f"[{item.provider or item.source}] {item.headline[:80]} — {_headline_sentiment(item)}"
             )
     else:
-        reasoning.append("لا توجد عناوين — الاعتماد على السياق العام فقط")
+        reasoning.append("لا توجد عناوين حديثة — الاعتماد على السياق العام فقط")
 
     asset_impacts = {asset: "neutral" for asset in _ASSETS}
     if snapshot.symbol in asset_impacts:
@@ -143,6 +149,30 @@ def _rule_based(snapshot: MarketSnapshot) -> NewsAgentLLMOutput:
     )
 
 
+def _build_verdict(
+    output: NewsAgentLLMOutput,
+    *,
+    freshness: NewsFreshnessInfo,
+    used_llm: bool,
+    latency_ms: float,
+    error: str | None,
+) -> AgentVerdict:
+    return AgentVerdict(
+        agent_id=AgentRole.NEWS,
+        agent_name_ar=AGENT_NAME_AR,
+        direction=output.direction,
+        confidence=output.confidence,
+        reasoning=flatten_news_reasoning(output),
+        weight=WEIGHT,
+        latency_ms=round(latency_ms, 2),
+        used_llm=used_llm,
+        error=error,
+        news_last_at=freshness.last_fresh_at,
+        news_recent_count=freshness.recent_count,
+        news_stale_warning_ar=NEWS_STALE_WARNING_AR if not freshness.has_recent_news else None,
+    )
+
+
 class NewsAgent:
     def __init__(self, client: LLMClient | None = None) -> None:
         self.client = client or llm_client
@@ -152,32 +182,42 @@ class NewsAgent:
         used_llm = False
         error: str | None = None
 
+        freshness = filter_fresh_headlines(snapshot.news_headlines, ref=snapshot.timestamp)
+        working = snapshot.model_copy(update={"news_headlines": freshness.fresh_headlines})
+
+        if not freshness.has_recent_news:
+            output = stale_news_neutral_output(freshness)
+            latency_ms = (time.monotonic() - start) * 1000
+            return _build_verdict(
+                output,
+                freshness=freshness,
+                used_llm=False,
+                latency_ms=latency_ms,
+                error=error,
+            )
+
         try:
             if self.client.is_configured:
                 output, response = await self.client.structured_completion(
                     SYSTEM_PROMPT,
-                    build_user_prompt(snapshot),
+                    build_user_prompt(working),
                     NewsAgentLLMOutput,
                     symbol=snapshot.symbol,
                 )
                 used_llm = True
                 latency_ms = response.latency_ms
             else:
-                output = _rule_based(snapshot)
+                output = _rule_based(working)
                 latency_ms = (time.monotonic() - start) * 1000
         except (LLMClientError, LLMCircuitOpenError) as exc:
             error = str(exc)
-            output = _rule_based(snapshot)
+            output = _rule_based(working)
             latency_ms = (time.monotonic() - start) * 1000
 
-        return AgentVerdict(
-            agent_id=AgentRole.NEWS,
-            agent_name_ar=AGENT_NAME_AR,
-            direction=output.direction,
-            confidence=output.confidence,
-            reasoning=flatten_news_reasoning(output),
-            weight=WEIGHT,
-            latency_ms=round(latency_ms, 2),
+        return _build_verdict(
+            output,
+            freshness=freshness,
             used_llm=used_llm,
+            latency_ms=latency_ms,
             error=error,
         )

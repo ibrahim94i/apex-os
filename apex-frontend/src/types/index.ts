@@ -64,6 +64,9 @@ export interface AgentVerdict {
   latency_ms?: number | null;
   used_llm: boolean;
   error?: string | null;
+  news_last_at?: string | null;
+  news_recent_count?: number | null;
+  news_stale_warning_ar?: string | null;
 }
 
 export interface AgentConsensus {

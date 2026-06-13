@@ -45,8 +45,8 @@ def _sentiment_display(item) -> str:
 
 def format_news_block(snapshot: MarketSnapshot) -> str:
     if not snapshot.news_headlines:
-        return "آخر الأخبار الاقتصادية (جميع المصادر): غير متوفرة — اعتمد على السياق العام فقط"
-    lines = ["آخر الأخبار الاقتصادية (Finnhub + Alpha Vantage + RSS):"]
+        return "آخر الأخبار الاقتصادية (حديثة <1س): غير متوفرة"
+    lines = ["آخر الأخبار الاقتصادية (حديثة خلال الساعة الأخيرة):"]
     for idx, item in enumerate(snapshot.news_headlines[:15], start=1):
         when = (
             item.published_at.strftime("%Y-%m-%d %H:%M UTC")

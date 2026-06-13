@@ -136,6 +136,9 @@ class AgentVerdict(BaseModel):
     analyzed_at: datetime | None = None
     is_stale: bool = False
     data_age_seconds: float | None = None
+    news_last_at: datetime | None = None
+    news_recent_count: int | None = None
+    news_stale_warning_ar: str | None = None
 
 
 class TeamRoundOpinion(BaseModel):

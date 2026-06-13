@@ -453,6 +453,28 @@ body {
   flex-wrap: wrap;
 }
 
+.news-agent-meta {
+  margin-bottom: 0.35rem;
+  padding: 0.55rem 0.65rem;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border);
+}
+
+.news-agent-warning {
+  color: #ffb347;
+  font-size: 0.78rem;
+  margin-bottom: 0.35rem;
+}
+
+.news-agent-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+  font-size: 0.74rem;
+  color: var(--text-secondary);
+}
+
 .reasoning-list {
   list-style: none;
   padding: 0;

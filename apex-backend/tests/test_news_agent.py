@@ -1,6 +1,6 @@
 """Tests for enhanced news agent."""
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from app.agents.news.agent import WEIGHT, _rule_based
 from app.schemas import IndicatorSnapshotSchema, KillSwitchStatus, RegimeSnapshotSchema, RegimeType
@@ -34,10 +34,12 @@ def test_news_agent_weight_is_25_percent() -> None:
 
 
 def test_rule_based_includes_asset_impacts() -> None:
+    now = datetime.now(timezone.utc)
     headlines = [
         NewsHeadline(
             headline="Gold demand rises",
             provider="alphavantage",
+            published_at=now - timedelta(minutes=20),
             sentiment_score=0.5,
             sentiment_label="إيجابي",
         )

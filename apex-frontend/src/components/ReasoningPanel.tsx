@@ -3,6 +3,7 @@
 import { useState } from "react";
 import type { AgentConsensus, AgentVerdict, RegimeSnapshot } from "@/types";
 import { t, translateDirection, translateRegime } from "@/lib/i18n";
+import { formatBaghdadDateTime } from "@/hooks/useCountdown";
 
 interface Props {
   consensus: AgentConsensus | null;
@@ -87,6 +88,25 @@ function AgentCard({ verdict }: { verdict: AgentVerdict }) {
               <span className="mono">{verdict.latency_ms.toFixed(0)}ms</span>
             )}
           </div>
+          {verdict.agent_id === "news" && (
+            <div className="news-agent-meta">
+              {verdict.news_stale_warning_ar && (
+                <div className="news-agent-warning">{verdict.news_stale_warning_ar}</div>
+              )}
+              <div className="news-agent-stats">
+                <span>
+                  {t.newsLastAt}:{" "}
+                  <span className="mono">
+                    {formatBaghdadDateTime(verdict.news_last_at)}
+                  </span>
+                </span>
+                <span>
+                  {t.newsRecentCount}:{" "}
+                  <span className="mono">{verdict.news_recent_count ?? 0}</span>
+                </span>
+              </div>
+            </div>
+          )}
           <ul className="reasoning-list">
             {reasoning.map((reason, idx) => (
               <li key={idx}>{reason}</li>
