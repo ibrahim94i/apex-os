@@ -424,12 +424,11 @@ async def bootstrap_all_assets(limit: int | None = None) -> None:
         sym_limit = limit if limit is not None else bootstrap_limit_for(asset)
         threshold = bootstrap_success_threshold(asset, sym_limit)
         db_count = await count_bars_in_db(symbol)
-        latest = await fetch_bars_from_db(symbol, 1)
-        needs_binance_refresh = (
-            asset.feed_type == "binance"
-            and asset.binance_symbol
-            and (not latest or latest[-1].get("source") != "binance")
-        )
+        latest: list[dict] = []
+        needs_binance_refresh = False
+        if db_count < threshold and asset.feed_type == "binance" and asset.binance_symbol:
+            latest = await fetch_bars_from_db(symbol, 1)
+            needs_binance_refresh = not latest or latest[-1].get("source") != "binance"
         if db_count >= threshold and not needs_binance_refresh:
             ok = await warm_asset_from_db(symbol, sym_limit)
             logger.info(

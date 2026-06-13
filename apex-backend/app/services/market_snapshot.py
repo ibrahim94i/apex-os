@@ -65,28 +65,35 @@ async def build_market_snapshot(
         from app.engines.candlestick_engine import candlestick_engine
         from app.services.pipeline import get_symbol_ohlcv_bars
 
-        bars = await get_symbol_ohlcv_bars(symbol)
-        candlestick_patterns = candlestick_engine.detect(bars)
+        try:
+            bars = await get_symbol_ohlcv_bars(symbol)
+            candlestick_patterns = candlestick_engine.detect(bars)
+        except Exception as exc:
+            logger.warning("market_snapshot_candlesticks_load_failed", symbol=symbol, error=str(exc))
+            candlestick_patterns = []
 
     if snr is None:
         from app.engines.indicator_engine import OHLCVBar
         from app.engines.snr_engine import snr_engine
         from app.services.market_data_store import fetch_bars_from_db
 
-        raw = await fetch_bars_from_db(symbol, limit=500)
-        if raw:
-            ohlcv = [
-                OHLCVBar(
-                    timestamp=datetime.fromisoformat(b["timestamp"].replace("Z", "+00:00")),
-                    open=b["open"],
-                    high=b["high"],
-                    low=b["low"],
-                    close=b["close"],
-                    volume=b.get("volume", 0.0),
-                )
-                for b in raw
-            ]
-            snr = snr_engine.compute(ohlcv, symbol)
+        try:
+            raw = await fetch_bars_from_db(symbol, limit=500)
+            if raw:
+                ohlcv = [
+                    OHLCVBar(
+                        timestamp=datetime.fromisoformat(b["timestamp"].replace("Z", "+00:00")),
+                        open=b["open"],
+                        high=b["high"],
+                        low=b["low"],
+                        close=b["close"],
+                        volume=b.get("volume", 0.0),
+                    )
+                    for b in raw
+                ]
+                snr = snr_engine.compute(ohlcv, symbol)
+        except Exception as exc:
+            logger.warning("market_snapshot_snr_load_failed", symbol=symbol, error=str(exc))
 
     balance = await account_service.get_balance()
     news_headlines = await fetch_news_for_symbol(symbol)

@@ -12,6 +12,7 @@ from app.agents.risk.agent import AGENT_NAME_AR as RISK_NAME, WEIGHT as RISK_WEI
 from app.agents.news.prompt import flatten_news_reasoning
 from app.schemas.agent import AgentConsensus, AgentRole, AgentVerdict, CombinedAgentLLMOutput, MarketSnapshot
 from app.utils.llm_client import LLMClient, LLMClientError, llm_client
+from app.utils.llm_circuit_breaker import LLMCircuitOpenError
 
 
 class CombinedAgentService:
@@ -69,7 +70,7 @@ class CombinedAgentService:
                 ),
             ]
             return verdicts, True, None
-        except LLMClientError as exc:
+        except (LLMClientError, LLMCircuitOpenError) as exc:
             return self._rule_based_verdicts(snapshot, start), False, str(exc)
 
     def _rule_based_verdicts(

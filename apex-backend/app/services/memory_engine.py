@@ -191,21 +191,45 @@ class MemoryEngine:
         }
 
     async def get_top_patterns(self, symbol: str) -> list[dict[str, Any]]:
-        cached = await cache_get(REDIS_TOP_PATTERNS_KEY.format(symbol=symbol))
+        try:
+            cached = await cache_get(REDIS_TOP_PATTERNS_KEY.format(symbol=symbol))
+        except Exception as exc:
+            logger.warning("memory_top_patterns_cache_read_failed", symbol=symbol, error=str(exc))
+            return []
         if cached:
             return cached
-        async with AsyncSessionLocal() as session:
-            await self._cache_top_patterns(session, symbol)
-        return await cache_get(REDIS_TOP_PATTERNS_KEY.format(symbol=symbol)) or []
+        try:
+            async with AsyncSessionLocal() as session:
+                await self._cache_top_patterns(session, symbol)
+            return await cache_get(REDIS_TOP_PATTERNS_KEY.format(symbol=symbol)) or []
+        except Exception as exc:
+            logger.warning("memory_top_patterns_load_failed", symbol=symbol, error=str(exc))
+            return []
 
     async def get_memory_summary(self, symbol: str) -> dict[str, Any]:
-        cached = await cache_get(REDIS_SUMMARY_KEY.format(symbol=symbol))
+        try:
+            cached = await cache_get(REDIS_SUMMARY_KEY.format(symbol=symbol))
+        except Exception as exc:
+            logger.warning("memory_summary_cache_read_failed", symbol=symbol, error=str(exc))
+            cached = None
         if cached:
             return cached
-        async with AsyncSessionLocal() as session:
-            summary = await self._build_summary(session, symbol)
-            await cache_set(REDIS_SUMMARY_KEY.format(symbol=symbol), summary, ttl=3600)
-            return summary
+        try:
+            async with AsyncSessionLocal() as session:
+                summary = await self._build_summary(session, symbol)
+                await cache_set(REDIS_SUMMARY_KEY.format(symbol=symbol), summary, ttl=3600)
+                return summary
+        except Exception as exc:
+            logger.warning("memory_summary_load_failed", symbol=symbol, error=str(exc))
+            return {
+                "symbol": symbol,
+                "overall_win_rate": 0.0,
+                "total_samples": 0,
+                "best_regime": None,
+                "best_regime_ar": None,
+                "best_time_of_day": None,
+                "best_time_of_day_ar": None,
+            }
 
     async def get_all_patterns(self) -> dict[str, list[dict[str, Any]]]:
         out: dict[str, list[dict[str, Any]]] = {}

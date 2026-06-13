@@ -31,14 +31,14 @@ class Settings(BaseSettings):
     real_account_balance: float = 100.0
     account_balance: float = 10000.0  # legacy default = demo
     signal_timeframe: str = "1h"
-    min_signal_confidence_pct: float = 70.0
+    min_signal_confidence_pct: float = 75.0
     min_signal_confidence_pct_post_learning: float = 80.0
     selectivity_confidence_floor_pct: float = 70.0
     selectivity_filter_band_max_pct: float = 75.0
     strong_agent_bypass_threshold_pct: float = 75.0
     learning_period_days: int = 14
-    high_selectivity_learning_start: str = "2026-05-29"
-    signal_cooldown_hours: float = 2.0
+    high_selectivity_learning_start: str = ""
+    signal_cooldown_hours: float = 1.0
     rsi_filter_min: float = 35.0
     rsi_filter_max: float = 65.0
     atr_volatility_floor_ratio: float = 0.5

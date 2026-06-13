@@ -15,13 +15,19 @@ REDIS_ACCOUNT_MODE_KEY = "apex:account_mode"
 
 class AccountService:
     async def get_mode(self) -> str:
-        cached = await cache_get(REDIS_ACCOUNT_MODE_KEY)
+        try:
+            cached = await cache_get(REDIS_ACCOUNT_MODE_KEY)
+        except Exception:
+            cached = None
         if cached and cached.get("mode") in ("demo", "real"):
             return cached["mode"]
         return DEFAULT_ACCOUNT_MODE
 
     async def get_real_balance_override(self) -> float | None:
-        cached = await cache_get(REDIS_REAL_BALANCE_KEY)
+        try:
+            cached = await cache_get(REDIS_REAL_BALANCE_KEY)
+        except Exception:
+            cached = None
         if cached and "balance" in cached:
             try:
                 return float(cached["balance"])

@@ -1,6 +1,7 @@
 """End-to-end tests for multi-agent system."""
 
 from datetime import datetime, timezone
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -138,6 +139,24 @@ async def test_risk_agent_blocks_on_kill_switch() -> None:
     verdict = await agent.analyze(_sample_snapshot(kill_active=True))
     assert verdict.direction == SignalDirection.NEUTRAL
     assert any("مفتاح" in r for r in verdict.reasoning)
+
+
+@pytest.mark.asyncio
+async def test_agents_fallback_when_llm_circuit_open() -> None:
+    from app.agents.market_analyst.agent import MarketAnalystAgent
+    from app.agents.news.agent import NewsAgent
+    from app.agents.risk.agent import RiskAgent
+    from app.utils.llm_circuit_breaker import LLMCircuitOpenError
+
+    client = MagicMock()
+    client.is_configured = True
+    client.structured_completion = AsyncMock(side_effect=LLMCircuitOpenError("LLM circuit open"))
+
+    for agent_cls in (MarketAnalystAgent, RiskAgent, NewsAgent):
+        verdict = await agent_cls(client=client).analyze(_sample_snapshot("XAUUSD"))
+        assert verdict.used_llm is False
+        assert verdict.error == "LLM circuit open"
+        assert verdict.reasoning
 
 
 @pytest.mark.asyncio

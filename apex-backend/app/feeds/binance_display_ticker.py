@@ -110,7 +110,15 @@ class BinanceDisplayTickerFeed:
     async def _publish_price(self, parsed: dict[str, Any], *, source: str) -> None:
         from app.services.live_price_resolver import get_metatrader_price, is_metatrader_connected
 
-        mt_raw = await get_metatrader_price(self.apex_symbol)
+        try:
+            mt_raw = await get_metatrader_price(self.apex_symbol)
+        except Exception as exc:
+            logger.warning(
+                "binance_display_ticker_metatrader_check_failed",
+                apex_symbol=self.apex_symbol,
+                error=str(exc),
+            )
+            mt_raw = None
         if is_metatrader_connected(self.apex_symbol, mt_raw):
             return
 

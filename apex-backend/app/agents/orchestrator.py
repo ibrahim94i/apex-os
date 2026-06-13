@@ -23,7 +23,10 @@ class AgentOrchestrator:
         self.voting_engine = AdaptiveWeightedEngine()
 
     async def _load_news_verdict(self, symbol: str) -> AgentVerdict | None:
-        raw = await get_news_verdict(symbol)
+        try:
+            raw = await get_news_verdict(symbol)
+        except Exception:
+            raw = None
         if raw:
             try:
                 verdict = AgentVerdict(**raw)
@@ -32,7 +35,10 @@ class AgentOrchestrator:
             except Exception:
                 pass
 
-        cached = await get_agent_consensus(symbol)
+        try:
+            cached = await get_agent_consensus(symbol)
+        except Exception:
+            cached = None
         if cached:
             try:
                 consensus = AgentConsensus(**cached)
