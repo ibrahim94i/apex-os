@@ -10,6 +10,7 @@ from app.agents.voting.weighted_engine import AdaptiveWeightedEngine
 from app.config import settings
 from app.core.cache import (
     get_agent_consensus,
+    get_agent_consensus_last_good,
     set_agent_consensus,
     set_news_verdict,
 )
@@ -27,6 +28,8 @@ from app.services.market_hours import is_market_open
 from app.services.market_snapshot import bind_indicator_regime_to_symbol, build_market_snapshot
 from app.services.signal_filters import detect_high_impact_news, set_news_block
 from app.services.agent_analysis_service import _load_market_context, _serve_stale_if_llm_blocked
+from app.services.agent_cache import get_cached_consensus
+from app.services.consensus_utils import extract_h1_verdicts
 from app.websocket.manager import broadcaster
 
 _news_monitor_lock = asyncio.Lock()
@@ -71,6 +74,34 @@ async def monitor_high_impact_calendar(symbol: str, at) -> None:
         )
 
 
+async def _resolve_h1_verdicts(
+    symbol: str,
+    snapshot: MarketSnapshot,
+) -> tuple[list[AgentVerdict], object | None, str | None]:
+    """Recover market/risk verdicts from live, last-good, or LLM caches."""
+    candidates: list[AgentConsensus] = []
+
+    for loader in (get_agent_consensus(symbol), get_agent_consensus_last_good(symbol)):
+        raw = await loader
+        if not raw:
+            continue
+        try:
+            candidates.append(AgentConsensus(**raw))
+        except Exception:
+            continue
+
+    llm_cached = await get_cached_consensus(snapshot)
+    if llm_cached is not None:
+        candidates.append(llm_cached)
+
+    for consensus in candidates:
+        h1_verdicts = extract_h1_verdicts(consensus)
+        if len(h1_verdicts) >= 2:
+            return h1_verdicts, consensus.team_discussion, consensus.llm_provider
+
+    return [], None, None
+
+
 async def _refresh_consensus_with_news(
     symbol: str,
     news_verdict: AgentVerdict,
@@ -78,39 +109,11 @@ async def _refresh_consensus_with_news(
 ) -> None:
     """Re-vote using cached H1 market/risk verdicts + fresh news — no signals."""
     cached_raw = await get_agent_consensus(symbol)
-    h1_verdicts: list[AgentVerdict] = []
-    team_discussion = None
-    llm_provider = None
+    h1_verdicts, team_discussion, llm_provider = await _resolve_h1_verdicts(symbol, snapshot)
 
-    if cached_raw:
-        try:
-            cached = AgentConsensus(**cached_raw)
-            h1_verdicts = [
-                v
-                for v in cached.verdicts
-                if v.agent_id in (AgentRole.MARKET_ANALYST, AgentRole.RISK)
-            ]
-            team_discussion = cached.team_discussion
-            llm_provider = cached.llm_provider
-        except Exception:
-            pass
-
-    if not h1_verdicts:
-        data = news_verdict.model_dump(mode="json")
-        await set_news_verdict(symbol, data)
-        partial = AgentConsensus(
-            symbol=symbol,
-            timestamp=snapshot.timestamp,
-            final_direction=news_verdict.direction,
-            final_confidence=news_verdict.confidence,
-            verdicts=[news_verdict],
-            vote_scores={},
-            reasoning_summary=news_verdict.reasoning[:3],
-            llm_provider="openai" if news_verdict.used_llm else None,
-        )
-        consensus_data = partial.model_dump(mode="json")
-        await set_agent_consensus(symbol, consensus_data)
-        await broadcaster.broadcast_agent_consensus(consensus_data)
+    if len(h1_verdicts) < 2:
+        await set_news_verdict(symbol, news_verdict.model_dump(mode="json"))
+        logger.debug("news_monitor_skip_consensus_no_h1", symbol=symbol)
         return
 
     verdicts = h1_verdicts + [news_verdict]

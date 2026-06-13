@@ -11,6 +11,7 @@ from app.core.cache import get_agent_consensus, get_news_verdict, set_news_verdi
 from app.schemas import SignalDirection
 from app.schemas.agent import AgentConsensus, AgentRole, AgentVerdict, MarketSnapshot
 from app.services.agent_cache import get_cached_consensus, set_cached_consensus
+from app.services.consensus_utils import extract_h1_verdicts
 from app.services.agent_freshness import (
     annotate_verdict_freshness,
     validate_agent_data_freshness,
@@ -81,15 +82,12 @@ class AgentOrchestrator:
         """Run market analyst + risk at H1 close; merge cached news verdict for voting."""
         cached = await get_cached_consensus(snapshot)
         if cached:
-            news = await self._ensure_news_verdict(snapshot.symbol, snapshot)
-            if news is not None:
-                h1_verdicts = [v for v in cached.verdicts if v.agent_id != AgentRole.NEWS]
-                if len(h1_verdicts) >= 2:
-                    merged = await self._merge_verdicts(snapshot.symbol, h1_verdicts, snapshot)
-                    return await self._vote_from_verdicts(
-                        snapshot, merged, cached.team_discussion, cached.llm_provider, session
-                    )
-            return cached.model_copy(update={"symbol": snapshot.symbol})
+            h1_verdicts = extract_h1_verdicts(cached)
+            if len(h1_verdicts) >= 2:
+                merged = await self._merge_verdicts(snapshot.symbol, h1_verdicts, snapshot)
+                return await self._vote_from_verdicts(
+                    snapshot, merged, cached.team_discussion, cached.llm_provider, session
+                )
 
         verdicts, used_llm, error, team_discussion, llm_provider = await self.team_service.analyze_h1(
             snapshot

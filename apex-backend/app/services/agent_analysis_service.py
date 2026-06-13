@@ -30,6 +30,7 @@ from app.schemas import (
     RegimeSnapshotSchema,
 )
 from app.services.market_hours import is_market_open
+from app.services.consensus_utils import consensus_has_h1_agents
 from app.services.feed_freshness import is_feed_poll_stale
 from app.services.feed_health_service import recover_feed
 from app.services.market_data_store import (
@@ -195,7 +196,11 @@ async def run_agent_analysis(symbol: str, *, force: bool = False) -> AgentConsen
 
     if not force:
         cached = _consensus_from_cache(await get_agent_consensus(symbol))
-        if cached and (cached.is_llm_powered() or cached.is_stale):
+        if (
+            cached
+            and consensus_has_h1_agents(cached)
+            and (cached.is_llm_powered() or cached.is_stale)
+        ):
             if not cached.snr_state_ar:
                 from app.services.snr_service import enrich_consensus_with_snr
 

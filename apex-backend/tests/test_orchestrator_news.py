@@ -73,6 +73,9 @@ async def test_orchestrator_runs_news_agent_when_cache_empty() -> None:
         "app.agents.orchestrator.get_cached_consensus",
         new=AsyncMock(return_value=None),
     ), patch(
+        "app.agents.orchestrator.get_agent_consensus",
+        new=AsyncMock(return_value=None),
+    ), patch(
         "app.agents.orchestrator.get_news_verdict",
         new=AsyncMock(return_value=None),
     ), patch(
