@@ -41,12 +41,13 @@ class SNREngine:
         symbol: str,
         *,
         at: datetime | None = None,
+        current_price: float | None = None,
     ) -> SNRSnapshotSchema | None:
         if len(bars) < PIVOT_STRENGTH * 2 + 3:
             return None
 
         window = bars[-MAX_LOOKBACK_BARS:]
-        price = window[-1].close
+        price = current_price if current_price is not None else window[-1].close
         pivot_highs = self._find_pivot_highs(window)
         pivot_lows = self._find_pivot_lows(window)
 
@@ -108,12 +109,13 @@ class SNREngine:
         direction: SignalDirection,
         confidence: float,
         snr: SNRSnapshotSchema,
+        current_price: float | None = None,
     ) -> SNREvaluationResult:
         """Level zones (±0.25%), confirmed breakouts, rejection penalties."""
         if direction == SignalDirection.NEUTRAL or not bars:
             return SNREvaluationResult(confidence=confidence)
 
-        price = bars[-1].close
+        price = current_price if current_price is not None else bars[-1].close
         in_zone, zone_reason, zone_label = self._price_in_level_zone(price, snr)
         if in_zone:
             explain = self._zone_explain_ar(zone_label, zone_reason, snr, price)

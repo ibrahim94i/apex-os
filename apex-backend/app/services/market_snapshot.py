@@ -86,7 +86,7 @@ async def build_market_snapshot(
                 )
                 for b in raw
             ]
-            snr = snr_engine.compute(ohlcv, symbol)
+            snr = snr_engine.compute(ohlcv, symbol, current_price=price)
 
     balance = await account_service.get_balance()
     news_headlines = await fetch_news_for_symbol(symbol)

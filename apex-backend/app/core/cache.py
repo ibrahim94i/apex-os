@@ -23,7 +23,27 @@ async def set_latest_price(symbol: str, price: float, timestamp: str) -> None:
 
 
 async def get_latest_price(symbol: str) -> dict[str, Any] | None:
-    return await cache_get(CacheKeys.LATEST_PRICE.format(symbol=symbol))
+    """Resolve live analysis price — MetaTrader first, then TwelveData/Binance feed cache."""
+    from app.services.live_price_resolver import is_metatrader_connected
+
+    mt_raw = await get_metatrader_price(symbol)
+    if is_metatrader_connected(symbol, mt_raw) and mt_raw:
+        return {
+            "price": float(mt_raw["price"]),
+            "timestamp": mt_raw.get("received_at") or mt_raw.get("time"),
+            "source": "metatrader",
+            "bid": mt_raw.get("bid"),
+            "ask": mt_raw.get("ask"),
+        }
+
+    feed = await cache_get(CacheKeys.LATEST_PRICE.format(symbol=symbol))
+    if not feed:
+        return None
+    return {
+        "price": float(feed["price"]),
+        "timestamp": feed.get("timestamp"),
+        "source": feed.get("source", "feed"),
+    }
 
 
 async def set_display_price(
@@ -33,7 +53,7 @@ async def set_display_price(
     *,
     source: str,
 ) -> None:
-    """Dashboard-only live ticker — never used by agents, signals, or TwelveData pipeline."""
+    """Dashboard live ticker cache (also fed by MetaTrader ingest)."""
     await cache_set(
         CacheKeys.DISPLAY_PRICE.format(symbol=symbol),
         {"price": price, "timestamp": timestamp, "source": source},
@@ -46,7 +66,7 @@ async def get_display_price(symbol: str) -> dict[str, Any] | None:
 
 
 async def set_metatrader_price(symbol: str, data: dict[str, Any]) -> None:
-    """Latest MetaTrader quote — display price layer only."""
+    """Latest MetaTrader quote — primary analysis price when fresh."""
     key = CacheKeys.METATRADER_PRICE.format(symbol=symbol)
     try:
         await cache_set(key, data, ttl=3600)

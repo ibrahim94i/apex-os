@@ -2,6 +2,8 @@
 
 from datetime import datetime, timedelta, timezone
 
+import pytest
+
 from app.engines.indicator_engine import OHLCVBar
 from app.engines.snr_engine import SNREngine, snr_engine
 from app.schemas.enums import SignalDirection
@@ -207,3 +209,41 @@ def test_snr_fallback_levels_when_no_pivots() -> None:
     assert snr.support_1 is not None
     assert snr.resistance_1 is not None
     assert snr.support_1 < snr.price < snr.resistance_1
+
+
+def test_snr_compute_uses_current_price_override() -> None:
+    """Live MetaTrader price overrides last bar close for SNR distance math."""
+    base = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    bars: list[OHLCVBar] = []
+    for i in range(39):
+        price = 2650.0 + i * 0.5
+        bars.append(
+            OHLCVBar(
+                base + timedelta(hours=i),
+                price,
+                price,
+                price,
+                price,
+                0,
+            )
+        )
+    last_close = 2665.0
+    bars.append(
+        OHLCVBar(
+            base + timedelta(hours=39),
+            last_close,
+            last_close,
+            last_close,
+            last_close,
+            0,
+        )
+    )
+
+    mt_price = 2675.0
+    snr_default = snr_engine.compute(bars, "XAUUSD")
+    snr_mt = snr_engine.compute(bars, "XAUUSD", current_price=mt_price)
+
+    assert snr_default is not None
+    assert snr_mt is not None
+    assert snr_default.price == pytest.approx(last_close)
+    assert snr_mt.price == pytest.approx(mt_price)

@@ -30,4 +30,5 @@ Timer-based price stream to APEX backend — **every 5 seconds**.
 
 - Uses `OnTimer` only — **not** `OnTick`.
 - Sends UTC time as `YYYY.MM.DD HH:MM:SS` (backend-compatible).
-- Does not place trades or affect APEX signals.
+- Does not place trades or modify APEX signals directly.
+- When connected, MetaTrader is the **primary analysis price** for agents and SNR.

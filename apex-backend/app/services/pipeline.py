@@ -61,13 +61,16 @@ signal_generator = SignalGenerator()
 
 
 async def compute_snr_for_symbol(symbol: str) -> SNRSnapshotSchema | None:
+    from app.core.cache import get_latest_price
     from app.services.market_data_store import fetch_bars_from_db
 
     raw = await fetch_bars_from_db(symbol, limit=500)
     if len(raw) < 7:
         return None
     bars = [_parse_bar(b) for b in raw]
-    return snr_engine.compute(bars, symbol)
+    price_data = await get_latest_price(symbol)
+    current_price = float(price_data["price"]) if price_data else None
+    return snr_engine.compute(bars, symbol, current_price=current_price)
 
 
 def _parse_bar(raw: dict[str, Any]) -> OHLCVBar:

@@ -98,7 +98,7 @@ def classify_snr_state(
         if SNREngine._confirmed_bearish_breakout(bars, s1_low):
             return "BREAKOUT_CONFIRMED"
 
-    price = bars[-1].close
+    price = snr.price if snr.price is not None else bars[-1].close
     if _price_inside_any_zone(price, snr):
         return "INSIDE_ZONE"
 

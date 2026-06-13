@@ -1,4 +1,4 @@
-"""MetaTrader price ingest — display layer only (no trade execution)."""
+"""MetaTrader price ingest — analysis + display layer (no trade execution)."""
 
 from __future__ import annotations
 
@@ -30,7 +30,7 @@ price_router = APIRouter(prefix="/prices", tags=["prices"])
 
 @price_router.post("/update", response_model=MetaTraderPriceUpdateResponse)
 async def update_metatrader_price(request: Request) -> MetaTraderPriceUpdateResponse:
-    """Receive live quotes from MetaTrader EA — prices only, no orders."""
+    """Receive live quotes from MetaTrader EA — analysis + display price layer."""
     raw_body = await request.body()
     headers = {k: v for k, v in request.headers.items()}
     header_log = sanitize_headers_for_log(headers)

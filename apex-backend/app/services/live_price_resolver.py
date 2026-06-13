@@ -65,7 +65,7 @@ async def ingest_metatrader_price(
     ask: float,
     quote_time: datetime,
 ) -> dict[str, Any]:
-    """Persist MT quote and publish to dashboard display layer."""
+    """Persist MT quote and publish to dashboard + analysis price layer."""
     apex_symbol = _normalize_symbol(symbol)
     received_at = datetime.now(timezone.utc)
     if quote_time.tzinfo is None:
