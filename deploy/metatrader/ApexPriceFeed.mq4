@@ -5,7 +5,7 @@
 //+------------------------------------------------------------------+
 #property copyright "APEX OS"
 #property link      "https://github.com/ibrahim94i/apex-os"
-#property version   "3.00"
+#property version   "3.01"
 #property strict
 
 //--- inputs
@@ -80,6 +80,55 @@ void OnTick()
 string BuildUtcTimeString(datetime utc_time)
 {
    return(TimeToString(utc_time, TIME_DATE | TIME_SECONDS));
+}
+
+//+------------------------------------------------------------------+
+//| JSON numbers must use dot decimal separator (not locale comma).  |
+//+------------------------------------------------------------------+
+string FormatJsonNumber(const double value, const int digits)
+{
+   string s = DoubleToString(NormalizeDouble(value, digits), digits);
+   StringReplace(s, " ", "");
+   StringReplace(s, ",", ".");
+   return(s);
+}
+
+//+------------------------------------------------------------------+
+string BuildPriceJson(const double bid, const double ask, const int digits, const string time_utc)
+{
+   return(
+      "{"
+      + "\"symbol\":\"" + InpApexSymbol + "\","
+      + "\"bid\":" + FormatJsonNumber(bid, digits) + ","
+      + "\"ask\":" + FormatJsonNumber(ask, digits) + ","
+      + "\"time\":\"" + time_utc + "\""
+      + "}"
+   );
+}
+
+//+------------------------------------------------------------------+
+string BuildH1CandleJson(
+   const double open,
+   const double high,
+   const double low,
+   const double close,
+   const long volume,
+   const int digits,
+   const string close_utc
+)
+{
+   return(
+      "{"
+      + "\"symbol\":\"" + InpApexSymbol + "\","
+      + "\"timeframe\":\"H1\","
+      + "\"open\":" + FormatJsonNumber(open, digits) + ","
+      + "\"high\":" + FormatJsonNumber(high, digits) + ","
+      + "\"low\":" + FormatJsonNumber(low, digits) + ","
+      + "\"close\":" + FormatJsonNumber(close, digits) + ","
+      + "\"volume\":" + IntegerToString((int)volume) + ","
+      + "\"time\":\"" + close_utc + "\""
+      + "}"
+   );
 }
 
 //+------------------------------------------------------------------+
@@ -192,13 +241,7 @@ bool SendPriceToApex(const string trigger)
       digits = 2;
 
    string time_utc = BuildUtcTimeString(TimeGMT());
-   string json = StringFormat(
-      "{\"symbol\":\"%s\",\"bid\":%.*f,\"ask\":%.*f,\"time\":\"%s\"}",
-      InpApexSymbol,
-      digits, bid,
-      digits, ask,
-      time_utc
-   );
+   string json = BuildPriceJson(bid, ask, digits, time_utc);
 
    return PostJsonToApex(InpApiUrl, json, trigger, "PRICE", g_ok_count, g_fail_count);
 }
@@ -240,16 +283,8 @@ bool SendH1CandleToApex(datetime bar_open, const string trigger)
    datetime bar_close = bar_open + H1_PERIOD_SECONDS;
    string close_utc = BuildUtcTimeString(bar_close);
 
-   string json = StringFormat(
-      "{\"symbol\":\"%s\",\"timeframe\":\"H1\",\"open\":%.*f,\"high\":%.*f,\"low\":%.*f,\"close\":%.*f,\"volume\":%d,\"time\":\"%s\"}",
-      InpApexSymbol,
-      digits, open,
-      digits, high,
-      digits, low,
-      digits, close,
-      (int)volume,
-      close_utc
-   );
+   string json = BuildH1CandleJson(open, high, low, close, volume, digits, close_utc);
+   Print("APEX H1 json=", json);
 
    return PostJsonToApex(
       InpCandleApiUrl,
