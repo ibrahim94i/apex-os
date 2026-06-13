@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.agents.team_discussion import team_discussion_service
 from app.agents.voting.weighted_engine import AdaptiveWeightedEngine
 from app.config import settings
-from app.core.cache import get_agent_consensus, get_news_verdict
+from app.core.cache import get_agent_consensus, get_news_verdict, set_news_verdict
 from app.schemas import SignalDirection
 from app.schemas.agent import AgentConsensus, AgentRole, AgentVerdict, MarketSnapshot
 from app.services.agent_cache import get_cached_consensus, set_cached_consensus
@@ -43,12 +43,32 @@ class AgentOrchestrator:
                 pass
         return None
 
+    async def _ensure_news_verdict(
+        self, symbol: str, snapshot: MarketSnapshot | None = None
+    ) -> AgentVerdict | None:
+        """Load cached news verdict or run the news agent when missing."""
+        news = await self._load_news_verdict(symbol)
+        if news is not None:
+            return news
+        if snapshot is None:
+            return None
+
+        from app.agents.news.agent import NewsAgent
+
+        try:
+            news = await NewsAgent().analyze(snapshot)
+            await set_news_verdict(symbol, news.model_dump(mode="json"))
+            return news
+        except Exception:
+            return None
+
     async def _merge_verdicts(
         self,
         symbol: str,
         h1_verdicts: list[AgentVerdict],
+        snapshot: MarketSnapshot | None = None,
     ) -> list[AgentVerdict]:
-        news = await self._load_news_verdict(symbol)
+        news = await self._ensure_news_verdict(symbol, snapshot)
         if news is None:
             return h1_verdicts
         merged = [v for v in h1_verdicts if v.agent_id != AgentRole.NEWS]
@@ -61,11 +81,11 @@ class AgentOrchestrator:
         """Run market analyst + risk at H1 close; merge cached news verdict for voting."""
         cached = await get_cached_consensus(snapshot)
         if cached:
-            news = await self._load_news_verdict(snapshot.symbol)
+            news = await self._ensure_news_verdict(snapshot.symbol, snapshot)
             if news is not None:
                 h1_verdicts = [v for v in cached.verdicts if v.agent_id != AgentRole.NEWS]
                 if len(h1_verdicts) >= 2:
-                    merged = await self._merge_verdicts(snapshot.symbol, h1_verdicts)
+                    merged = await self._merge_verdicts(snapshot.symbol, h1_verdicts, snapshot)
                     return await self._vote_from_verdicts(
                         snapshot, merged, cached.team_discussion, cached.llm_provider, session
                     )
@@ -95,7 +115,7 @@ class AgentOrchestrator:
                 vote_scores={},
             )
 
-        all_verdicts = await self._merge_verdicts(snapshot.symbol, verdicts)
+        all_verdicts = await self._merge_verdicts(snapshot.symbol, verdicts, snapshot)
         consensus = await self._vote_from_verdicts(
             snapshot, all_verdicts, team_discussion, llm_provider, session
         )

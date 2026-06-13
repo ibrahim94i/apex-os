@@ -19,7 +19,6 @@ async def _news_monitor_loop() -> None:
     """Run news agent + high-impact calendar monitoring every 5 minutes."""
     from app.services.news_monitor_service import run_news_monitor_cycle
 
-    await asyncio.sleep(60)
     while True:
         try:
             await run_news_monitor_cycle()

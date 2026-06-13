@@ -98,6 +98,19 @@ async def _refresh_consensus_with_news(
     if not h1_verdicts:
         data = news_verdict.model_dump(mode="json")
         await set_news_verdict(symbol, data)
+        partial = AgentConsensus(
+            symbol=symbol,
+            timestamp=snapshot.timestamp,
+            final_direction=news_verdict.direction,
+            final_confidence=news_verdict.confidence,
+            verdicts=[news_verdict],
+            vote_scores={},
+            reasoning_summary=news_verdict.reasoning[:3],
+            llm_provider="openai" if news_verdict.used_llm else None,
+        )
+        consensus_data = partial.model_dump(mode="json")
+        await set_agent_consensus(symbol, consensus_data)
+        await broadcaster.broadcast_agent_consensus(consensus_data)
         return
 
     verdicts = h1_verdicts + [news_verdict]
@@ -145,7 +158,7 @@ async def _refresh_consensus_with_news(
 
 
 async def run_news_monitor_for_symbol(symbol: str) -> None:
-    if not is_market_open(symbol):
+    if not is_market_open(symbol) and not settings.agents_run_when_market_closed:
         return
 
     blocked = await _serve_stale_if_llm_blocked(symbol)
@@ -195,7 +208,10 @@ async def run_news_monitor_for_symbol(symbol: str) -> None:
 async def run_news_monitor_cycle() -> None:
     from app.config.assets import ACTIVE_SYMBOLS
 
-    symbols = [sym for sym in ACTIVE_SYMBOLS if is_market_open(sym)]
+    if settings.agents_run_when_market_closed:
+        symbols = list(ACTIVE_SYMBOLS)
+    else:
+        symbols = [sym for sym in ACTIVE_SYMBOLS if is_market_open(sym)]
     for index, sym in enumerate(symbols):
         if index > 0:
             await asyncio.sleep(settings.llm_min_request_interval_seconds)
