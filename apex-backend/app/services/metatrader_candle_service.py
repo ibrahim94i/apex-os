@@ -8,7 +8,11 @@ from typing import Any
 from app.config import settings
 from app.core.cache import set_latest_price, set_metatrader_candle_state
 from app.logging_config import logger
-from app.services.market_data_store import upsert_chart_bar, upsert_metatrader_bar
+from app.services.market_data_store import (
+    bootstrap_metatrader_h1_bars,
+    upsert_chart_bar,
+    upsert_metatrader_bar,
+)
 from app.services.pipeline import process_bar
 from app.utils.time_utils import compute_age_seconds, parse_utc_timestamp
 
@@ -145,4 +149,62 @@ async def ingest_metatrader_candle(parsed: dict[str, Any]) -> dict[str, Any]:
         "timestamp": bar_timestamp.isoformat(),
         "received_at": received_at.isoformat(),
         "pipeline_ran": pipeline_ran,
+    }
+
+
+async def ingest_metatrader_h1_bootstrap(parsed: dict[str, Any]) -> dict[str, Any]:
+    """Persist historical H1 batch and replace Binance bars in the same window."""
+    symbol = parsed["symbol"]
+    bars = parsed["bars"]
+    received_at = datetime.now(timezone.utc)
+
+    result = await bootstrap_metatrader_h1_bars(symbol, bars)
+    newest = bars[-1]
+    newest_ts = newest["timestamp"]
+    if newest_ts.tzinfo is None:
+        newest_ts = newest_ts.replace(tzinfo=timezone.utc)
+
+    from app.core.cache import get_metatrader_candle_state
+
+    existing = await get_metatrader_candle_state(symbol) or {}
+    timeframes = dict(existing.get("timeframes") or {})
+    tf_payload = {
+        "last_candle_at": newest_ts.isoformat(),
+        "received_at": received_at.isoformat(),
+        "close_time": newest["close_time"].isoformat(),
+        "source": "metatrader",
+        "bootstrapped": True,
+        "bootstrap_count": len(bars),
+    }
+    timeframes["H1"] = tf_payload
+
+    await set_metatrader_candle_state(
+        symbol,
+        {
+            "symbol": symbol,
+            "received_at": received_at.isoformat(),
+            "source": "metatrader",
+            "last_candle_at": newest_ts.isoformat(),
+            "close_time": newest["close_time"].isoformat(),
+            "bootstrapped_at": received_at.isoformat(),
+            "bootstrap_count": len(bars),
+            "timeframes": timeframes,
+        },
+    )
+    await set_latest_price(symbol, float(newest["close"]), newest_ts.isoformat())
+
+    logger.info(
+        "metatrader_h1_bootstrap_ingested",
+        symbol=symbol,
+        upserted=result["upserted"],
+        deleted=result["deleted"],
+        oldest=result["oldest"],
+        newest=result["newest"],
+    )
+
+    return {
+        "symbol": symbol,
+        "timeframe": "H1",
+        "received_at": received_at.isoformat(),
+        **result,
     }

@@ -21,6 +21,8 @@ _TIMEFRAME_DELTAS: dict[str, timedelta] = {
     "D1": timedelta(days=1),
 }
 
+MAX_BOOTSTRAP_CANDLES = 500
+
 
 def normalize_metatrader_timeframe(value: str) -> str:
     code = str(value).strip().upper()
@@ -53,6 +55,47 @@ def bar_open_from_close_time(close_time: datetime, timeframe: str) -> datetime:
     return bar_open
 
 
+def _parse_candle_record(
+    item: dict[str, Any],
+    *,
+    symbol: str,
+    timeframe: str,
+) -> dict[str, Any]:
+    open_ = _coerce_float(item.get("open", item.get("Open")), "open")
+    high = _coerce_float(item.get("high", item.get("High")), "high")
+    low = _coerce_float(item.get("low", item.get("Low")), "low")
+    close = _coerce_float(item.get("close", item.get("Close")), "close")
+
+    volume_raw = item.get("volume", item.get("Volume", 0))
+    try:
+        volume = float(volume_raw) if volume_raw is not None else 0.0
+    except (TypeError, ValueError):
+        volume = 0.0
+    if volume < 0:
+        volume = 0.0
+
+    if high < low:
+        raise ValueError("high must be >= low")
+    if not (low <= open_ <= high and low <= close <= high):
+        raise ValueError("open/close must be within high/low range")
+
+    time_raw = item.get("time", item.get("Time", item.get("timestamp")))
+    event_time = _parse_time(time_raw)
+    bar_open = bar_open_from_close_time(event_time, timeframe)
+
+    return {
+        "symbol": symbol,
+        "timeframe": timeframe,
+        "timestamp": bar_open,
+        "close_time": event_time.astimezone(timezone.utc),
+        "open": open_,
+        "high": high,
+        "low": low,
+        "close": close,
+        "volume": volume,
+    }
+
+
 def parse_metatrader_candle_body(raw_body: bytes) -> dict[str, Any]:
     """Parse MT4/MT5 OHLCV JSON body for M5/M15/H1/H4/D1."""
     import json
@@ -76,36 +119,50 @@ def parse_metatrader_candle_body(raw_body: bytes) -> dict[str, Any]:
     timeframe_raw = payload.get("timeframe") or payload.get("Timeframe") or "H1"
     timeframe = normalize_metatrader_timeframe(str(timeframe_raw))
 
-    open_ = _coerce_float(payload.get("open", payload.get("Open")), "open")
-    high = _coerce_float(payload.get("high", payload.get("High")), "high")
-    low = _coerce_float(payload.get("low", payload.get("Low")), "low")
-    close = _coerce_float(payload.get("close", payload.get("Close")), "close")
+    return _parse_candle_record(payload, symbol=str(symbol_raw).strip().upper(), timeframe=timeframe)
 
-    volume_raw = payload.get("volume", payload.get("Volume", 0))
+
+def parse_metatrader_candle_bootstrap_body(raw_body: bytes) -> dict[str, Any]:
+    """Parse MT4 bulk H1 bootstrap payload with a candles array."""
+    import json
+
+    if not raw_body:
+        raise ValueError("empty request body")
+
+    text = _normalize_json_bytes(raw_body)
     try:
-        volume = float(volume_raw) if volume_raw is not None else 0.0
-    except (TypeError, ValueError):
-        volume = 0.0
-    if volume < 0:
-        volume = 0.0
+        payload = json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"invalid JSON body: {exc}") from exc
 
-    if high < low:
-        raise ValueError("high must be >= low")
-    if not (low <= open_ <= high and low <= close <= high):
-        raise ValueError("open/close must be within high/low range")
+    if not isinstance(payload, dict):
+        raise ValueError("body must be a JSON object")
 
-    time_raw = payload.get("time", payload.get("Time", payload.get("timestamp")))
-    event_time = _parse_time(time_raw)
-    bar_open = bar_open_from_close_time(event_time, timeframe)
+    symbol_raw = payload.get("symbol") or payload.get("Symbol")
+    if not symbol_raw:
+        raise ValueError("missing symbol")
 
+    timeframe_raw = payload.get("timeframe") or payload.get("Timeframe") or "H1"
+    timeframe = normalize_metatrader_timeframe(str(timeframe_raw))
+    if timeframe != "H1":
+        raise ValueError("bootstrap supports H1 only")
+
+    candles_raw = payload.get("candles") or payload.get("Candles")
+    if not isinstance(candles_raw, list) or not candles_raw:
+        raise ValueError("missing candles array")
+    if len(candles_raw) > MAX_BOOTSTRAP_CANDLES:
+        raise ValueError(f"too many candles (max {MAX_BOOTSTRAP_CANDLES})")
+
+    symbol = str(symbol_raw).strip().upper()
+    bars: list[dict[str, Any]] = []
+    for index, item in enumerate(candles_raw):
+        if not isinstance(item, dict):
+            raise ValueError(f"candles[{index}] must be a JSON object")
+        bars.append(_parse_candle_record(item, symbol=symbol, timeframe=timeframe))
+
+    bars.sort(key=lambda bar: bar["timestamp"])
     return {
-        "symbol": str(symbol_raw).strip().upper(),
+        "symbol": symbol,
         "timeframe": timeframe,
-        "timestamp": bar_open,
-        "close_time": event_time.astimezone(timezone.utc),
-        "open": open_,
-        "high": high,
-        "low": low,
-        "close": close,
-        "volume": volume,
+        "bars": bars,
     }

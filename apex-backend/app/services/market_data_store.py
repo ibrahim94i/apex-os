@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
-from sqlalchemy import desc, select
+from sqlalchemy import delete, desc, select
 
 from app.database import AsyncSessionLocal
 from app.models import ChartBar, PriceBar, RegimeSnapshot
@@ -135,6 +135,79 @@ async def upsert_metatrader_bar(bar: dict[str, Any]) -> None:
         )
         await session.execute(stmt)
         await session.commit()
+
+
+def _coerce_bar_timestamp(value: datetime | str) -> datetime:
+    ts = value
+    if isinstance(ts, str):
+        ts = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+    if ts.tzinfo is None:
+        ts = ts.replace(tzinfo=timezone.utc)
+    return ts
+
+
+async def bootstrap_metatrader_h1_bars(
+    symbol: str,
+    parsed_bars: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Replace non-MetaTrader H1 bars in the bootstrap window with MT history."""
+    from sqlalchemy.dialects.postgresql import insert
+
+    if not parsed_bars:
+        return {"upserted": 0, "deleted": 0, "oldest": None, "newest": None}
+
+    values: list[dict[str, Any]] = []
+    for parsed in parsed_bars:
+        ts = _coerce_bar_timestamp(parsed["timestamp"])
+        values.append(
+            {
+                "symbol": symbol,
+                "source": "metatrader",
+                "timestamp": ts,
+                "open": parsed["open"],
+                "high": parsed["high"],
+                "low": parsed["low"],
+                "close": parsed["close"],
+                "volume": parsed.get("volume", 0.0),
+            }
+        )
+
+    values.sort(key=lambda row: row["timestamp"])
+    min_ts = values[0]["timestamp"]
+    max_ts = values[-1]["timestamp"]
+
+    async with AsyncSessionLocal() as session:
+        delete_result = await session.execute(
+            delete(PriceBar).where(
+                PriceBar.symbol == symbol,
+                PriceBar.source != "metatrader",
+                PriceBar.timestamp >= min_ts,
+                PriceBar.timestamp <= max_ts,
+            )
+        )
+        deleted = int(delete_result.rowcount or 0)
+
+        stmt = insert(PriceBar).values(values)
+        stmt = stmt.on_conflict_do_update(
+            index_elements=["symbol", "timestamp"],
+            set_={
+                "source": stmt.excluded.source,
+                "open": stmt.excluded.open,
+                "high": stmt.excluded.high,
+                "low": stmt.excluded.low,
+                "close": stmt.excluded.close,
+                "volume": stmt.excluded.volume,
+            },
+        )
+        await session.execute(stmt)
+        await session.commit()
+
+    return {
+        "upserted": len(values),
+        "deleted": deleted,
+        "oldest": min_ts.isoformat(),
+        "newest": max_ts.isoformat(),
+    }
 
 
 async def upsert_chart_bar(timeframe: str, bar: dict[str, Any]) -> None:

@@ -9,11 +9,15 @@ from fastapi import APIRouter, HTTPException, Request
 from app.config import settings
 from app.config.assets import ACTIVE_SYMBOLS
 from app.logging_config import logger
-from app.schemas.candle import MetaTraderCandleUpdateResponse
-from app.services.metatrader_candle_ingest import parse_metatrader_candle_body
+from app.schemas.candle import MetaTraderCandleBootstrapResponse, MetaTraderCandleUpdateResponse
+from app.services.metatrader_candle_ingest import (
+    parse_metatrader_candle_body,
+    parse_metatrader_candle_bootstrap_body,
+)
 from app.services.metatrader_candle_service import (
     CHART_TIMEFRAMES,
     ingest_metatrader_candle,
+    ingest_metatrader_h1_bootstrap,
     is_metatrader_candles_connected,
     is_metatrader_chart_timeframe_connected,
 )
@@ -81,6 +85,68 @@ async def update_metatrader_candle(request: Request) -> MetaTraderCandleUpdateRe
         timestamp=result["timestamp"],
         received_at=result["received_at"],
         pipeline_ran=result["pipeline_ran"],
+    )
+
+
+@candle_router.post("/bootstrap", response_model=MetaTraderCandleBootstrapResponse)
+async def bootstrap_metatrader_candles(request: Request) -> MetaTraderCandleBootstrapResponse:
+    """Receive bulk H1 history from MetaTrader EA on chart attach."""
+    raw_body = await request.body()
+    headers = {k: v for k, v in request.headers.items()}
+    body_preview = raw_body.decode("utf-8", errors="replace")[:2000]
+
+    logger.info(
+        "metatrader_candle_bootstrap_received",
+        method=request.method,
+        path=str(request.url.path),
+        headers=sanitize_headers_for_log(headers),
+        body=body_preview,
+        body_bytes=len(raw_body),
+    )
+
+    received_key = extract_mt_api_key(headers)
+    ok, auth_error = verify_metatrader_api_key(received_key)
+    if not ok:
+        logger.warning(
+            "metatrader_candle_bootstrap_auth_failed",
+            reason=auth_error,
+            header_name=MT_AUTH_HEADER,
+        )
+        if auth_error and "not configured" in auth_error.lower():
+            raise HTTPException(status_code=503, detail=auth_error)
+        raise HTTPException(
+            status_code=403,
+            detail={"error": "Forbidden", "reason": auth_error, "header": MT_AUTH_HEADER},
+        )
+
+    try:
+        parsed = parse_metatrader_candle_bootstrap_body(raw_body)
+    except ValueError as exc:
+        logger.warning(
+            "metatrader_candle_bootstrap_parse_failed",
+            error=str(exc),
+            body=body_preview,
+        )
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    symbol = parsed["symbol"]
+    if symbol not in ACTIVE_SYMBOLS:
+        raise HTTPException(status_code=400, detail=f"Symbol not active: {symbol}")
+
+    try:
+        result = await ingest_metatrader_h1_bootstrap(parsed)
+    except Exception as exc:
+        logger.error("metatrader_candle_bootstrap_failed", symbol=symbol, error=str(exc))
+        raise HTTPException(status_code=500, detail="Failed to bootstrap MetaTrader candles") from exc
+
+    return MetaTraderCandleBootstrapResponse(
+        symbol=result["symbol"],
+        timeframe=result["timeframe"],
+        received_at=result["received_at"],
+        upserted=result["upserted"],
+        deleted=result["deleted"],
+        oldest=result["oldest"],
+        newest=result["newest"],
     )
 
 

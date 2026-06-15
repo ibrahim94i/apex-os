@@ -12,6 +12,7 @@ from app.services.metatrader_candle_ingest import (
     bar_open_from_close_time,
     normalize_metatrader_timeframe,
     parse_metatrader_candle_body,
+    parse_metatrader_candle_bootstrap_body,
 )
 from app.services.metatrader_candle_service import (
     is_metatrader_candles_connected,
@@ -135,3 +136,82 @@ def test_verify_metatrader_api_key_for_candles() -> None:
     settings.metatrader_api_key = "secret"
     ok, _ = verify_metatrader_api_key("secret")
     assert ok is True
+
+
+def test_parse_bootstrap_body_with_multiple_candles() -> None:
+    candles = []
+    for hour in (12, 13, 14):
+        candles.append(
+            {
+                "open": 4190.0 + hour,
+                "high": 4195.0 + hour,
+                "low": 4188.0 + hour,
+                "close": 4193.0 + hour,
+                "volume": 10,
+                "time": f"2026-06-12T{hour + 1:02d}:00:00Z",
+            }
+        )
+    import json
+
+    raw = json.dumps(
+        {"symbol": "XAUUSD", "timeframe": "H1", "candles": candles}
+    ).encode()
+    parsed = parse_metatrader_candle_bootstrap_body(raw)
+    assert parsed["symbol"] == "XAUUSD"
+    assert parsed["timeframe"] == "H1"
+    assert len(parsed["bars"]) == 3
+    assert parsed["bars"][0]["timestamp"] < parsed["bars"][-1]["timestamp"]
+
+
+def test_parse_bootstrap_rejects_non_h1() -> None:
+    import json
+
+    raw = json.dumps(
+        {"symbol": "XAUUSD", "timeframe": "M5", "candles": [{"open": 1, "high": 2, "low": 1, "close": 2, "time": "2026-06-12T14:05:00Z"}]}
+    ).encode()
+    with pytest.raises(ValueError):
+        parse_metatrader_candle_bootstrap_body(raw)
+
+
+@pytest.mark.asyncio
+async def test_bootstrap_endpoint(mt_key: str) -> None:
+    body = {
+        "symbol": "XAUUSD",
+        "timeframe": "H1",
+        "candles": [
+            {
+                "open": 4190.1,
+                "high": 4195.2,
+                "low": 4188.0,
+                "close": 4193.5,
+                "volume": 1000,
+                "time": "2026-06-12T14:00:00Z",
+            }
+        ],
+    }
+    with patch(
+        "app.api.candle_routes.ingest_metatrader_h1_bootstrap",
+        new=AsyncMock(
+            return_value={
+                "symbol": "XAUUSD",
+                "timeframe": "H1",
+                "received_at": "2026-06-12T14:00:01+00:00",
+                "upserted": 1,
+                "deleted": 2,
+                "oldest": "2026-06-12T13:00:00+00:00",
+                "newest": "2026-06-12T13:00:00+00:00",
+            }
+        ),
+    ):
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.post(
+                "/api/v1/candles/bootstrap",
+                json=body,
+                headers={"X-MT-Key": mt_key},
+            )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["upserted"] == 1
+    assert data["deleted"] == 2
+    assert data["source"] == "metatrader"
