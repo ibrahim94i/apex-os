@@ -10,7 +10,7 @@ from app.engines.indicator_engine import OHLCVBar
 from app.logging_config import logger
 from app.schemas.enums import SignalDirection
 from app.schemas.snr import SNRLevelZone, SNRSnapshotSchema
-from app.utils.price_zones import level_zone_bounds, price_in_zone
+from app.utils.price_zones import level_zone_bounds, price_in_level_zone
 
 PIVOT_STRENGTH = 2
 MAX_LOOKBACK_BARS = 500
@@ -245,16 +245,16 @@ class SNREngine:
         price: float,
         snr: SNRSnapshotSchema,
     ) -> tuple[bool, str | None, str | None]:
-        checks: list[tuple[str, SNRLevelZone | None, str]] = [
-            ("S1", snr.support_1_zone, "snr_in_s1_zone"),
-            ("S2", snr.support_2_zone, "snr_in_s2_zone"),
-            ("S3", snr.support_3_zone, "snr_in_s3_zone"),
-            ("R1", snr.resistance_1_zone, "snr_in_r1_zone"),
-            ("R2", snr.resistance_2_zone, "snr_in_r2_zone"),
-            ("R3", snr.resistance_3_zone, "snr_in_r3_zone"),
+        checks: list[tuple[str, float | None, str]] = [
+            ("S1", snr.support_1, "snr_in_s1_zone"),
+            ("S2", snr.support_2, "snr_in_s2_zone"),
+            ("S3", snr.support_3, "snr_in_s3_zone"),
+            ("R1", snr.resistance_1, "snr_in_r1_zone"),
+            ("R2", snr.resistance_2, "snr_in_r2_zone"),
+            ("R3", snr.resistance_3, "snr_in_r3_zone"),
         ]
-        for label, zone, reason in checks:
-            if zone and price_in_zone(price, zone.low, zone.high):
+        for label, level, reason in checks:
+            if level is not None and price_in_level_zone(price, level):
                 return True, reason, label
         return False, None, None
 

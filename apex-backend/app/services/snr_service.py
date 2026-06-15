@@ -21,6 +21,9 @@ async def enrich_consensus_with_snr(
 
     snr_snapshot = await compute_snr_for_symbol(symbol)
     bars = await get_symbol_ohlcv_bars(symbol)
+    current_price: float | None = None
+    if bars:
+        current_price = bars[-1].close
     if not bars and snr_snapshot is None:
         logger.warning("snr_enrichment_skipped", symbol=symbol, reason="no_bars")
         return consensus
@@ -29,6 +32,7 @@ async def enrich_consensus_with_snr(
         consensus,
         bars=bars,
         snr=snr_snapshot,
+        current_price=current_price,
     )
     rr, rr_ar, warning = normalize_snr_consensus_fields(
         rejection_reason=enriched.rejection_reason,

@@ -267,7 +267,11 @@ async def process_bar(raw_bar: dict[str, Any], *, skip_agents: bool = False) -> 
                     raw_snr_bars = await fetch_bars_from_db(symbol, limit=500)
                     bars_for_snr = [_parse_bar(b) for b in raw_snr_bars]
 
-                snr_state = classify_snr_state(bars_for_snr, snr_snapshot)
+                snr_state = classify_snr_state(
+                    bars_for_snr,
+                    snr_snapshot,
+                    current_price=raw_bar["close"],
+                )
                 final = finalize_decision(snr_state, agent_consensus)
 
                 proposed_direction = agent_consensus.final_direction
@@ -474,6 +478,7 @@ async def process_bar(raw_bar: dict[str, Any], *, skip_agents: bool = False) -> 
                     agent_consensus,
                     bars=bars_for_consensus,
                     snr=snr_snapshot,
+                    current_price=raw_bar["close"],
                 )
                 from app.services.signal_rejection_i18n import (
                     normalize_snr_consensus_fields,

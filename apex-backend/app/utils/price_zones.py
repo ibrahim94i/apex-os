@@ -22,3 +22,11 @@ def entry_zone_from_price(price: float, *, decimals: int = 2) -> tuple[float, fl
 
 def price_in_zone(price: float, zone_low: float, zone_high: float) -> bool:
     return zone_low <= price <= zone_high
+
+
+def price_in_level_zone(price: float, level: float, *, decimals: int = 5) -> bool:
+    """True when price lies within ±0.25% band around a single SNR level."""
+    if level <= 0:
+        return False
+    low, high = level_zone_bounds(level, decimals=decimals)
+    return price_in_zone(price, low, high)

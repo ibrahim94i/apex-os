@@ -9,8 +9,8 @@ from app.engines.indicator_engine import OHLCVBar
 from app.engines.snr_engine import SNREngine
 from app.schemas.agent import AgentConsensus
 from app.schemas.enums import SignalDirection
-from app.schemas.snr import SNRLevelZone, SNRSnapshotSchema
-from app.utils.price_zones import level_zone_bounds
+from app.schemas.snr import SNRSnapshotSchema
+from app.utils.price_zones import level_zone_bounds, price_in_level_zone
 
 SNRState = Literal["INSIDE_ZONE", "ZONE_EDGE", "BREAKOUT_CONFIRMED", "NORMAL"]
 FinalAction = Literal["NO_TRADE", "BUY", "SELL"]
@@ -39,24 +39,41 @@ class FinalDecisionResult:
     snr_warning_ar: str | None = None
 
 
-def _all_zones(snr: SNRSnapshotSchema) -> list[SNRLevelZone]:
+def resolve_snr_evaluation_price(
+    bars: list[OHLCVBar],
+    snr: SNRSnapshotSchema | None,
+    *,
+    current_price: float | None = None,
+) -> float | None:
+    """Single source of truth for SNR state — prefer live/bar price over snapshot price."""
+    if current_price is not None and current_price > 0:
+        return current_price
+    if bars:
+        close = bars[-1].close
+        if close > 0:
+            return close
+    if snr is not None and snr.price is not None and snr.price > 0:
+        return snr.price
+    return None
+
+
+def _snr_levels(snr: SNRSnapshotSchema) -> list[float]:
     return [
-        z
-        for z in (
-            snr.support_1_zone,
-            snr.support_2_zone,
-            snr.support_3_zone,
-            snr.resistance_1_zone,
-            snr.resistance_2_zone,
-            snr.resistance_3_zone,
+        level
+        for level in (
+            snr.support_1,
+            snr.support_2,
+            snr.support_3,
+            snr.resistance_1,
+            snr.resistance_2,
+            snr.resistance_3,
         )
-        if z is not None
+        if level is not None and level > 0
     ]
 
 
 def _price_inside_any_zone(price: float, snr: SNRSnapshotSchema) -> bool:
-    in_zone, _, _ = SNREngine._price_in_level_zone(price, snr)
-    return in_zone
+    return any(price_in_level_zone(price, level) for level in _snr_levels(snr))
 
 
 def _distance_pct(price: float, boundary: float) -> float:
@@ -71,8 +88,9 @@ def _is_zone_edge(price: float, snr: SNRSnapshotSchema) -> bool:
         return False
 
     min_dist: float | None = None
-    for zone in _all_zones(snr):
-        for boundary in (zone.low, zone.high):
+    for level in _snr_levels(snr):
+        low, high = level_zone_bounds(level)
+        for boundary in (low, high):
             dist = _distance_pct(price, boundary)
             if min_dist is None or dist < min_dist:
                 min_dist = dist
@@ -83,6 +101,8 @@ def _is_zone_edge(price: float, snr: SNRSnapshotSchema) -> bool:
 def classify_snr_state(
     bars: list[OHLCVBar],
     snr: SNRSnapshotSchema | None,
+    *,
+    current_price: float | None = None,
 ) -> SNRState:
     """SNR soft filter: breakout > inside zone > near edge > normal."""
     if not bars or snr is None:
@@ -98,7 +118,10 @@ def classify_snr_state(
         if SNREngine._confirmed_bearish_breakout(bars, s1_low):
             return "BREAKOUT_CONFIRMED"
 
-    price = snr.price if snr.price is not None else bars[-1].close
+    price = resolve_snr_evaluation_price(bars, snr, current_price=current_price)
+    if price is None:
+        return "NORMAL"
+
     if _price_inside_any_zone(price, snr):
         return "INSIDE_ZONE"
 
@@ -206,9 +229,10 @@ def apply_final_decision_to_consensus(
     *,
     bars: list[OHLCVBar],
     snr: SNRSnapshotSchema | None,
+    current_price: float | None = None,
 ) -> AgentConsensus:
     """Attach SNR state, soft-filter warning, and final decision to consensus."""
-    snr_state = classify_snr_state(bars, snr)
+    snr_state = classify_snr_state(bars, snr, current_price=current_price)
     final = finalize_decision(snr_state, consensus)
 
     updates: dict[str, Any] = {
