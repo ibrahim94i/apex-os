@@ -248,6 +248,10 @@ class AutoOutcomeTracker:
         entry.time_to_outcome = result.time_to_outcome_hours
         entry.max_favorable_excursion = result.max_favorable_excursion
         entry.max_adverse_excursion = result.max_adverse_excursion
+        if entry.id is not None:
+            from app.services.open_trade_monitor_service import clear_open_trade_monitor
+
+            await clear_open_trade_monitor(entry.id)
 
     def _apply_trading_signal_outcome(
         self,

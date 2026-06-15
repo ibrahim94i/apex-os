@@ -219,6 +219,30 @@ class TelegramNotifier:
             )
         return sent
 
+    async def send_open_trade_warning(
+        self,
+        symbol: str,
+        trade_direction: str,
+        detail_ar: str,
+    ) -> bool:
+        asset = ASSET_AR.get(symbol, symbol)
+        dir_ar = "بيع" if trade_direction == "SHORT" else "شراء"
+        text = (
+            "⚠️ <b>تحذير — صفقتك مفتوحة</b>\n"
+            f"{detail_ar}\n\n"
+            f"📌 الأصل: <b>{asset}</b>\n"
+            f"📂 الاتجاه: <b>{dir_ar}</b>\n"
+            f"⏰ {datetime.now(BAGHDAD).strftime('%Y-%m-%d %H:%M')} (العراق)"
+        )
+        sent = await self._send(text)
+        if sent:
+            logger.info(
+                "telegram_open_trade_warning_sent",
+                symbol=symbol,
+                direction=trade_direction,
+            )
+        return sent
+
     async def send_data_source_failover_alert(
         self,
         symbol: str,

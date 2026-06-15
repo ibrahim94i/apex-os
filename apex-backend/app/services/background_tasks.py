@@ -111,19 +111,19 @@ async def _market_status_tick_loop() -> None:
 
 
 async def _auto_outcome_tracker_loop() -> None:
-    """Monitor open Telegram signals for TP/SL/expiry."""
-    from app.database import AsyncSessionLocal
-    from app.services.outcome_tracker import auto_outcome_tracker
+    """Monitor open Telegram trades for TP/SL/expiry and warning alerts."""
+    from app.services.open_trade_monitor_service import run_open_trade_monitor_cycle
 
     await asyncio.sleep(60)
     while True:
         try:
-            async with AsyncSessionLocal() as session:
-                await auto_outcome_tracker.track_pending_outcomes(session)
+            stats = await run_open_trade_monitor_cycle()
+            if stats["resolved"] or stats["warnings_sent"]:
+                logger.info("open_trade_monitor_cycle", **stats)
         except asyncio.CancelledError:
             raise
         except Exception as exc:
-            logger.error("auto_outcome_tracker_error", error=str(exc))
+            logger.error("open_trade_monitor_error", error=str(exc))
         await asyncio.sleep(300)
 
 

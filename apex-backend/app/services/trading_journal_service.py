@@ -142,6 +142,13 @@ class TradingJournalService:
         session.add(entry)
         await session.commit()
         await session.refresh(entry)
+        from app.services.open_trade_monitor_service import register_open_trade_monitor
+
+        await register_open_trade_monitor(
+            journal_id=entry.id,
+            symbol=signal.symbol,
+            trade_direction=signal.direction.value,
+        )
         logger.info(
             "journal_signal_recorded",
             symbol=signal.symbol,

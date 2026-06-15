@@ -54,6 +54,8 @@ class CacheKeys:
     METATRADER_PRICE = "apex:metatrader_price:{symbol}"
     METATRADER_INGEST_LOG = "apex:metatrader_ingest_log:{symbol}"
     METATRADER_CANDLE = "apex:metatrader_candle:{symbol}"
+    OPEN_TRADE_MONITOR = "apex:open_trade_monitor:{journal_id}"
+    OPEN_TRADE_WARN = "apex:open_trade_warn:{journal_id}:{warning_type}"
 
 
 async def cache_set(key: str, value: Any, ttl: int | None = None) -> None:

@@ -238,3 +238,50 @@ async def set_news_verdict(symbol: str, data: dict[str, Any]) -> None:
 
 async def get_news_verdict(symbol: str) -> dict[str, Any] | None:
     return await cache_get(CacheKeys.NEWS_VERDICT.format(symbol=symbol))
+
+
+async def set_open_trade_monitor_state(journal_id: int, data: dict[str, Any]) -> None:
+    ttl = int(settings.open_trade_monitor_ttl_seconds)
+    await cache_set(
+        CacheKeys.OPEN_TRADE_MONITOR.format(journal_id=journal_id),
+        data,
+        ttl=ttl,
+    )
+
+
+async def get_open_trade_monitor_state(journal_id: int) -> dict[str, Any] | None:
+    return await cache_get(CacheKeys.OPEN_TRADE_MONITOR.format(journal_id=journal_id))
+
+
+async def clear_open_trade_monitor_state(journal_id: int) -> None:
+    from app.core.redis_client import cache_delete
+
+    await cache_delete(CacheKeys.OPEN_TRADE_MONITOR.format(journal_id=journal_id))
+    for warning_type in ("contrary_news", "news_opinion_changed", "near_sl"):
+        await cache_delete(
+            CacheKeys.OPEN_TRADE_WARN.format(
+                journal_id=journal_id,
+                warning_type=warning_type,
+            )
+        )
+
+
+async def open_trade_warning_already_sent(journal_id: int, warning_type: str) -> bool:
+    raw = await cache_get(
+        CacheKeys.OPEN_TRADE_WARN.format(
+            journal_id=journal_id,
+            warning_type=warning_type,
+        )
+    )
+    return raw is not None
+
+
+async def mark_open_trade_warning_sent(journal_id: int, warning_type: str) -> None:
+    await cache_set(
+        CacheKeys.OPEN_TRADE_WARN.format(
+            journal_id=journal_id,
+            warning_type=warning_type,
+        ),
+        {"sent_at": datetime.now(timezone.utc).isoformat()},
+        ttl=settings.open_trade_warning_cooldown_seconds,
+    )
