@@ -6,7 +6,7 @@
 //+------------------------------------------------------------------+
 #property copyright "APEX OS"
 #property link      "https://github.com/ibrahim94i/apex-os"
-#property version   "3.04"
+#property version   "3.06"
 #property strict
 
 //--- inputs
@@ -73,6 +73,16 @@ void InitTimeframes()
 }
 
 //+------------------------------------------------------------------+
+bool ShouldRunBootstrapOnInit()
+{
+   if(InpResendBootstrapOnInit)
+      return(true);
+   if(InpSendBootstrapOnInit && !g_bootstrap_sent)
+      return(true);
+   return(false);
+}
+
+//+------------------------------------------------------------------+
 int OnInit()
 {
    if(StringLen(InpApiKey) < 8)
@@ -95,9 +105,27 @@ int OnInit()
       return(INIT_FAILED);
    }
 
-   Print("APEX Feed started | price timer=", InpTimerSeconds, "s | symbol=", InpApexSymbol);
-   if(InpSendBootstrapOnInit)
+   Print(
+      "APEX Feed started | price timer=", InpTimerSeconds,
+      "s | symbol=", InpApexSymbol,
+      " | bootstrapOnInit=", InpSendBootstrapOnInit,
+      " | resendBootstrap=", InpResendBootstrapOnInit
+   );
+
+   if(ShouldRunBootstrapOnInit())
+   {
+      if(InpResendBootstrapOnInit)
+      {
+         g_bootstrap_sent = false;
+         Print("APEX bootstrap: forced resend requested (InpResendBootstrapOnInit=true)");
+      }
       SendH1Bootstrap("init");
+   }
+   else
+   {
+      Print("APEX bootstrap: skipped on init (already sent)");
+   }
+
    SendPriceToApex("init");
    CheckAndSendAllCandles("init");
    return(INIT_SUCCEEDED);
@@ -116,6 +144,10 @@ void OnDeinit(const int reason)
 void OnTimer()
 {
    SendPriceToApex("timer");
+
+   if(!g_bootstrap_sent && ShouldRunBootstrapOnInit())
+      SendH1Bootstrap("timer-retry");
+
    CheckAndSendAllCandles("timer");
 }
 
@@ -129,6 +161,20 @@ void OnTick()
 string BuildUtcTimeString(datetime utc_time)
 {
    return(TimeToString(utc_time, TIME_DATE | TIME_SECONDS));
+}
+
+//+------------------------------------------------------------------+
+datetime BrokerTimeToUtc(datetime brokerTime)
+{
+   return(brokerTime + (TimeGMT() - TimeCurrent()));
+}
+
+//+------------------------------------------------------------------+
+string BuildBarCloseUtcString(datetime bar_open, int period_seconds)
+{
+   datetime bar_close_broker = bar_open + period_seconds;
+   datetime bar_close_utc = BrokerTimeToUtc(bar_close_broker);
+   return(BuildUtcTimeString(bar_close_utc));
 }
 
 //+------------------------------------------------------------------+
@@ -325,7 +371,10 @@ bool SendPriceToApex(const string trigger)
 bool SendH1Bootstrap(const string trigger)
 {
    if(g_bootstrap_sent && !InpResendBootstrapOnInit)
+   {
+      Print("APEX bootstrap: skipped (already sent, resend=false) trigger=", trigger);
       return(true);
+   }
 
    int available = iBars(Symbol(), PERIOD_H1) - 1;
    int count = InpBootstrapBars;
@@ -347,6 +396,7 @@ bool SendH1Bootstrap(const string trigger)
       + "\"candles\":[";
 
    bool first_item = true;
+   int candle_count = 0;
    for(int shift = count; shift >= 1; shift--)
    {
       double open  = iOpen(Symbol(), PERIOD_H1, shift);
@@ -362,18 +412,29 @@ bool SendH1Bootstrap(const string trigger)
       if(bar_open <= 0)
          continue;
 
-      datetime bar_close = bar_open + H1_PERIOD_SECONDS;
-      string close_utc = BuildUtcTimeString(bar_close);
+      string close_utc = BuildBarCloseUtcString(bar_open, H1_PERIOD_SECONDS);
 
       if(!first_item)
          json += ",";
       first_item = false;
+      candle_count++;
 
       json += BuildBootstrapCandleItem(open, high, low, close, volume, digits, close_utc);
    }
 
    json += "]}";
-   Print("APEX bootstrap sending ", count, " H1 bars trigger=", trigger);
+
+   if(candle_count < 1)
+   {
+      Print("APEX bootstrap: no valid H1 candles built trigger=", trigger);
+      return(false);
+   }
+
+   Print(
+      "APEX bootstrap sending ", candle_count,
+      " H1 candles (requested=", count, ") trigger=", trigger,
+      " url=", InpBootstrapApiUrl
+   );
 
    bool ok = PostJsonToApex(
       InpBootstrapApiUrl,
@@ -389,6 +450,11 @@ bool SendH1Bootstrap(const string trigger)
       g_bootstrap_sent = true;
       // Re-post latest closed H1 via live ingest so backend runs pipeline/SNR.
       g_tf_last_open_sent[2] = 0;
+      Print("APEX bootstrap: success, candles=", candle_count);
+   }
+   else
+   {
+      Print("APEX bootstrap: POST failed trigger=", trigger);
    }
    return(ok);
 }
@@ -442,8 +508,7 @@ bool SendCandleToApex(const int tf_index, datetime bar_open, const string trigge
    if(digits < 0)
       digits = 2;
 
-   datetime bar_close = bar_open + period_seconds;
-   string close_utc = BuildUtcTimeString(bar_close);
+   string close_utc = BuildBarCloseUtcString(bar_open, period_seconds);
 
    string json = BuildCandleJson(timeframe, open, high, low, close, volume, digits, close_utc);
    Print("APEX ", timeframe, " json=", json);
@@ -472,6 +537,7 @@ void UpdateChartComment(const bool ok, const string detail)
       " | price ", InpTimerSeconds, "s",
       " | candles M5 M15 H1 H4 D1",
       " | bootstrap ", (g_bootstrap_sent ? "sent" : "pending"),
+      " | resend=", (InpResendBootstrapOnInit ? "on" : "off"),
       " | ", detail,
       "\nprice ok=", g_ok_count,
       " fail=", g_fail_count,

@@ -14,11 +14,14 @@ import {
 } from "lightweight-charts";
 import { t } from "@/lib/i18n";
 import { CHART_TIMEFRAMES, fetchPriceBars, type ChartTimeframe } from "@/lib/api";
+import { formatAssetPrice } from "@/lib/formatPrice";
+import { displayPriceHint } from "@/lib/displayPrice";
 import type { SNRLevels } from "@/types";
 
 interface Props {
   currentPrice: number | null;
   symbol: string;
+  displayPriceSource?: string | null;
 }
 
 function toChartTime(iso: string): number {
@@ -59,6 +62,30 @@ function barBucketSec(timeframe: ChartTimeframe, nowMs = Date.now()): number {
 
 const SUPPORT_COLOR = "#3fb950";
 const RESISTANCE_COLOR = "#f85149";
+const LIVE_PRICE_COLOR = "#d4a017";
+
+function applyLivePriceLine(
+  series: ISeriesApi<"Candlestick">,
+  price: number | null,
+  existing: IPriceLine | null
+): IPriceLine | null {
+  if (existing) {
+    try {
+      series.removePriceLine(existing);
+    } catch {
+      /* ignore */
+    }
+  }
+  if (price == null) return null;
+  return series.createPriceLine({
+    price,
+    color: LIVE_PRICE_COLOR,
+    lineWidth: 2,
+    lineStyle: LineStyle.Solid,
+    axisLabelVisible: true,
+    title: "Live",
+  });
+}
 
 function applySnrLines(series: ISeriesApi<"Candlestick">, snr: SNRLevels | null) {
   const lines: IPriceLine[] = [];
@@ -87,7 +114,7 @@ function applySnrLines(series: ISeriesApi<"Candlestick">, snr: SNRLevels | null)
   return lines;
 }
 
-export default function PriceChart({ currentPrice, symbol }: Props) {
+export default function PriceChart({ currentPrice, symbol, displayPriceSource = null }: Props) {
   const [timeframe, setTimeframe] = useState<ChartTimeframe>("H1");
   const [chartReady, setChartReady] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -96,6 +123,7 @@ export default function PriceChart({ currentPrice, symbol }: Props) {
   const seriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
   const lastBarRef = useRef<CandlestickData | null>(null);
   const snrLinesRef = useRef<IPriceLine[]>([]);
+  const livePriceLineRef = useRef<IPriceLine | null>(null);
   const liveUpdatesRef = useRef(true);
 
   useEffect(() => {
@@ -144,6 +172,7 @@ export default function PriceChart({ currentPrice, symbol }: Props) {
       seriesRef.current = null;
       lastBarRef.current = null;
       snrLinesRef.current = [];
+      livePriceLineRef.current = null;
       setChartReady(false);
     };
   }, []);
@@ -205,15 +234,32 @@ export default function PriceChart({ currentPrice, symbol }: Props) {
   }, [symbol, timeframe, chartReady, applyBarsToChart]);
 
   useEffect(() => {
+    if (!chartReady || !seriesRef.current) return;
+    livePriceLineRef.current = applyLivePriceLine(
+      seriesRef.current,
+      currentPrice,
+      livePriceLineRef.current
+    );
+  }, [currentPrice, chartReady]);
+
+  useEffect(() => {
     if (!liveUpdatesRef.current) return;
     if (!currentPrice || !seriesRef.current || !lastBarRef.current) return;
 
     const bucketSec = barBucketSec(timeframe);
     const lastTime = lastBarRef.current.time as number;
 
-    if (bucketSec < lastTime) return;
-
     try {
+      if (bucketSec < lastTime) {
+        const bar = { ...lastBarRef.current };
+        bar.close = currentPrice;
+        bar.high = Math.max(bar.high, currentPrice);
+        bar.low = Math.min(bar.low, currentPrice);
+        seriesRef.current.update(bar);
+        lastBarRef.current = bar;
+        return;
+      }
+
       if (bucketSec === lastTime) {
         const bar = { ...lastBarRef.current };
         bar.close = currentPrice;
@@ -244,6 +290,16 @@ export default function PriceChart({ currentPrice, symbol }: Props) {
           {t.livePriceChart} — <span className="mono">{symbol}</span>
         </span>
         <span className="chart-title-controls">
+          {currentPrice != null && (
+            <span className="chart-live-price-block">
+              <span className="chart-live-price-value mono">
+                {formatAssetPrice(currentPrice, symbol)}
+              </span>
+              {displayPriceSource != null && (
+                <span className="chart-live-price-hint">{displayPriceHint(displayPriceSource)}</span>
+              )}
+            </span>
+          )}
           <span className="chart-timeframe-group" role="group" aria-label={t.chartTimeframe}>
             {CHART_TIMEFRAMES.map((tf) => (
               <button

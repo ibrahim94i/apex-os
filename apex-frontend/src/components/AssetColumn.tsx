@@ -63,6 +63,7 @@ export default function AssetColumn({ symbol, state, hideTitle = false }: Props)
           />
           <PriceChart
             currentPrice={state?.display_price ?? state?.current_price ?? null}
+            displayPriceSource={state?.display_price_source ?? null}
             symbol={symbol}
           />
           <SignalHistory signals={state?.signal_history ?? []} />
