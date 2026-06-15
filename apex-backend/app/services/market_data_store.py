@@ -193,7 +193,7 @@ async def bootstrap_metatrader_h1_bars(
     from sqlalchemy.dialects.postgresql import insert
 
     if not parsed_bars:
-        return {"upserted": 0, "deleted": 0, "purged": 0, "oldest": None, "newest": None}
+        return {"upserted": 0, "deleted": 0, "purged": 0, "chart_upserted": 0, "oldest": None, "newest": None}
 
     purged = await purge_non_metatrader_price_bars(symbol)
 
@@ -243,13 +243,79 @@ async def bootstrap_metatrader_h1_bars(
         await session.execute(stmt)
         await session.commit()
 
+    chart_upserted = await bootstrap_metatrader_h1_chart_bars(symbol, parsed_bars)
+
     return {
         "upserted": len(values),
         "deleted": deleted,
         "purged": purged,
+        "chart_upserted": chart_upserted,
         "oldest": min_ts.isoformat(),
         "newest": max_ts.isoformat(),
     }
+
+
+async def purge_non_metatrader_chart_bars(symbol: str, timeframe: str) -> int:
+    """Remove non-MetaTrader rows from chart_bars for a symbol/timeframe."""
+    async with AsyncSessionLocal() as session:
+        delete_result = await session.execute(
+            delete(ChartBar).where(
+                ChartBar.symbol == symbol,
+                ChartBar.timeframe == timeframe,
+                ChartBar.source != METATRADER_BAR_SOURCE,
+            )
+        )
+        deleted = int(delete_result.rowcount or 0)
+        await session.commit()
+    return deleted
+
+
+async def bootstrap_metatrader_h1_chart_bars(
+    symbol: str,
+    parsed_bars: list[dict[str, Any]],
+) -> int:
+    """Upsert MT H1 history into chart_bars for dashboard display."""
+    if not parsed_bars:
+        return 0
+
+    from sqlalchemy.dialects.postgresql import insert
+
+    await purge_non_metatrader_chart_bars(symbol, "H1")
+
+    values: list[dict[str, Any]] = []
+    for parsed in parsed_bars:
+        ts = _coerce_bar_timestamp(parsed["timestamp"])
+        values.append(
+            {
+                "symbol": symbol,
+                "timeframe": "H1",
+                "source": METATRADER_BAR_SOURCE,
+                "timestamp": ts,
+                "open": parsed["open"],
+                "high": parsed["high"],
+                "low": parsed["low"],
+                "close": parsed["close"],
+                "volume": parsed.get("volume", 0.0),
+            }
+        )
+
+    async with AsyncSessionLocal() as session:
+        stmt = insert(ChartBar).values(values)
+        stmt = stmt.on_conflict_do_update(
+            index_elements=["symbol", "timeframe", "timestamp"],
+            set_={
+                "source": stmt.excluded.source,
+                "open": stmt.excluded.open,
+                "high": stmt.excluded.high,
+                "low": stmt.excluded.low,
+                "close": stmt.excluded.close,
+                "volume": stmt.excluded.volume,
+            },
+        )
+        await session.execute(stmt)
+        await session.commit()
+
+    return len(values)
 
 
 async def upsert_chart_bar(timeframe: str, bar: dict[str, Any]) -> None:

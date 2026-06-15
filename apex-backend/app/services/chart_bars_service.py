@@ -13,11 +13,7 @@ from app.config.assets import get_asset
 from app.feeds.history_bootstrap import _finalize_bar, _normalize_bar
 from app.feeds.twelvedata_limiter import can_afford_credits, throttled_get
 from app.logging_config import logger
-from app.services.market_data_store import (
-    fetch_agent_bars_from_db,
-    fetch_bars_from_db,
-    fetch_chart_bars_from_db,
-)
+from app.services.market_data_store import fetch_bars_from_db, fetch_chart_bars_from_db
 
 ChartTimeframe = Literal["M5", "M15", "H1", "H4", "D1"]
 ChartDataSource = Literal["db", "binance", "twelvedata", "resampled", "metatrader"]
@@ -272,23 +268,7 @@ async def fetch_chart_bars(
 
     h1_bars = await fetch_bars_from_db(symbol, _RESAMPLE_DB_LIMIT)
 
-    from app.services.metatrader_candle_service import (
-        is_metatrader_candles_connected,
-        is_metatrader_chart_timeframe_connected,
-    )
-
-    if timeframe == "H1":
-        from app.core.cache import get_metatrader_price
-        from app.services.live_price_resolver import is_metatrader_connected
-
-        mt_h1 = await is_metatrader_candles_connected(symbol)
-        mt_price_raw = await get_metatrader_price(symbol)
-        mt_price_on = is_metatrader_connected(symbol, mt_price_raw)
-        agent_bars = await fetch_agent_bars_from_db(symbol, capped_limit)
-        if agent_bars and (mt_h1 or mt_price_on):
-            return agent_bars[-capped_limit:], timeframe, "metatrader"
-        source: ChartDataSource = "metatrader" if mt_h1 else "db"
-        return h1_bars[-capped_limit:], timeframe, source
+    from app.services.metatrader_candle_service import is_metatrader_chart_timeframe_connected
 
     mt_chart = await is_metatrader_chart_timeframe_connected(symbol, timeframe)
     if mt_chart:

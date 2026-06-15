@@ -53,7 +53,7 @@ def test_resample_h4_aggregates() -> None:
 async def test_fetch_chart_bars_h1_uses_db() -> None:
     sample = [_h1_bar(0)]
     with patch(
-        "app.services.metatrader_candle_service.is_metatrader_candles_connected",
+        "app.services.metatrader_candle_service.is_metatrader_chart_timeframe_connected",
         new_callable=AsyncMock,
         return_value=False,
     ):
@@ -61,41 +61,47 @@ async def test_fetch_chart_bars_h1_uses_db() -> None:
             "app.services.chart_bars_service.fetch_bars_from_db",
             new_callable=AsyncMock,
             return_value=sample,
-        ) as mock_db:
-            bars, timeframe, source = await fetch_chart_bars("XAUUSD", interval="H1", limit=200)
-    mock_db.assert_awaited_once_with("XAUUSD", 500)
+        ):
+            with patch(
+                "app.services.chart_bars_service._fetch_binance_chart_series",
+                new_callable=AsyncMock,
+                return_value=[],
+            ):
+                with patch(
+                    "app.services.chart_bars_service._fetch_twelvedata_chart_series",
+                    new_callable=AsyncMock,
+                    return_value=[],
+                ):
+                    bars, timeframe, source = await fetch_chart_bars(
+                        "XAUUSD", interval="H1", limit=200
+                    )
     assert bars == sample
     assert timeframe == DEFAULT_CHART_TIMEFRAME
-    assert source == "db"
+    assert source == "resampled"
 
 
 @pytest.mark.asyncio
 async def test_fetch_chart_bars_h1_uses_metatrader_when_connected() -> None:
     sample = [{**_h1_bar(0), "source": "metatrader"}]
     with patch(
-        "app.services.metatrader_candle_service.is_metatrader_candles_connected",
+        "app.services.metatrader_candle_service.is_metatrader_chart_timeframe_connected",
         new_callable=AsyncMock,
         return_value=True,
     ):
         with patch(
-            "app.core.cache.get_metatrader_price",
+            "app.services.chart_bars_service.fetch_bars_from_db",
             new_callable=AsyncMock,
-            return_value={"received_at": "2026-06-01T00:00:00+00:00"},
+            return_value=[_h1_bar(0)],
         ):
             with patch(
-                "app.services.chart_bars_service.fetch_bars_from_db",
+                "app.services.chart_bars_service.fetch_chart_bars_from_db",
                 new_callable=AsyncMock,
                 return_value=sample,
-            ):
-                with patch(
-                    "app.services.chart_bars_service.fetch_agent_bars_from_db",
-                    new_callable=AsyncMock,
-                    return_value=sample,
-                ) as mock_agent:
-                    bars, timeframe, source = await fetch_chart_bars(
-                        "XAUUSD", interval="H1", limit=200
-                    )
-    mock_agent.assert_awaited_once_with("XAUUSD", 200)
+            ) as mock_chart_db:
+                bars, timeframe, source = await fetch_chart_bars(
+                    "XAUUSD", interval="H1", limit=200
+                )
+    mock_chart_db.assert_awaited_once_with("XAUUSD", "H1", 200)
     assert bars == sample
     assert source == "metatrader"
 

@@ -16,7 +16,7 @@ from app.services.market_data_store import (
 from app.services.pipeline import process_bar
 from app.utils.time_utils import compute_age_seconds, parse_utc_timestamp
 
-CHART_TIMEFRAMES: frozenset[str] = frozenset({"M5", "M15", "H4", "D1"})
+CHART_TIMEFRAMES: frozenset[str] = frozenset({"M5", "M15", "H1", "H4", "D1"})
 
 CHART_STALE_SECONDS: dict[str, int] = {
     "M5": 900,
@@ -107,6 +107,7 @@ async def ingest_metatrader_candle(parsed: dict[str, Any]) -> dict[str, Any]:
     pipeline_ran = False
     if timeframe == "H1":
         await upsert_metatrader_bar(bar)
+        await upsert_chart_bar("H1", bar)
         await set_latest_price(symbol, float(parsed["close"]), bar_timestamp.isoformat())
         try:
             await process_bar(bar)
