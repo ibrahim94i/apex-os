@@ -10,6 +10,9 @@ from sqlalchemy import delete, desc, select
 from app.database import AsyncSessionLocal
 from app.models import ChartBar, PriceBar, RegimeSnapshot
 
+METATRADER_BAR_SOURCE = "metatrader"
+AGENT_BAR_SOURCE = METATRADER_BAR_SOURCE
+
 
 def _bar_to_dict(row: PriceBar) -> dict[str, Any]:
     ts = row.timestamp
@@ -28,16 +31,40 @@ def _bar_to_dict(row: PriceBar) -> dict[str, Any]:
     }
 
 
-async def fetch_bars_from_db(symbol: str, limit: int = 250) -> list[dict[str, Any]]:
+async def fetch_bars_from_db(
+    symbol: str,
+    limit: int = 250,
+    *,
+    source: str | None = None,
+) -> list[dict[str, Any]]:
     async with AsyncSessionLocal() as session:
+        query = select(PriceBar).where(PriceBar.symbol == symbol)
+        if source is not None:
+            query = query.where(PriceBar.source == source)
         result = await session.execute(
-            select(PriceBar)
-            .where(PriceBar.symbol == symbol)
-            .order_by(desc(PriceBar.timestamp))
-            .limit(limit)
+            query.order_by(desc(PriceBar.timestamp)).limit(limit)
         )
         rows = list(reversed(result.scalars().all()))
     return [_bar_to_dict(row) for row in rows]
+
+
+async def fetch_agent_bars_from_db(symbol: str, limit: int = 500) -> list[dict[str, Any]]:
+    """H1 bars for SNR, agents, and signals — MetaTrader broker candles only."""
+    return await fetch_bars_from_db(symbol, limit, source=AGENT_BAR_SOURCE)
+
+
+async def purge_non_metatrader_price_bars(symbol: str) -> int:
+    """Remove all non-MetaTrader rows from price_bars for a symbol."""
+    async with AsyncSessionLocal() as session:
+        delete_result = await session.execute(
+            delete(PriceBar).where(
+                PriceBar.symbol == symbol,
+                PriceBar.source != METATRADER_BAR_SOURCE,
+            )
+        )
+        deleted = int(delete_result.rowcount or 0)
+        await session.commit()
+    return deleted
 
 
 async def count_bars_in_db(symbol: str) -> int:
@@ -67,6 +94,18 @@ async def persist_bars_batch(bars: list[dict[str, Any]]) -> int:
     """Insert historical bars; skip duplicates. Returns rows attempted."""
     if not bars:
         return 0
+
+    from app.services.price_bar_guard import (
+        log_blocked_external_bar,
+        should_block_external_price_bars,
+    )
+
+    symbol = str(bars[0].get("symbol", ""))
+    if symbol and await should_block_external_price_bars(symbol):
+        source = str(bars[0].get("source", "unknown"))
+        await log_blocked_external_bar(symbol, source, context="persist_bars_batch")
+        return 0
+
     from sqlalchemy.dialects.postgresql import insert
 
     from app.models import PriceBar
@@ -150,11 +189,13 @@ async def bootstrap_metatrader_h1_bars(
     symbol: str,
     parsed_bars: list[dict[str, Any]],
 ) -> dict[str, Any]:
-    """Replace non-MetaTrader H1 bars in the bootstrap window with MT history."""
+    """Replace all non-MetaTrader H1 rows, then upsert MT bootstrap history."""
     from sqlalchemy.dialects.postgresql import insert
 
     if not parsed_bars:
-        return {"upserted": 0, "deleted": 0, "oldest": None, "newest": None}
+        return {"upserted": 0, "deleted": 0, "purged": 0, "oldest": None, "newest": None}
+
+    purged = await purge_non_metatrader_price_bars(symbol)
 
     values: list[dict[str, Any]] = []
     for parsed in parsed_bars:
@@ -205,6 +246,7 @@ async def bootstrap_metatrader_h1_bars(
     return {
         "upserted": len(values),
         "deleted": deleted,
+        "purged": purged,
         "oldest": min_ts.isoformat(),
         "newest": max_ts.isoformat(),
     }

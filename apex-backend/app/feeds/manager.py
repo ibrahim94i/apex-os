@@ -28,8 +28,12 @@ FeedHandle = (
 async def _handle_feed_bar(raw_bar: dict[str, Any]) -> None:
     symbol = raw_bar.get("symbol", "")
     from app.services.metatrader_candle_service import is_metatrader_candles_connected
+    from app.services.price_bar_guard import should_block_external_price_bars
 
-    if symbol and await is_metatrader_candles_connected(symbol):
+    if symbol and (
+        await should_block_external_price_bars(symbol)
+        or await is_metatrader_candles_connected(symbol)
+    ):
         logger.debug(
             "feed_bar_skipped_metatrader_candles",
             symbol=symbol,

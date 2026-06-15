@@ -71,18 +71,31 @@ async def test_fetch_chart_bars_h1_uses_db() -> None:
 
 @pytest.mark.asyncio
 async def test_fetch_chart_bars_h1_uses_metatrader_when_connected() -> None:
-    sample = [_h1_bar(0)]
+    sample = [{**_h1_bar(0), "source": "metatrader"}]
     with patch(
         "app.services.metatrader_candle_service.is_metatrader_candles_connected",
         new_callable=AsyncMock,
         return_value=True,
     ):
         with patch(
-            "app.services.chart_bars_service.fetch_bars_from_db",
+            "app.core.cache.get_metatrader_price",
             new_callable=AsyncMock,
-            return_value=sample,
+            return_value={"received_at": "2026-06-01T00:00:00+00:00"},
         ):
-            bars, timeframe, source = await fetch_chart_bars("XAUUSD", interval="H1", limit=200)
+            with patch(
+                "app.services.chart_bars_service.fetch_bars_from_db",
+                new_callable=AsyncMock,
+                return_value=sample,
+            ):
+                with patch(
+                    "app.services.chart_bars_service.fetch_agent_bars_from_db",
+                    new_callable=AsyncMock,
+                    return_value=sample,
+                ) as mock_agent:
+                    bars, timeframe, source = await fetch_chart_bars(
+                        "XAUUSD", interval="H1", limit=200
+                    )
+    mock_agent.assert_awaited_once_with("XAUUSD", 200)
     assert bars == sample
     assert source == "metatrader"
 

@@ -62,9 +62,9 @@ signal_generator = SignalGenerator()
 
 async def compute_snr_for_symbol(symbol: str) -> SNRSnapshotSchema | None:
     from app.core.cache import get_latest_price
-    from app.services.market_data_store import fetch_bars_from_db
+    from app.services.market_data_store import fetch_agent_bars_from_db
 
-    raw = await fetch_bars_from_db(symbol, limit=500)
+    raw = await fetch_agent_bars_from_db(symbol, limit=500)
     if len(raw) < 7:
         return None
     bars = [_parse_bar(b) for b in raw]
@@ -93,7 +93,17 @@ def _parse_bar(raw: dict[str, Any]) -> OHLCVBar:
 
 
 async def _persist_bar(session: Any, bar: dict[str, Any]) -> None:
+    from app.services.price_bar_guard import (
+        log_blocked_external_bar,
+        should_block_external_price_bars,
+    )
     from app.utils.volume_policy import apply_volume_policy_to_bar
+
+    source = str(bar.get("source", "unknown"))
+    symbol = str(bar.get("symbol", ""))
+    if source != "metatrader" and symbol and await should_block_external_price_bars(symbol):
+        await log_blocked_external_bar(symbol, source, context="process_bar")
+        return
 
     bar = apply_volume_policy_to_bar(bar)
     ts = bar["timestamp"]
@@ -117,9 +127,9 @@ async def get_symbol_ohlcv_bars(symbol: str, limit: int = MAX_BUFFER) -> list[OH
     """Return in-memory OHLCV buffer or load recent bars from DB."""
     if symbol in _bar_buffer and len(_bar_buffer[symbol]) >= 5:
         return _bar_buffer[symbol]
-    from app.services.market_data_store import fetch_bars_from_db
+    from app.services.market_data_store import fetch_agent_bars_from_db
 
-    raw = await fetch_bars_from_db(symbol, limit)
+    raw = await fetch_agent_bars_from_db(symbol, limit)
     if not raw:
         return _bar_buffer.get(symbol, [])
     seed_bars_to_buffer(raw)
@@ -131,8 +141,7 @@ def seed_bars_to_buffer(raw_bars: list[dict[str, Any]]) -> None:
     if not raw_bars:
         return
     symbol = raw_bars[0]["symbol"]
-    if symbol not in _bar_buffer:
-        _bar_buffer[symbol] = []
+    _bar_buffer[symbol] = []
     for raw in raw_bars:
         _bar_buffer[symbol].append(_parse_bar(raw))
     if len(_bar_buffer[symbol]) > MAX_BUFFER:
@@ -262,9 +271,9 @@ async def process_bar(raw_bar: dict[str, Any], *, skip_agents: bool = False) -> 
 
                 bars_for_snr = _bar_buffer[symbol]
                 if len(bars_for_snr) < 2:
-                    from app.services.market_data_store import fetch_bars_from_db
+                    from app.services.market_data_store import fetch_agent_bars_from_db
 
-                    raw_snr_bars = await fetch_bars_from_db(symbol, limit=500)
+                    raw_snr_bars = await fetch_agent_bars_from_db(symbol, limit=500)
                     bars_for_snr = [_parse_bar(b) for b in raw_snr_bars]
 
                 snr_state = classify_snr_state(
@@ -469,9 +478,9 @@ async def process_bar(raw_bar: dict[str, Any], *, skip_agents: bool = False) -> 
 
                 bars_for_consensus = _bar_buffer.get(symbol) or []
                 if len(bars_for_consensus) < 2:
-                    from app.services.market_data_store import fetch_bars_from_db
+                    from app.services.market_data_store import fetch_agent_bars_from_db
 
-                    raw_consensus_bars = await fetch_bars_from_db(symbol, limit=500)
+                    raw_consensus_bars = await fetch_agent_bars_from_db(symbol, limit=500)
                     bars_for_consensus = [_parse_bar(b) for b in raw_consensus_bars]
 
                 agent_consensus = apply_final_decision_to_consensus(

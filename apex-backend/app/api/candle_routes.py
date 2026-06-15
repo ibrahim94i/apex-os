@@ -145,6 +145,7 @@ async def bootstrap_metatrader_candles(request: Request) -> MetaTraderCandleBoot
         received_at=result["received_at"],
         upserted=result["upserted"],
         deleted=result["deleted"],
+        purged=result.get("purged", 0),
         oldest=result["oldest"],
         newest=result["newest"],
     )
@@ -170,7 +171,10 @@ async def get_candles_status() -> dict[str, Any]:
                 "status": "connected" if connected else "disconnected",
                 "last_candle_at": tf_state.get("last_candle_at")
                 if tf != "H1"
-                else (raw or {}).get("last_candle_at"),
+                else (
+                    (raw or {}).get("last_candle_at")
+                    or tf_state.get("last_candle_at")
+                ),
                 "received_at": tf_state.get("received_at")
                 if tf != "H1"
                 else (raw or {}).get("received_at"),

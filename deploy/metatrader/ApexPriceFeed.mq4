@@ -6,7 +6,7 @@
 //+------------------------------------------------------------------+
 #property copyright "APEX OS"
 #property link      "https://github.com/ibrahim94i/apex-os"
-#property version   "3.03"
+#property version   "3.04"
 #property strict
 
 //--- inputs
@@ -20,6 +20,7 @@ input int    InpTimeoutMs       = 8000;
 input int    InpBootstrapBars   = 500;
 input int    InpBootstrapTimeoutMs = 30000;
 input bool   InpSendBootstrapOnInit = true;
+input bool   InpResendBootstrapOnInit = false;
 input bool   InpShowComment      = true;
 
 #define TF_COUNT 5
@@ -323,7 +324,7 @@ bool SendPriceToApex(const string trigger)
 //+------------------------------------------------------------------+
 bool SendH1Bootstrap(const string trigger)
 {
-   if(g_bootstrap_sent)
+   if(g_bootstrap_sent && !InpResendBootstrapOnInit)
       return(true);
 
    int available = iBars(Symbol(), PERIOD_H1) - 1;
@@ -386,9 +387,8 @@ bool SendH1Bootstrap(const string trigger)
    if(ok)
    {
       g_bootstrap_sent = true;
-      datetime latest_h1_open = iTime(Symbol(), PERIOD_H1, 1);
-      if(latest_h1_open > 0)
-         g_tf_last_open_sent[2] = latest_h1_open;
+      // Re-post latest closed H1 via live ingest so backend runs pipeline/SNR.
+      g_tf_last_open_sent[2] = 0;
    }
    return(ok);
 }

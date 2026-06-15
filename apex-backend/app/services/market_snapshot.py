@@ -71,9 +71,9 @@ async def build_market_snapshot(
     if snr is None:
         from app.engines.indicator_engine import OHLCVBar
         from app.engines.snr_engine import snr_engine
-        from app.services.market_data_store import fetch_bars_from_db
+        from app.services.market_data_store import fetch_agent_bars_from_db
 
-        raw = await fetch_bars_from_db(symbol, limit=500)
+        raw = await fetch_agent_bars_from_db(symbol, limit=500)
         if raw:
             ohlcv = [
                 OHLCVBar(

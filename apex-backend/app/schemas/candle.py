@@ -21,5 +21,6 @@ class MetaTraderCandleBootstrapResponse(BaseModel):
     received_at: str
     upserted: int
     deleted: int
+    purged: int = 0
     oldest: str | None = None
     newest: str | None = None

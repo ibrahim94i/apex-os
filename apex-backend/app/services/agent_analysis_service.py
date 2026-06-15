@@ -34,7 +34,7 @@ from app.services.consensus_utils import consensus_has_h1_agents
 from app.services.feed_freshness import is_feed_poll_stale
 from app.services.feed_health_service import recover_feed
 from app.services.market_data_store import (
-    fetch_bars_from_db,
+    fetch_agent_bars_from_db,
     get_latest_price_from_db,
     get_latest_regime_from_db,
 )
@@ -115,7 +115,7 @@ async def _serve_stale_if_llm_blocked(symbol: str) -> AgentConsensus | None:
 
 async def _recompute_market_metrics(symbol: str) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
     """Rebuild indicators/regime from DB OHLCV when Redis cache is empty."""
-    bars = await fetch_bars_from_db(symbol, _DB_BAR_LIMIT)
+    bars = await fetch_agent_bars_from_db(symbol, _DB_BAR_LIMIT)
     if len(bars) < _MIN_INDICATOR_BARS:
         logger.warning(
             "agent_analysis_insufficient_bars",

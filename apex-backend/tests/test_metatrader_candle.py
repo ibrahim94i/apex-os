@@ -85,6 +85,27 @@ async def test_is_metatrader_candles_connected_fresh() -> None:
 
 
 @pytest.mark.asyncio
+async def test_is_metatrader_candles_connected_ignores_m5_heartbeat() -> None:
+    raw = {
+        "received_at": datetime.now(timezone.utc).isoformat(),
+        "timeframes": {
+            "M5": {"last_candle_at": datetime.now(timezone.utc).isoformat()},
+        },
+    }
+    assert await is_metatrader_candles_connected("XAUUSD", raw) is False
+
+
+@pytest.mark.asyncio
+async def test_is_metatrader_candles_connected_uses_h1_timeframe_state() -> None:
+    raw = {
+        "timeframes": {
+            "H1": {"last_candle_at": datetime.now(timezone.utc).isoformat()},
+        },
+    }
+    assert await is_metatrader_candles_connected("XAUUSD", raw) is True
+
+
+@pytest.mark.asyncio
 async def test_is_metatrader_chart_timeframe_connected_m5() -> None:
     raw = {
         "timeframes": {

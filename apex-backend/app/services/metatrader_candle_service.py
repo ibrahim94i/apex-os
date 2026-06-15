@@ -30,6 +30,17 @@ def _h1_stale_seconds() -> int:
     return max(settings.metatrader_candle_stale_seconds, 3600)
 
 
+def _h1_last_candle_timestamp(data: dict[str, Any]) -> str | None:
+    """Return the latest H1 bar open time — never infer from M5/M15 heartbeats."""
+    root = data.get("last_candle_at")
+    if root:
+        return str(root)
+    h1_state = (data.get("timeframes") or {}).get("H1")
+    if isinstance(h1_state, dict) and h1_state.get("last_candle_at"):
+        return str(h1_state["last_candle_at"])
+    return None
+
+
 def _chart_stale_seconds(timeframe: str) -> int:
     return CHART_STALE_SECONDS.get(timeframe, settings.metatrader_candle_stale_seconds)
 
@@ -40,10 +51,10 @@ async def is_metatrader_candles_connected(symbol: str, raw: dict[str, Any] | Non
     data = raw if raw is not None else await get_metatrader_candle_state(symbol)
     if not data:
         return False
-    ts_raw = data.get("last_candle_at") or data.get("received_at")
+    ts_raw = _h1_last_candle_timestamp(data)
     if not ts_raw:
         return False
-    age = compute_age_seconds(parse_utc_timestamp(str(ts_raw)))
+    age = compute_age_seconds(parse_utc_timestamp(ts_raw))
     return age <= _h1_stale_seconds()
 
 
@@ -131,6 +142,15 @@ async def ingest_metatrader_candle(parsed: dict[str, Any]) -> dict[str, Any]:
     if timeframe == "H1":
         state["last_candle_at"] = bar_timestamp.isoformat()
         state["close_time"] = parsed["close_time"].isoformat()
+    else:
+        for key in (
+            "last_candle_at",
+            "close_time",
+            "bootstrapped_at",
+            "bootstrap_count",
+        ):
+            if key in existing:
+                state[key] = existing[key]
 
     await set_metatrader_candle_state(symbol, state)
 
@@ -150,6 +170,45 @@ async def ingest_metatrader_candle(parsed: dict[str, Any]) -> dict[str, Any]:
         "received_at": received_at.isoformat(),
         "pipeline_ran": pipeline_ran,
     }
+
+
+async def finalize_metatrader_h1_bootstrap(symbol: str, newest: dict[str, Any]) -> None:
+    """Reseed pipeline buffer, run SNR, and process the newest bootstrap bar."""
+    from app.core.cache import set_latest_snr
+    from app.services.market_data_store import fetch_agent_bars_from_db
+    from app.services.pipeline import compute_snr_for_symbol, process_bar, seed_bars_to_buffer
+
+    newest_ts = newest["timestamp"]
+    if newest_ts.tzinfo is None:
+        newest_ts = newest_ts.replace(tzinfo=timezone.utc)
+
+    raw = await fetch_agent_bars_from_db(symbol, limit=500)
+    seed_bars_to_buffer(raw)
+
+    newest_bar = {
+        "symbol": symbol,
+        "timestamp": newest_ts.isoformat(),
+        "open": newest["open"],
+        "high": newest["high"],
+        "low": newest["low"],
+        "close": newest["close"],
+        "volume": newest.get("volume", 0.0),
+        "source": "metatrader",
+        "is_closed": True,
+    }
+    try:
+        await process_bar(newest_bar)
+    except Exception as exc:
+        logger.error(
+            "metatrader_bootstrap_pipeline_failed",
+            symbol=symbol,
+            timestamp=newest_ts.isoformat(),
+            error=str(exc),
+        )
+
+    snr = await compute_snr_for_symbol(symbol)
+    if snr:
+        await set_latest_snr(symbol, snr.model_dump(mode="json"))
 
 
 async def ingest_metatrader_h1_bootstrap(parsed: dict[str, Any]) -> dict[str, Any]:
@@ -193,11 +252,14 @@ async def ingest_metatrader_h1_bootstrap(parsed: dict[str, Any]) -> dict[str, An
     )
     await set_latest_price(symbol, float(newest["close"]), newest_ts.isoformat())
 
+    await finalize_metatrader_h1_bootstrap(symbol, newest)
+
     logger.info(
         "metatrader_h1_bootstrap_ingested",
         symbol=symbol,
         upserted=result["upserted"],
         deleted=result["deleted"],
+        purged=result.get("purged", 0),
         oldest=result["oldest"],
         newest=result["newest"],
     )
