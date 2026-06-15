@@ -91,7 +91,7 @@ async def test_fetch_chart_bars_h1_uses_metatrader_when_connected() -> None:
 async def test_fetch_chart_bars_m5_uses_binance() -> None:
     sample = [{"symbol": "XAUUSD", "timestamp": "2026-06-01T00:05:00+00:00", "close": 1.0}]
     with patch(
-        "app.services.metatrader_candle_service.is_metatrader_candles_connected",
+        "app.services.metatrader_candle_service.is_metatrader_chart_timeframe_connected",
         new_callable=AsyncMock,
         return_value=False,
     ):
@@ -113,10 +113,35 @@ async def test_fetch_chart_bars_m5_uses_binance() -> None:
 
 
 @pytest.mark.asyncio
+async def test_fetch_chart_bars_m5_uses_metatrader_when_connected() -> None:
+    sample = [{"symbol": "XAUUSD", "timestamp": "2026-06-01T00:05:00+00:00", "close": 1.0}]
+    with patch(
+        "app.services.metatrader_candle_service.is_metatrader_chart_timeframe_connected",
+        new_callable=AsyncMock,
+        return_value=True,
+    ):
+        with patch(
+            "app.services.chart_bars_service.fetch_bars_from_db",
+            new_callable=AsyncMock,
+            return_value=[_h1_bar(0)],
+        ):
+            with patch(
+                "app.services.chart_bars_service.fetch_chart_bars_from_db",
+                new_callable=AsyncMock,
+                return_value=sample,
+            ) as mock_chart_db:
+                bars, timeframe, source = await fetch_chart_bars("XAUUSD", interval="M5", limit=120)
+    mock_chart_db.assert_awaited_once_with("XAUUSD", "M5", 120)
+    assert bars == sample
+    assert timeframe == "M5"
+    assert source == "metatrader"
+
+
+@pytest.mark.asyncio
 async def test_fetch_chart_bars_m5_resamples_when_binance_unavailable() -> None:
     h1 = [_h1_bar(h) for h in range(4)]
     with patch(
-        "app.services.metatrader_candle_service.is_metatrader_candles_connected",
+        "app.services.metatrader_candle_service.is_metatrader_chart_timeframe_connected",
         new_callable=AsyncMock,
         return_value=False,
     ):

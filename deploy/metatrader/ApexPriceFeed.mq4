@@ -1,11 +1,11 @@
 //+------------------------------------------------------------------+
-//| ApexPriceFeed.mq4 — APEX OS MetaTrader price + H1 candle stream  |
+//| ApexPriceFeed.mq4 — APEX OS MetaTrader price + multi-TF candles  |
 //| Price: POST /api/v1/prices/update every 5s                       |
-//| H1 candle: POST /api/v1/candles/update on each H1 close          |
+//| Candles: POST /api/v1/candles/update on M5/M15/H1/H4/D1 close    |
 //+------------------------------------------------------------------+
 #property copyright "APEX OS"
 #property link      "https://github.com/ibrahim94i/apex-os"
-#property version   "3.01"
+#property version   "3.02"
 #property strict
 
 //--- inputs
@@ -17,15 +17,50 @@ input int    InpTimerSeconds = 5;
 input int    InpTimeoutMs    = 8000;
 input bool   InpShowComment   = true;
 
-#define H1_PERIOD_SECONDS 3600
+#define TF_COUNT 5
 
 //--- state
-datetime g_last_ok_utc      = 0;
-datetime g_last_h1_open_sent = 0;
-int      g_fail_count       = 0;
-int      g_ok_count         = 0;
-int      g_candle_ok_count  = 0;
-int      g_candle_fail_count = 0;
+datetime g_last_ok_utc = 0;
+int      g_fail_count  = 0;
+int      g_ok_count    = 0;
+
+int      g_tf_periods[TF_COUNT];
+string   g_tf_labels[TF_COUNT];
+int      g_tf_seconds[TF_COUNT];
+datetime g_tf_last_open_sent[TF_COUNT];
+int      g_tf_ok_count[TF_COUNT];
+int      g_tf_fail_count[TF_COUNT];
+
+//+------------------------------------------------------------------+
+void InitTimeframes()
+{
+   g_tf_periods[0] = PERIOD_M5;
+   g_tf_labels[0]  = "M5";
+   g_tf_seconds[0] = 300;
+
+   g_tf_periods[1] = PERIOD_M15;
+   g_tf_labels[1]  = "M15";
+   g_tf_seconds[1] = 900;
+
+   g_tf_periods[2] = PERIOD_H1;
+   g_tf_labels[2]  = "H1";
+   g_tf_seconds[2] = 3600;
+
+   g_tf_periods[3] = PERIOD_H4;
+   g_tf_labels[3]  = "H4";
+   g_tf_seconds[3] = 14400;
+
+   g_tf_periods[4] = PERIOD_D1;
+   g_tf_labels[4]  = "D1";
+   g_tf_seconds[4] = 86400;
+
+   for(int i = 0; i < TF_COUNT; i++)
+   {
+      g_tf_last_open_sent[i] = 0;
+      g_tf_ok_count[i] = 0;
+      g_tf_fail_count[i] = 0;
+   }
+}
 
 //+------------------------------------------------------------------+
 int OnInit()
@@ -42,6 +77,8 @@ int OnInit()
       return(INIT_PARAMETERS_INCORRECT);
    }
 
+   InitTimeframes();
+
    if(!EventSetTimer(InpTimerSeconds))
    {
       Print("APEX Price Feed: EventSetTimer failed, err=", GetLastError());
@@ -50,7 +87,7 @@ int OnInit()
 
    Print("APEX Feed started | price timer=", InpTimerSeconds, "s | symbol=", InpApexSymbol);
    SendPriceToApex("init");
-   CheckAndSendH1Candle("init");
+   CheckAndSendAllCandles("init");
    return(INIT_SUCCEEDED);
 }
 
@@ -67,7 +104,7 @@ void OnDeinit(const int reason)
 void OnTimer()
 {
    SendPriceToApex("timer");
-   CheckAndSendH1Candle("timer");
+   CheckAndSendAllCandles("timer");
 }
 
 //+------------------------------------------------------------------+
@@ -82,8 +119,6 @@ string BuildUtcTimeString(datetime utc_time)
    return(TimeToString(utc_time, TIME_DATE | TIME_SECONDS));
 }
 
-//+------------------------------------------------------------------+
-//| JSON numbers must use dot decimal separator (not locale comma).  |
 //+------------------------------------------------------------------+
 string FormatJsonNumber(const double value, const int digits)
 {
@@ -107,7 +142,8 @@ string BuildPriceJson(const double bid, const double ask, const int digits, cons
 }
 
 //+------------------------------------------------------------------+
-string BuildH1CandleJson(
+string BuildCandleJson(
+   const string timeframe,
    const double open,
    const double high,
    const double low,
@@ -120,7 +156,7 @@ string BuildH1CandleJson(
    return(
       "{"
       + "\"symbol\":\"" + InpApexSymbol + "\","
-      + "\"timeframe\":\"H1\","
+      + "\"timeframe\":\"" + timeframe + "\","
       + "\"open\":" + FormatJsonNumber(open, digits) + ","
       + "\"high\":" + FormatJsonNumber(high, digits) + ","
       + "\"low\":" + FormatJsonNumber(low, digits) + ","
@@ -247,32 +283,47 @@ bool SendPriceToApex(const string trigger)
 }
 
 //+------------------------------------------------------------------+
-void CheckAndSendH1Candle(const string trigger)
+void CheckAndSendAllCandles(const string trigger)
 {
-   datetime bar_open = iTime(Symbol(), PERIOD_H1, 1);
-   if(bar_open <= 0)
-      return;
-
-   if(bar_open == g_last_h1_open_sent)
-      return;
-
-   if(SendH1CandleToApex(bar_open, trigger))
-      g_last_h1_open_sent = bar_open;
+   for(int i = 0; i < TF_COUNT; i++)
+      CheckAndSendCandle(i, trigger);
 }
 
 //+------------------------------------------------------------------+
-bool SendH1CandleToApex(datetime bar_open, const string trigger)
+void CheckAndSendCandle(const int tf_index, const string trigger)
 {
-   double open  = iOpen(Symbol(), PERIOD_H1, 1);
-   double high  = iHigh(Symbol(), PERIOD_H1, 1);
-   double low   = iLow(Symbol(), PERIOD_H1, 1);
-   double close = iClose(Symbol(), PERIOD_H1, 1);
-   long   volume = iVolume(Symbol(), PERIOD_H1, 1);
+   if(tf_index < 0 || tf_index >= TF_COUNT)
+      return;
+
+   int period = g_tf_periods[tf_index];
+   datetime bar_open = iTime(Symbol(), period, 1);
+   if(bar_open <= 0)
+      return;
+
+   if(bar_open == g_tf_last_open_sent[tf_index])
+      return;
+
+   if(SendCandleToApex(tf_index, bar_open, trigger))
+      g_tf_last_open_sent[tf_index] = bar_open;
+}
+
+//+------------------------------------------------------------------+
+bool SendCandleToApex(const int tf_index, datetime bar_open, const string trigger)
+{
+   int period = g_tf_periods[tf_index];
+   string timeframe = g_tf_labels[tf_index];
+   int period_seconds = g_tf_seconds[tf_index];
+
+   double open  = iOpen(Symbol(), period, 1);
+   double high  = iHigh(Symbol(), period, 1);
+   double low   = iLow(Symbol(), period, 1);
+   double close = iClose(Symbol(), period, 1);
+   long   volume = iVolume(Symbol(), period, 1);
 
    if(open <= 0.0 || high <= 0.0 || low <= 0.0 || close <= 0.0)
    {
-      g_candle_fail_count++;
-      Print("APEX H1 candle: invalid OHLC for ", Symbol(), " trigger=", trigger);
+      g_tf_fail_count[tf_index]++;
+      Print("APEX ", timeframe, " candle: invalid OHLC for ", Symbol(), " trigger=", trigger);
       return(false);
    }
 
@@ -280,19 +331,19 @@ bool SendH1CandleToApex(datetime bar_open, const string trigger)
    if(digits < 0)
       digits = 2;
 
-   datetime bar_close = bar_open + H1_PERIOD_SECONDS;
+   datetime bar_close = bar_open + period_seconds;
    string close_utc = BuildUtcTimeString(bar_close);
 
-   string json = BuildH1CandleJson(open, high, low, close, volume, digits, close_utc);
-   Print("APEX H1 json=", json);
+   string json = BuildCandleJson(timeframe, open, high, low, close, volume, digits, close_utc);
+   Print("APEX ", timeframe, " json=", json);
 
    return PostJsonToApex(
       InpCandleApiUrl,
       json,
       trigger,
-      "H1",
-      g_candle_ok_count,
-      g_candle_fail_count
+      timeframe,
+      g_tf_ok_count[tf_index],
+      g_tf_fail_count[tf_index]
    );
 }
 
@@ -307,12 +358,15 @@ void UpdateChartComment(const bool ok, const string detail)
       status,
       " | ", InpApexSymbol,
       " | price ", InpTimerSeconds, "s",
-      " | H1 on close",
+      " | candles M5 M15 H1 H4 D1",
       " | ", detail,
       "\nprice ok=", g_ok_count,
       " fail=", g_fail_count,
-      " | H1 ok=", g_candle_ok_count,
-      " fail=", g_candle_fail_count,
+      "\nM5 ok=", g_tf_ok_count[0], " fail=", g_tf_fail_count[0],
+      " | M15 ok=", g_tf_ok_count[1], " fail=", g_tf_fail_count[1],
+      " | H1 ok=", g_tf_ok_count[2], " fail=", g_tf_fail_count[2],
+      "\nH4 ok=", g_tf_ok_count[3], " fail=", g_tf_fail_count[3],
+      " | D1 ok=", g_tf_ok_count[4], " fail=", g_tf_fail_count[4],
       "\nlast=", TimeToString(g_last_ok_utc, TIME_DATE | TIME_SECONDS)
    );
 }

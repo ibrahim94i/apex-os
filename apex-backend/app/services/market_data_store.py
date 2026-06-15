@@ -8,7 +8,7 @@ from typing import Any
 from sqlalchemy import desc, select
 
 from app.database import AsyncSessionLocal
-from app.models import PriceBar, RegimeSnapshot
+from app.models import ChartBar, PriceBar, RegimeSnapshot
 
 
 def _bar_to_dict(row: PriceBar) -> dict[str, Any]:
@@ -135,6 +135,79 @@ async def upsert_metatrader_bar(bar: dict[str, Any]) -> None:
         )
         await session.execute(stmt)
         await session.commit()
+
+
+async def upsert_chart_bar(timeframe: str, bar: dict[str, Any]) -> None:
+    """Insert or replace a chart-only bar from MetaTrader."""
+    from sqlalchemy.dialects.postgresql import insert
+
+    ts = bar["timestamp"]
+    if isinstance(ts, str):
+        ts = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+    if ts.tzinfo is None:
+        ts = ts.replace(tzinfo=timezone.utc)
+
+    values = {
+        "symbol": bar["symbol"],
+        "timeframe": timeframe,
+        "source": bar.get("source", "metatrader"),
+        "timestamp": ts,
+        "open": bar["open"],
+        "high": bar["high"],
+        "low": bar["low"],
+        "close": bar["close"],
+        "volume": bar.get("volume", 0.0),
+    }
+
+    async with AsyncSessionLocal() as session:
+        stmt = insert(ChartBar).values(values).on_conflict_do_update(
+            index_elements=["symbol", "timeframe", "timestamp"],
+            set_={
+                "source": values["source"],
+                "open": values["open"],
+                "high": values["high"],
+                "low": values["low"],
+                "close": values["close"],
+                "volume": values["volume"],
+            },
+        )
+        await session.execute(stmt)
+        await session.commit()
+
+
+async def fetch_chart_bars_from_db(
+    symbol: str,
+    timeframe: str,
+    limit: int = 250,
+) -> list[dict[str, Any]]:
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            select(ChartBar)
+            .where(ChartBar.symbol == symbol, ChartBar.timeframe == timeframe)
+            .order_by(desc(ChartBar.timestamp))
+            .limit(limit)
+        )
+        rows = list(reversed(result.scalars().all()))
+
+    bars: list[dict[str, Any]] = []
+    for row in rows:
+        ts = row.timestamp
+        if ts.tzinfo is None:
+            ts = ts.replace(tzinfo=timezone.utc)
+        bars.append(
+            {
+                "symbol": row.symbol,
+                "timestamp": ts.isoformat(),
+                "open": row.open,
+                "high": row.high,
+                "low": row.low,
+                "close": row.close,
+                "volume": row.volume,
+                "source": row.source,
+                "is_closed": True,
+            }
+        )
+    return bars
 
 
 async def get_latest_price_from_db(symbol: str) -> dict[str, Any] | None:

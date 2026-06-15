@@ -1,4 +1,4 @@
-"""MetaTrader H1 candle request parsing — tolerant of MT4 WebRequest payloads."""
+"""MetaTrader candle request parsing — tolerant of MT4 WebRequest payloads."""
 
 from __future__ import annotations
 
@@ -7,9 +7,54 @@ from typing import Any
 
 from app.services.metatrader_ingest import _coerce_float, _normalize_json_bytes, _parse_time
 
+SUPPORTED_TIMEFRAMES: frozenset[str] = frozenset({"M5", "M15", "H1", "1H", "H4", "D1"})
+
+_TIMEFRAME_ALIASES: dict[str, str] = {
+    "1H": "H1",
+}
+
+_TIMEFRAME_DELTAS: dict[str, timedelta] = {
+    "M5": timedelta(minutes=5),
+    "M15": timedelta(minutes=15),
+    "H1": timedelta(hours=1),
+    "H4": timedelta(hours=4),
+    "D1": timedelta(days=1),
+}
+
+
+def normalize_metatrader_timeframe(value: str) -> str:
+    code = str(value).strip().upper()
+    code = _TIMEFRAME_ALIASES.get(code, code)
+    if code not in _TIMEFRAME_DELTAS:
+        raise ValueError(f"unsupported timeframe: {value}")
+    return code
+
+
+def bar_open_from_close_time(close_time: datetime, timeframe: str) -> datetime:
+    """Convert EA bar close time to canonical bar open timestamp."""
+    tf = normalize_metatrader_timeframe(timeframe)
+    bar_open = close_time - _TIMEFRAME_DELTAS[tf]
+    if bar_open.tzinfo is None:
+        bar_open = bar_open.replace(tzinfo=timezone.utc)
+
+    if tf == "M5":
+        minute = (bar_open.minute // 5) * 5
+        return bar_open.replace(minute=minute, second=0, microsecond=0)
+    if tf == "M15":
+        minute = (bar_open.minute // 15) * 15
+        return bar_open.replace(minute=minute, second=0, microsecond=0)
+    if tf == "H1":
+        return bar_open.replace(minute=0, second=0, microsecond=0)
+    if tf == "H4":
+        hour = (bar_open.hour // 4) * 4
+        return bar_open.replace(hour=hour, minute=0, second=0, microsecond=0)
+    if tf == "D1":
+        return bar_open.replace(hour=0, minute=0, second=0, microsecond=0)
+    return bar_open
+
 
 def parse_metatrader_candle_body(raw_body: bytes) -> dict[str, Any]:
-    """Parse MT4/MT5 H1 OHLCV JSON body."""
+    """Parse MT4/MT5 OHLCV JSON body for M5/M15/H1/H4/D1."""
     import json
 
     if not raw_body:
@@ -29,9 +74,7 @@ def parse_metatrader_candle_body(raw_body: bytes) -> dict[str, Any]:
         raise ValueError("missing symbol")
 
     timeframe_raw = payload.get("timeframe") or payload.get("Timeframe") or "H1"
-    timeframe = str(timeframe_raw).strip().upper()
-    if timeframe not in {"H1", "1H"}:
-        raise ValueError(f"unsupported timeframe: {timeframe_raw}")
+    timeframe = normalize_metatrader_timeframe(str(timeframe_raw))
 
     open_ = _coerce_float(payload.get("open", payload.get("Open")), "open")
     high = _coerce_float(payload.get("high", payload.get("High")), "high")
@@ -53,16 +96,11 @@ def parse_metatrader_candle_body(raw_body: bytes) -> dict[str, Any]:
 
     time_raw = payload.get("time", payload.get("Time", payload.get("timestamp")))
     event_time = _parse_time(time_raw)
-
-    # EA sends bar close time — store canonical H1 open time (matches Binance/DB key).
-    bar_open = event_time - timedelta(hours=1)
-    bar_open = bar_open.replace(minute=0, second=0, microsecond=0)
-    if bar_open.tzinfo is None:
-        bar_open = bar_open.replace(tzinfo=timezone.utc)
+    bar_open = bar_open_from_close_time(event_time, timeframe)
 
     return {
         "symbol": str(symbol_raw).strip().upper(),
-        "timeframe": "H1",
+        "timeframe": timeframe,
         "timestamp": bar_open,
         "close_time": event_time.astimezone(timezone.utc),
         "open": open_,
