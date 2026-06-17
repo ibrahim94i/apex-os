@@ -5,6 +5,8 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from app.services.open_trade_monitor_service import (
+    _mark_trade_warning_sent,
+    _trade_warning_already_sent,
     is_contrary_news,
     is_near_stop_loss,
     is_news_opinion_changed,
@@ -77,6 +79,43 @@ async def test_register_open_trade_monitor_stores_baseline() -> None:
     mock_set.assert_awaited_once()
     payload = mock_set.await_args.args[1]
     assert payload["news_direction_at_open"] == "LONG"
+    assert payload["warnings_sent"] == []
+
+
+@pytest.mark.asyncio
+async def test_trade_warning_sent_once_per_trade_lifetime() -> None:
+    state = {"journal_id": 7, "warnings_sent": []}
+    with patch(
+        "app.services.open_trade_monitor_service.open_trade_warning_already_sent",
+        new=AsyncMock(return_value=False),
+    ):
+        with patch(
+            "app.services.open_trade_monitor_service.set_open_trade_monitor_state",
+            new=AsyncMock(),
+        ) as mock_set:
+            with patch(
+                "app.services.open_trade_monitor_service.mark_open_trade_warning_sent",
+                new=AsyncMock(),
+            ) as mock_mark:
+                await _mark_trade_warning_sent(
+                    journal_id=7,
+                    warning_type="near_sl",
+                    state=state,
+                )
+    payload = mock_set.await_args.args[1]
+    assert payload["warnings_sent"] == ["near_sl"]
+    mock_mark.assert_awaited_once()
+
+    with patch(
+        "app.services.open_trade_monitor_service.open_trade_warning_already_sent",
+        new=AsyncMock(return_value=False),
+    ):
+        already = await _trade_warning_already_sent(
+            journal_id=7,
+            warning_type="near_sl",
+            state=payload,
+        )
+    assert already is True
 
 
 @pytest.mark.asyncio

@@ -283,5 +283,5 @@ async def mark_open_trade_warning_sent(journal_id: int, warning_type: str) -> No
             warning_type=warning_type,
         ),
         {"sent_at": datetime.now(timezone.utc).isoformat()},
-        ttl=settings.open_trade_warning_cooldown_seconds,
+        ttl=settings.open_trade_monitor_ttl_seconds,
     )

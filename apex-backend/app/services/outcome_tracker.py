@@ -9,12 +9,13 @@ from typing import Literal
 from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.logging_config import logger
 from app.models import PriceBar, TradingSignal
 from app.models.journal import JournalEntry
 from app.models.phase3 import SignalOutcome
 
-EXPIRY_HOURS = 48.0
+EXPIRY_HOURS = settings.open_trade_expiry_hours
 AutoOutcome = Literal["win", "loss", "expired"]
 
 
@@ -48,12 +49,15 @@ def evaluate_auto_outcome(
     opened_at: datetime,
     samples: list[PriceSample],
     now: datetime | None = None,
-    expiry_hours: float = EXPIRY_HOURS,
+    expiry_hours: float | None = None,
 ) -> OutcomeTrackResult | None:
     """
     Return outcome when TP/SL hit or expiry reached; None while still pending.
     SL is checked before TP on the same bar (conservative).
     """
+    effective_expiry_hours = (
+        EXPIRY_HOURS if expiry_hours is None else expiry_hours
+    )
     if opened_at.tzinfo is None:
         opened_at = opened_at.replace(tzinfo=timezone.utc)
     current = now or datetime.now(timezone.utc)
@@ -108,10 +112,10 @@ def evaluate_auto_outcome(
                 )
 
     elapsed = _hours_between(opened_at, current)
-    if elapsed >= expiry_hours:
+    if elapsed >= effective_expiry_hours:
         return OutcomeTrackResult(
             outcome="expired",
-            time_to_outcome_hours=round(expiry_hours, 4),
+            time_to_outcome_hours=round(effective_expiry_hours, 4),
             max_favorable_excursion=round(mfe, 6),
             max_adverse_excursion=round(mae, 6),
             exit_price=None,

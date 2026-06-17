@@ -100,9 +100,45 @@ async def register_open_trade_monitor(
             "symbol": symbol,
             "trade_direction": normalize_direction(trade_direction),
             "news_direction_at_open": news_direction,
+            "warnings_sent": [],
             "registered_at": datetime.now(timezone.utc).isoformat(),
         },
     )
+
+
+def _warnings_sent_in_state(state: dict | None) -> list[str]:
+    if not state:
+        return []
+    raw = state.get("warnings_sent")
+    if not isinstance(raw, list):
+        return []
+    return [str(item) for item in raw]
+
+
+async def _trade_warning_already_sent(
+    *,
+    journal_id: int,
+    warning_type: WarningType,
+    state: dict | None,
+) -> bool:
+    if warning_type in _warnings_sent_in_state(state):
+        return True
+    return await open_trade_warning_already_sent(journal_id, warning_type)
+
+
+async def _mark_trade_warning_sent(
+    *,
+    journal_id: int,
+    warning_type: WarningType,
+    state: dict | None,
+) -> None:
+    payload = dict(state or {})
+    sent = _warnings_sent_in_state(payload)
+    if warning_type not in sent:
+        sent.append(warning_type)
+    payload["warnings_sent"] = sent
+    await set_open_trade_monitor_state(journal_id, payload)
+    await mark_open_trade_warning_sent(journal_id, warning_type)
 
 
 async def _load_pending_open_trades(session: AsyncSession) -> list[JournalEntry]:
@@ -155,7 +191,11 @@ async def _evaluate_warnings_for_entry(
 
     sent = 0
     for warning_type in warnings:
-        if await open_trade_warning_already_sent(entry.id, warning_type):
+        if await _trade_warning_already_sent(
+            journal_id=entry.id,
+            warning_type=warning_type,
+            state=state,
+        ):
             continue
         detail = warning_detail_ar(warning_type)
         ok = await telegram_notifier.send_open_trade_warning(
@@ -164,7 +204,12 @@ async def _evaluate_warnings_for_entry(
             detail,
         )
         if ok:
-            await mark_open_trade_warning_sent(entry.id, warning_type)
+            await _mark_trade_warning_sent(
+                journal_id=entry.id,
+                warning_type=warning_type,
+                state=state,
+            )
+            state = await get_open_trade_monitor_state(entry.id)
             sent += 1
             logger.info(
                 "open_trade_warning_sent",

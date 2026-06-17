@@ -64,14 +64,14 @@ def test_short_tp_is_win() -> None:
     assert result.exit_price == 90.0
 
 
-def test_expires_after_48_hours() -> None:
+def test_expires_after_2_hours() -> None:
     result = evaluate_auto_outcome(
         direction="LONG",
         entry_price=100.0,
         stop_loss=95.0,
         take_profit=110.0,
         opened_at=_ts(0),
-        samples=[PriceSample(_ts(10), high=102.0, low=98.0, close=101.0)],
+        samples=[PriceSample(_ts(1), high=102.0, low=98.0, close=101.0)],
         now=_ts(EXPIRY_HOURS),
     )
     assert result is not None
@@ -86,7 +86,7 @@ def test_still_pending_before_expiry() -> None:
         stop_loss=95.0,
         take_profit=110.0,
         opened_at=_ts(0),
-        samples=[PriceSample(_ts(5), high=102.0, low=98.0, close=101.0)],
-        now=_ts(24),
+        samples=[PriceSample(_ts(0.5), high=102.0, low=98.0, close=101.0)],
+        now=_ts(1),
     )
     assert result is None

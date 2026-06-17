@@ -118,8 +118,9 @@ class Settings(BaseSettings):
     metatrader_candle_stale_seconds: int = 7200
     metatrader_twelvedata_cache_seconds: int = 30
     open_trade_sl_near_ratio: float = 0.25
-    open_trade_warning_cooldown_seconds: int = 1800
-    open_trade_monitor_ttl_seconds: int = 180000
+    open_trade_expiry_hours: float = 2.0
+    open_trade_monitor_ttl_seconds: int = 10800
+    open_trade_warning_cooldown_seconds: int = 10800
 
     @field_validator("database_url", mode="before")
     @classmethod
