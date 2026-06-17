@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from app.config import settings
@@ -95,6 +95,7 @@ async def ingest_metatrader_candle(parsed: dict[str, Any]) -> dict[str, Any]:
     bar = {
         "symbol": symbol,
         "timestamp": bar_timestamp.isoformat(),
+        "close_time": parsed["close_time"].isoformat(),
         "open": parsed["open"],
         "high": parsed["high"],
         "low": parsed["low"],
@@ -182,9 +183,18 @@ async def finalize_metatrader_h1_bootstrap(symbol: str, newest: dict[str, Any]) 
     if newest_ts.tzinfo is None:
         newest_ts = newest_ts.replace(tzinfo=timezone.utc)
 
+    newest_close = newest.get("close_time")
+    if isinstance(newest_close, datetime):
+        close_time_iso = newest_close.astimezone(timezone.utc).isoformat()
+    elif isinstance(newest_close, str):
+        close_time_iso = newest_close
+    else:
+        close_time_iso = (newest_ts + timedelta(hours=1)).isoformat()
+
     newest_bar = {
         "symbol": symbol,
         "timestamp": newest_ts.isoformat(),
+        "close_time": close_time_iso,
         "open": newest["open"],
         "high": newest["high"],
         "low": newest["low"],

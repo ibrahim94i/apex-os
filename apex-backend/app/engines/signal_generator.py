@@ -117,6 +117,7 @@ class SignalGenerator:
         require_min_confidence: bool = True,
         min_confidence: float | None = None,
         collective_confidence: float | None = None,
+        candle_close_time: datetime | None = None,
     ) -> tuple[TradingSignalSchema | None, str | None]:
         """
         Build a trading signal. Floor checks use collective_confidence when provided
@@ -173,7 +174,7 @@ class SignalGenerator:
 
         signal = TradingSignalSchema(
             symbol=symbol,
-            timestamp=datetime.now(timezone.utc),
+            timestamp=candle_close_time or datetime.now(timezone.utc),
             direction=direction,
             confidence=confidence,
             entry_price=sltp.entry_price,

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import httpx
@@ -46,9 +46,11 @@ def _normalize_bar(
 ) -> dict[str, Any]:
     if timestamp.tzinfo is None:
         timestamp = timestamp.replace(tzinfo=timezone.utc)
+    close_time = timestamp + timedelta(hours=1)
     return {
         "symbol": symbol,
         "timestamp": timestamp.isoformat(),
+        "close_time": close_time.isoformat(),
         "open": open_,
         "high": high,
         "low": low,

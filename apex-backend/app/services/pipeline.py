@@ -1,6 +1,6 @@
 """Pipeline orchestrator — processes incoming bars through the full engine stack."""
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from sqlalchemy.dialects.postgresql import insert
@@ -56,7 +56,39 @@ from app.services.trading_journal_service import trading_journal_service
 from app.websocket.manager import broadcaster
 
 DECISION_BAR_LIMIT = 500
+H1_BAR_DURATION = timedelta(hours=1)
 signal_generator = SignalGenerator()
+
+
+def is_closed_h1_bar(raw_bar: dict[str, Any]) -> bool:
+    """Decision path accepts explicitly closed H1 bars only."""
+    return raw_bar.get("is_closed") is True
+
+
+def resolve_h1_bar_close_time(raw_bar: dict[str, Any]) -> datetime:
+    """Return canonical H1 bar close time for signal anchoring."""
+    close_raw = raw_bar.get("close_time")
+    if close_raw is not None:
+        if isinstance(close_raw, str):
+            close_time = datetime.fromisoformat(close_raw.replace("Z", "+00:00"))
+        elif isinstance(close_raw, datetime):
+            close_time = close_raw
+        else:
+            raise ValueError("close_time must be ISO string or datetime")
+        if close_time.tzinfo is None:
+            close_time = close_time.replace(tzinfo=timezone.utc)
+        return close_time.astimezone(timezone.utc)
+
+    ts = raw_bar["timestamp"]
+    if isinstance(ts, str):
+        bar_open = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+    elif isinstance(ts, datetime):
+        bar_open = ts
+    else:
+        raise ValueError("timestamp must be ISO string or datetime")
+    if bar_open.tzinfo is None:
+        bar_open = bar_open.replace(tzinfo=timezone.utc)
+    return bar_open.astimezone(timezone.utc) + H1_BAR_DURATION
 
 
 async def fetch_decision_bars(
@@ -162,10 +194,17 @@ async def process_bar(raw_bar: dict[str, Any], *, skip_agents: bool = False) -> 
 
     await broadcaster.broadcast_price({"symbol": symbol, "price": raw_bar["close"], "timestamp": raw_bar["timestamp"]})
 
-    if not raw_bar.get("is_closed", True):
+    if not is_closed_h1_bar(raw_bar):
+        logger.debug(
+            "pipeline_skip_unclosed_bar",
+            symbol=symbol,
+            timestamp=raw_bar.get("timestamp"),
+            is_closed=raw_bar.get("is_closed"),
+        )
         return
 
-    run_h1_pipeline = await should_run_h1_pipeline(symbol, raw_bar["timestamp"])
+    candle_close_time = resolve_h1_bar_close_time(raw_bar)
+    run_h1_pipeline = await should_run_h1_pipeline(symbol, candle_close_time)
 
     async with AsyncSessionLocal() as session:
         try:
@@ -186,6 +225,10 @@ async def process_bar(raw_bar: dict[str, Any], *, skip_agents: bool = False) -> 
             ks_status = await kill_switch.evaluate(session)
 
             indicators, regime = signal_generator.analyze(decision_bars, symbol)
+            if indicators:
+                indicators = indicators.model_copy(update={"timestamp": candle_close_time})
+            if regime:
+                regime = regime.model_copy(update={"timestamp": candle_close_time})
 
             if not run_h1_pipeline and not skip_agents:
                 snr_snapshot = await compute_snr_for_symbol(symbol, session=session)
@@ -221,7 +264,7 @@ async def process_bar(raw_bar: dict[str, Any], *, skip_agents: bool = False) -> 
                 await set_latest_snr(symbol, snr_snapshot.model_dump(mode="json"))
 
             agent_consensus = None
-            eval_time = datetime.now(timezone.utc)
+            eval_time = candle_close_time
             if indicators and regime and not skip_agents:
                 indicators, regime = bind_indicator_regime_to_symbol(symbol, indicators, regime)
                 candle_patterns = candlestick_engine.detect(decision_bars)
@@ -234,7 +277,7 @@ async def process_bar(raw_bar: dict[str, Any], *, skip_agents: bool = False) -> 
                     candlestick_patterns=candle_patterns,
                     snr=snr_snapshot,
                 )
-                eval_time = snapshot.timestamp
+                eval_time = candle_close_time
                 from app.utils.llm_circuit_breaker import is_llm_blocked
 
                 if await is_llm_blocked():
@@ -349,6 +392,7 @@ async def process_bar(raw_bar: dict[str, Any], *, skip_agents: bool = False) -> 
                         min_confidence=selectivity_confidence_floor(),
                         collective_confidence=agent_consensus.final_confidence,
                         account_balance=balance,
+                        candle_close_time=candle_close_time,
                     )
                     if signal is None and build_reason:
                         signal_decision = "wait"
@@ -630,7 +674,7 @@ async def process_bar(raw_bar: dict[str, Any], *, skip_agents: bool = False) -> 
 
             await session.commit()
             if run_h1_pipeline:
-                await mark_h1_pipeline_processed(symbol, raw_bar["timestamp"])
+                await mark_h1_pipeline_processed(symbol, candle_close_time)
         except Exception as exc:
             await session.rollback()
             logger.error("pipeline_error", error=str(exc), symbol=symbol)
