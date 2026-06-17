@@ -264,11 +264,12 @@ async def process_bar(raw_bar: dict[str, Any], *, skip_agents: bool = False) -> 
                 await set_latest_snr(symbol, snr_snapshot.model_dump(mode="json"))
 
             agent_consensus = None
+            agent_market_snapshot = None
             eval_time = candle_close_time
             if indicators and regime and not skip_agents:
                 indicators, regime = bind_indicator_regime_to_symbol(symbol, indicators, regime)
                 candle_patterns = candlestick_engine.detect(decision_bars)
-                snapshot = await build_market_snapshot(
+                agent_market_snapshot = await build_market_snapshot(
                     symbol=symbol,
                     price=decision_close,
                     indicators=indicators,
@@ -276,6 +277,7 @@ async def process_bar(raw_bar: dict[str, Any], *, skip_agents: bool = False) -> 
                     kill_switch=ks_status,
                     candlestick_patterns=candle_patterns,
                     snr=snr_snapshot,
+                    eval_timestamp=candle_close_time,
                 )
                 eval_time = candle_close_time
                 from app.utils.llm_circuit_breaker import is_llm_blocked
@@ -290,7 +292,7 @@ async def process_bar(raw_bar: dict[str, Any], *, skip_agents: bool = False) -> 
                     else:
                         agent_consensus = None
                 else:
-                    agent_consensus = await agent_orchestrator.run_h1(snapshot, session=session)
+                    agent_consensus = await agent_orchestrator.run_h1(agent_market_snapshot, session=session)
             elif skip_agents:
                 cached = await get_agent_consensus(symbol)
                 if cached:
@@ -606,6 +608,28 @@ async def process_bar(raw_bar: dict[str, Any], *, skip_agents: bool = False) -> 
                 session.add(db_signal)
                 await session.flush()
                 trading_signal_id = db_signal.id
+                from app.services.signal_decision_snapshot_service import (
+                    build_frozen_signal_decision_snapshot,
+                    persist_signal_decision_snapshot,
+                )
+
+                frozen = build_frozen_signal_decision_snapshot(
+                    symbol=symbol,
+                    candle_close_time=candle_close_time,
+                    decision_bars=decision_bars,
+                    indicators=indicators,
+                    regime=regime,
+                    signal=signal,
+                    snr=snr_snapshot,
+                    snr_state=snr_state,
+                    agent_consensus=agent_consensus,
+                    market_snapshot=agent_market_snapshot,
+                )
+                await persist_signal_decision_snapshot(
+                    session,
+                    trading_signal_id=trading_signal_id,
+                    snapshot=frozen,
+                )
             else:
                 trading_signal_id = None
 

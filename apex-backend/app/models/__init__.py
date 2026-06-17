@@ -10,6 +10,7 @@ from sqlalchemy import (
     Float,
     Index,
     Integer,
+    JSON,
     String,
     Text,
     func,
@@ -160,6 +161,26 @@ class TradingSignal(Base):
     snr_penalty: Mapped[int | None] = mapped_column(Integer, nullable=True)
     max_favorable_excursion: Mapped[float | None] = mapped_column(Float, nullable=True)
     max_adverse_excursion: Mapped[float | None] = mapped_column(Float, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class SignalDecisionSnapshot(Base):
+    __tablename__ = "signal_decision_snapshots"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    trading_signal_id: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    symbol: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    candle_close_time: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, index=True
+    )
+    payload: Mapped[dict] = mapped_column(JSON, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

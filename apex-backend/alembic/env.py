@@ -15,6 +15,7 @@ from app.models import (  # noqa: F401
     KillSwitchEvent,
     PriceBar,
     RegimeSnapshot,
+    SignalDecisionSnapshot,
     TradeResult,
     TradingSignal,
 )

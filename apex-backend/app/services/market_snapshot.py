@@ -56,6 +56,7 @@ async def build_market_snapshot(
     candlestick_patterns: list[CandlestickPatternSchema] | None = None,
     upcoming_events: list[EconomicEventSchema] | None = None,
     snr: SNRSnapshotSchema | None = None,
+    eval_timestamp: datetime | None = None,
 ) -> MarketSnapshot:
     indicators, regime = bind_indicator_regime_to_symbol(symbol, indicators, regime)
     feed_stale = await _is_feed_stale(symbol)
@@ -78,9 +79,13 @@ async def build_market_snapshot(
     if upcoming_events is None:
         upcoming_events = await fetch_upcoming_high_impact_events()
 
+    snapshot_time = eval_timestamp or datetime.now(timezone.utc)
+    if snapshot_time.tzinfo is None:
+        snapshot_time = snapshot_time.replace(tzinfo=timezone.utc)
+
     return MarketSnapshot(
         symbol=symbol,
-        timestamp=datetime.now(timezone.utc),
+        timestamp=snapshot_time,
         price=price,
         indicators=indicators,
         regime=regime,
