@@ -55,21 +55,40 @@ from app.services.telegram_notifier import telegram_notifier
 from app.services.trading_journal_service import trading_journal_service
 from app.websocket.manager import broadcaster
 
-_bar_buffer: dict[str, list[OHLCVBar]] = {}
-MAX_BUFFER = 250
+DECISION_BAR_LIMIT = 500
 signal_generator = SignalGenerator()
 
 
-async def compute_snr_for_symbol(symbol: str) -> SNRSnapshotSchema | None:
-    from app.core.cache import get_latest_price
+async def fetch_decision_bars(
+    symbol: str,
+    *,
+    session: Any | None = None,
+    limit: int = DECISION_BAR_LIMIT,
+) -> list[OHLCVBar]:
+    """Load MetaTrader H1 bars from price_bars for all signal/decision components."""
     from app.services.market_data_store import fetch_agent_bars_from_db
 
-    raw = await fetch_agent_bars_from_db(symbol, limit=500)
-    if len(raw) < 7:
+    raw = await fetch_agent_bars_from_db(symbol, limit=limit, session=session)
+    return [_parse_bar(b) for b in raw]
+
+
+async def compute_snr_for_symbol(
+    symbol: str,
+    *,
+    session: Any | None = None,
+    use_live_price: bool = False,
+) -> SNRSnapshotSchema | None:
+    """Compute SNR zones. Decision path uses DB bars only; display may use Redis price."""
+    bars = await fetch_decision_bars(symbol, session=session)
+    if len(bars) < 7:
         return None
-    bars = [_parse_bar(b) for b in raw]
-    price_data = await get_latest_price(symbol)
-    current_price = float(price_data["price"]) if price_data else None
+    current_price = bars[-1].close
+    if use_live_price:
+        from app.core.cache import get_latest_price
+
+        price_data = await get_latest_price(symbol)
+        if price_data:
+            current_price = float(price_data["price"])
     return snr_engine.compute(bars, symbol, current_price=current_price)
 
 
@@ -123,29 +142,9 @@ async def _persist_bar(session: Any, bar: dict[str, Any]) -> None:
     await session.execute(stmt)
 
 
-async def get_symbol_ohlcv_bars(symbol: str, limit: int = MAX_BUFFER) -> list[OHLCVBar]:
-    """Return in-memory OHLCV buffer or load recent bars from DB."""
-    if symbol in _bar_buffer and len(_bar_buffer[symbol]) >= 5:
-        return _bar_buffer[symbol]
-    from app.services.market_data_store import fetch_agent_bars_from_db
-
-    raw = await fetch_agent_bars_from_db(symbol, limit)
-    if not raw:
-        return _bar_buffer.get(symbol, [])
-    seed_bars_to_buffer(raw)
-    return _bar_buffer.get(symbol, [])
-
-
-def seed_bars_to_buffer(raw_bars: list[dict[str, Any]]) -> None:
-    """Pre-fill bar buffer from historical data (no pipeline side effects)."""
-    if not raw_bars:
-        return
-    symbol = raw_bars[0]["symbol"]
-    _bar_buffer[symbol] = []
-    for raw in raw_bars:
-        _bar_buffer[symbol].append(_parse_bar(raw))
-    if len(_bar_buffer[symbol]) > MAX_BUFFER:
-        _bar_buffer[symbol] = _bar_buffer[symbol][-MAX_BUFFER:]
+async def get_symbol_ohlcv_bars(symbol: str, limit: int = DECISION_BAR_LIMIT) -> list[OHLCVBar]:
+    """Return decision OHLCV bars from price_bars (DB only)."""
+    return await fetch_decision_bars(symbol, limit=limit)
 
 
 async def process_bar(raw_bar: dict[str, Any], *, skip_agents: bool = False) -> None:
@@ -161,14 +160,6 @@ async def process_bar(raw_bar: dict[str, Any], *, skip_agents: bool = False) -> 
         await broadcaster.broadcast_market_status({symbol: status.model_dump(mode="json")})
         return
 
-    ohlcv = _parse_bar(raw_bar)
-
-    if symbol not in _bar_buffer:
-        _bar_buffer[symbol] = []
-    _bar_buffer[symbol].append(ohlcv)
-    if len(_bar_buffer[symbol]) > MAX_BUFFER:
-        _bar_buffer[symbol] = _bar_buffer[symbol][-MAX_BUFFER:]
-
     await broadcaster.broadcast_price({"symbol": symbol, "price": raw_bar["close"], "timestamp": raw_bar["timestamp"]})
 
     if not raw_bar.get("is_closed", True):
@@ -179,13 +170,25 @@ async def process_bar(raw_bar: dict[str, Any], *, skip_agents: bool = False) -> 
     async with AsyncSessionLocal() as session:
         try:
             await _persist_bar(session, raw_bar)
+            await session.flush()
+            decision_bars = await fetch_decision_bars(symbol, session=session)
+            if len(decision_bars) < 2:
+                logger.warning(
+                    "pipeline_insufficient_decision_bars",
+                    symbol=symbol,
+                    bars=len(decision_bars),
+                )
+                await session.commit()
+                return
+
+            decision_close = decision_bars[-1].close
             await kill_switch.load_from_cache()
             ks_status = await kill_switch.evaluate(session)
 
-            indicators, regime = signal_generator.analyze(_bar_buffer[symbol], symbol)
+            indicators, regime = signal_generator.analyze(decision_bars, symbol)
 
             if not run_h1_pipeline and not skip_agents:
-                snr_snapshot = await compute_snr_for_symbol(symbol)
+                snr_snapshot = await compute_snr_for_symbol(symbol, session=session)
                 if snr_snapshot:
                     await set_latest_snr(symbol, snr_snapshot.model_dump(mode="json"))
                 if indicators:
@@ -213,7 +216,7 @@ async def process_bar(raw_bar: dict[str, Any], *, skip_agents: bool = False) -> 
                 logger.debug("pipeline_light_tick", symbol=symbol)
                 return
 
-            snr_snapshot = await compute_snr_for_symbol(symbol)
+            snr_snapshot = await compute_snr_for_symbol(symbol, session=session)
             if snr_snapshot:
                 await set_latest_snr(symbol, snr_snapshot.model_dump(mode="json"))
 
@@ -221,10 +224,10 @@ async def process_bar(raw_bar: dict[str, Any], *, skip_agents: bool = False) -> 
             eval_time = datetime.now(timezone.utc)
             if indicators and regime and not skip_agents:
                 indicators, regime = bind_indicator_regime_to_symbol(symbol, indicators, regime)
-                candle_patterns = candlestick_engine.detect(_bar_buffer[symbol])
+                candle_patterns = candlestick_engine.detect(decision_bars)
                 snapshot = await build_market_snapshot(
                     symbol=symbol,
-                    price=raw_bar["close"],
+                    price=decision_close,
                     indicators=indicators,
                     regime=regime,
                     kill_switch=ks_status,
@@ -269,17 +272,10 @@ async def process_bar(raw_bar: dict[str, Any], *, skip_agents: bool = False) -> 
                 )
                 from app.services.account_service import account_service
 
-                bars_for_snr = _bar_buffer[symbol]
-                if len(bars_for_snr) < 2:
-                    from app.services.market_data_store import fetch_agent_bars_from_db
-
-                    raw_snr_bars = await fetch_agent_bars_from_db(symbol, limit=500)
-                    bars_for_snr = [_parse_bar(b) for b in raw_snr_bars]
-
                 snr_state = classify_snr_state(
-                    bars_for_snr,
+                    decision_bars,
                     snr_snapshot,
-                    current_price=raw_bar["close"],
+                    current_price=decision_close,
                 )
                 final = finalize_decision(snr_state, agent_consensus)
 
@@ -342,7 +338,7 @@ async def process_bar(raw_bar: dict[str, Any], *, skip_agents: bool = False) -> 
 
                     balance = await account_service.get_balance()
                     signal, build_reason = signal_generator.build_trading_signal(
-                        _bar_buffer[symbol],
+                        decision_bars,
                         symbol,
                         trade_direction,
                         final_confidence,
@@ -404,7 +400,7 @@ async def process_bar(raw_bar: dict[str, Any], *, skip_agents: bool = False) -> 
                             trade_direction,
                             regime,
                             indicators,
-                            raw_bar["close"],
+                            decision_close,
                         )
                         if not safe:
                             logger.info(
@@ -439,7 +435,7 @@ async def process_bar(raw_bar: dict[str, Any], *, skip_agents: bool = False) -> 
                             signal.confidence,
                             indicators,
                             regime,
-                            _bar_buffer[symbol],
+                            decision_bars,
                             agent_consensus,
                         )
                         if not allowed:
@@ -476,18 +472,11 @@ async def process_bar(raw_bar: dict[str, Any], *, skip_agents: bool = False) -> 
             if agent_consensus and agent_consensus.is_llm_powered():
                 from app.engines.final_decision_engine import apply_final_decision_to_consensus
 
-                bars_for_consensus = _bar_buffer.get(symbol) or []
-                if len(bars_for_consensus) < 2:
-                    from app.services.market_data_store import fetch_agent_bars_from_db
-
-                    raw_consensus_bars = await fetch_agent_bars_from_db(symbol, limit=500)
-                    bars_for_consensus = [_parse_bar(b) for b in raw_consensus_bars]
-
                 agent_consensus = apply_final_decision_to_consensus(
                     agent_consensus,
-                    bars=bars_for_consensus,
+                    bars=decision_bars,
                     snr=snr_snapshot,
-                    current_price=raw_bar["close"],
+                    current_price=decision_close,
                 )
                 from app.services.signal_rejection_i18n import (
                     normalize_snr_consensus_fields,

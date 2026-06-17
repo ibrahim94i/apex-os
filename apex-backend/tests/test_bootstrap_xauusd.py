@@ -49,11 +49,10 @@ async def test_bootstrap_xauusd_runs_when_market_closed() -> None:
             "app.services.market_data_store.persist_bars_batch",
             new=AsyncMock(return_value=500),
         ):
-            with patch("app.services.pipeline.seed_bars_to_buffer"):
-                with patch("app.services.pipeline.process_bar", new=AsyncMock()):
-                    with patch("app.feeds.history_bootstrap._mark_feed_warmed", new=AsyncMock()):
-                        with patch("app.services.market_hours.is_market_open", return_value=False):
-                            ok = await bootstrap_asset("XAUUSD")
+            with patch("app.services.pipeline.process_bar", new=AsyncMock()):
+                with patch("app.feeds.history_bootstrap._mark_feed_warmed", new=AsyncMock()):
+                    with patch("app.services.market_hours.is_market_open", return_value=False):
+                        ok = await bootstrap_asset("XAUUSD")
     assert ok is True
 
 

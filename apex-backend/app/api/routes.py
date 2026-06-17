@@ -205,7 +205,7 @@ async def get_market_bars(
         bars, timeframe, data_source = await fetch_chart_bars(symbol, interval=interval, limit=limit)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    snr = await compute_snr_for_symbol(symbol)
+    snr = await compute_snr_for_symbol(symbol, use_live_price=True)
     return {
         "symbol": symbol,
         "interval": timeframe,
@@ -227,7 +227,7 @@ async def get_market_snr(symbol: str = "XAUUSD") -> dict:
     cached = await get_latest_snr(symbol)
     if cached:
         return cached
-    snr = await compute_snr_for_symbol(symbol)
+    snr = await compute_snr_for_symbol(symbol, use_live_price=True)
     if not snr:
         raise HTTPException(status_code=404, detail="SNR data unavailable")
     return snr.model_dump(mode="json")

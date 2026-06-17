@@ -43,16 +43,15 @@ async def test_bootstrap_btcusdt_persists_200_bars() -> None:
             "app.services.market_data_store.persist_bars_batch",
             mock_persist,
         ):
-            with patch("app.services.pipeline.seed_bars_to_buffer"):
+            with patch(
+                "app.services.pipeline.process_bar",
+                new=AsyncMock(),
+            ):
                 with patch(
-                    "app.services.pipeline.process_bar",
+                    "app.feeds.history_bootstrap._mark_feed_warmed",
                     new=AsyncMock(),
                 ):
-                    with patch(
-                        "app.feeds.history_bootstrap._mark_feed_warmed",
-                        new=AsyncMock(),
-                    ):
-                        ok = await bootstrap_asset("BTCUSDT")
+                    ok = await bootstrap_asset("BTCUSDT")
     assert ok is True
     mock_persist.assert_awaited_once()
     assert len(mock_persist.await_args.args[0]) == 200

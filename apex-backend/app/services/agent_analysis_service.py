@@ -43,7 +43,7 @@ from app.services.market_snapshot import (
     build_market_snapshot,
     redis_snapshot_matches_symbol,
 )
-from app.services.pipeline import seed_bars_to_buffer, process_bar
+from app.services.pipeline import process_bar
 from app.services.signal_rejection_i18n import rejection_reason_ar
 from app.websocket.manager import broadcaster
 
@@ -125,12 +125,10 @@ async def _recompute_market_metrics(symbol: str) -> tuple[dict[str, Any] | None,
         )
         return None, None
 
-    from app.services.pipeline import _bar_buffer
+    from app.services.pipeline import fetch_decision_bars
 
-    _bar_buffer[symbol] = []
-    seed_bars_to_buffer(bars)
-    buffer = _bar_buffer.get(symbol, [])
-    indicators, regime = _signal_generator.analyze(buffer, symbol)
+    decision_bars = await fetch_decision_bars(symbol)
+    indicators, regime = _signal_generator.analyze(decision_bars, symbol)
     if not indicators or not regime:
         return None, None
 

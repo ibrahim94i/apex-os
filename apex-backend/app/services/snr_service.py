@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from app.logging_config import logger
 from app.schemas.agent import AgentConsensus
-from app.services.pipeline import compute_snr_for_symbol, get_symbol_ohlcv_bars
+from app.services.pipeline import compute_snr_for_symbol, fetch_decision_bars
 
 
 async def enrich_consensus_with_snr(
@@ -19,8 +19,8 @@ async def enrich_consensus_with_snr(
     from app.services.signal_rejection_i18n import normalize_snr_consensus_fields
     from app.websocket.manager import broadcaster
 
-    snr_snapshot = await compute_snr_for_symbol(symbol)
-    bars = await get_symbol_ohlcv_bars(symbol)
+    snr_snapshot = await compute_snr_for_symbol(symbol, use_live_price=True)
+    bars = await fetch_decision_bars(symbol)
     current_price: float | None = None
     if bars:
         current_price = bars[-1].close

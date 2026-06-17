@@ -63,30 +63,15 @@ async def build_market_snapshot(
 
     if candlestick_patterns is None:
         from app.engines.candlestick_engine import candlestick_engine
-        from app.services.pipeline import get_symbol_ohlcv_bars
+        from app.services.pipeline import fetch_decision_bars
 
-        bars = await get_symbol_ohlcv_bars(symbol)
+        bars = await fetch_decision_bars(symbol)
         candlestick_patterns = candlestick_engine.detect(bars)
 
     if snr is None:
-        from app.engines.indicator_engine import OHLCVBar
-        from app.engines.snr_engine import snr_engine
-        from app.services.market_data_store import fetch_agent_bars_from_db
+        from app.services.pipeline import compute_snr_for_symbol
 
-        raw = await fetch_agent_bars_from_db(symbol, limit=500)
-        if raw:
-            ohlcv = [
-                OHLCVBar(
-                    timestamp=datetime.fromisoformat(b["timestamp"].replace("Z", "+00:00")),
-                    open=b["open"],
-                    high=b["high"],
-                    low=b["low"],
-                    close=b["close"],
-                    volume=b.get("volume", 0.0),
-                )
-                for b in raw
-            ]
-            snr = snr_engine.compute(ohlcv, symbol, current_price=price)
+        snr = await compute_snr_for_symbol(symbol)
 
     balance = await account_service.get_balance()
     news_headlines = await fetch_news_for_symbol(symbol)

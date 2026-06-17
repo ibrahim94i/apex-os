@@ -174,17 +174,13 @@ async def ingest_metatrader_candle(parsed: dict[str, Any]) -> dict[str, Any]:
 
 
 async def finalize_metatrader_h1_bootstrap(symbol: str, newest: dict[str, Any]) -> None:
-    """Reseed pipeline buffer, run SNR, and process the newest bootstrap bar."""
+    """Run SNR refresh and process the newest bootstrap bar through the DB-backed pipeline."""
     from app.core.cache import set_latest_snr
-    from app.services.market_data_store import fetch_agent_bars_from_db
-    from app.services.pipeline import compute_snr_for_symbol, process_bar, seed_bars_to_buffer
+    from app.services.pipeline import compute_snr_for_symbol, process_bar
 
     newest_ts = newest["timestamp"]
     if newest_ts.tzinfo is None:
         newest_ts = newest_ts.replace(tzinfo=timezone.utc)
-
-    raw = await fetch_agent_bars_from_db(symbol, limit=500)
-    seed_bars_to_buffer(raw)
 
     newest_bar = {
         "symbol": symbol,
@@ -207,7 +203,7 @@ async def finalize_metatrader_h1_bootstrap(symbol: str, newest: dict[str, Any]) 
             error=str(exc),
         )
 
-    snr = await compute_snr_for_symbol(symbol)
+    snr = await compute_snr_for_symbol(symbol, use_live_price=True)
     if snr:
         await set_latest_snr(symbol, snr.model_dump(mode="json"))
 

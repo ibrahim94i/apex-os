@@ -132,13 +132,12 @@ async def test_bootstrap_runs_gold_even_when_market_closed() -> None:
                 "app.services.market_data_store.persist_bars_batch",
                 new=AsyncMock(return_value=200),
             ):
-                with patch("app.services.pipeline.seed_bars_to_buffer"):
-                    with patch("app.services.pipeline.process_bar", new=AsyncMock()):
-                        with patch(
-                            "app.feeds.history_bootstrap._mark_feed_warmed",
-                            new=AsyncMock(),
-                        ):
-                            ok = await bootstrap_asset("XAUUSD")
+                with patch("app.services.pipeline.process_bar", new=AsyncMock()):
+                    with patch(
+                        "app.feeds.history_bootstrap._mark_feed_warmed",
+                        new=AsyncMock(),
+                    ):
+                        ok = await bootstrap_asset("XAUUSD")
     assert ok is True
 
 

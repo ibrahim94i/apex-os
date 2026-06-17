@@ -358,7 +358,7 @@ async def refresh_dashboard_cache() -> None:
 async def bootstrap_asset(symbol: str, limit: int | None = None) -> bool:
     """Fetch H1 history, persist to DB, and warm pipeline. Returns True on success."""
     from app.services.market_data_store import persist_bars_batch
-    from app.services.pipeline import process_bar, seed_bars_to_buffer
+    from app.services.pipeline import process_bar
 
     asset = ASSETS.get(symbol)
     if asset is None:
@@ -387,7 +387,6 @@ async def bootstrap_asset(symbol: str, limit: int | None = None) -> bool:
             persisted=persisted,
         )
 
-        seed_bars_to_buffer(bars)
         last_bar = bars[-1]
         await process_bar(last_bar, skip_agents=True)
         await _mark_feed_warmed(symbol, last_bar)
@@ -401,13 +400,12 @@ async def bootstrap_asset(symbol: str, limit: int | None = None) -> bool:
 async def warm_asset_from_db(symbol: str, bar_limit: int) -> bool:
     """Seed pipeline from DB without calling external APIs."""
     from app.services.market_data_store import fetch_bars_from_db
-    from app.services.pipeline import process_bar, seed_bars_to_buffer
+    from app.services.pipeline import process_bar
 
     db_bars = await fetch_bars_from_db(symbol, bar_limit)
     if not db_bars:
         return False
 
-    seed_bars_to_buffer(db_bars)
     last_bar = db_bars[-1]
     await process_bar(last_bar, skip_agents=True)
     await _mark_feed_warmed(symbol, last_bar)

@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from sqlalchemy import delete, desc, select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import AsyncSessionLocal
 from app.models import ChartBar, PriceBar, RegimeSnapshot
@@ -36,21 +37,37 @@ async def fetch_bars_from_db(
     limit: int = 250,
     *,
     source: str | None = None,
+    session: AsyncSession | None = None,
 ) -> list[dict[str, Any]]:
-    async with AsyncSessionLocal() as session:
-        query = select(PriceBar).where(PriceBar.symbol == symbol)
-        if source is not None:
-            query = query.where(PriceBar.source == source)
-        result = await session.execute(
-            query.order_by(desc(PriceBar.timestamp)).limit(limit)
-        )
+    query = select(PriceBar).where(PriceBar.symbol == symbol)
+    if source is not None:
+        query = query.where(PriceBar.source == source)
+    query = query.order_by(desc(PriceBar.timestamp)).limit(limit)
+
+    if session is not None:
+        result = await session.execute(query)
+        rows = list(reversed(result.scalars().all()))
+        return [_bar_to_dict(row) for row in rows]
+
+    async with AsyncSessionLocal() as owned_session:
+        result = await owned_session.execute(query)
         rows = list(reversed(result.scalars().all()))
     return [_bar_to_dict(row) for row in rows]
 
 
-async def fetch_agent_bars_from_db(symbol: str, limit: int = 500) -> list[dict[str, Any]]:
+async def fetch_agent_bars_from_db(
+    symbol: str,
+    limit: int = 500,
+    *,
+    session: AsyncSession | None = None,
+) -> list[dict[str, Any]]:
     """H1 bars for SNR, agents, and signals — MetaTrader broker candles only."""
-    return await fetch_bars_from_db(symbol, limit, source=AGENT_BAR_SOURCE)
+    return await fetch_bars_from_db(
+        symbol,
+        limit,
+        source=AGENT_BAR_SOURCE,
+        session=session,
+    )
 
 
 async def purge_non_metatrader_price_bars(symbol: str) -> int:
