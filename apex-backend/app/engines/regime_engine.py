@@ -2,8 +2,13 @@
 
 from dataclasses import dataclass
 
+import pandas as pd
+
 from app.engines.indicator_engine import OHLCVBar
 from app.schemas import IndicatorSnapshotSchema, RegimeSnapshotSchema, RegimeType
+
+ATR_VOLATILITY_EMA_PERIOD = 20
+ATR_PERIOD = 14
 
 
 def get_adx_thresholds(volatility: float) -> tuple[float, float]:
@@ -53,6 +58,47 @@ class RegimeEngine:
         adx_factor = (indicators.adx or 0) / 100.0
         return alignment * adx_factor
 
+    def _calc_smoothed_atr_volatility(
+        self,
+        bars: list[OHLCVBar],
+        indicators: IndicatorSnapshotSchema,
+        *,
+        period: int = ATR_VOLATILITY_EMA_PERIOD,
+        atr_period: int = ATR_PERIOD,
+    ) -> float:
+        """EMA-smoothed ATR/price to stabilize dynamic ADX thresholds."""
+        current_price = bars[-1].close if bars else 0.0
+        spot_fallback = (
+            indicators.atr / current_price
+            if indicators.atr is not None and current_price > 0
+            else 0.01
+        )
+        if len(bars) < max(period, atr_period):
+            return spot_fallback
+
+        df = pd.DataFrame(
+            {
+                "high": [b.high for b in bars],
+                "low": [b.low for b in bars],
+                "close": [b.close for b in bars],
+            }
+        )
+        high = df["high"]
+        low = df["low"]
+        close = df["close"]
+        prev_close = close.shift(1)
+        tr = pd.concat(
+            [high - low, (high - prev_close).abs(), (low - prev_close).abs()],
+            axis=1,
+        ).max(axis=1)
+        atr = tr.ewm(alpha=1 / atr_period, min_periods=atr_period, adjust=False).mean()
+        ratio = atr / close.replace(0, pd.NA)
+        smoothed = ratio.ewm(span=period, adjust=False).mean()
+        val = smoothed.iloc[-1]
+        if pd.isna(val):
+            return spot_fallback
+        return float(val)
+
     def classify(
         self,
         bars: list[OHLCVBar],
@@ -63,11 +109,7 @@ class RegimeEngine:
         trend_strength = self._calc_trend_strength(indicators)
         adx_value = indicators.adx or 0.0
 
-        current_price = bars[-1].close if bars else 0.0
-        if indicators.atr is not None and current_price > 0:
-            atr_volatility = indicators.atr / current_price
-        else:
-            atr_volatility = 0.01
+        atr_volatility = self._calc_smoothed_atr_volatility(bars, indicators)
 
         adx_trend_threshold, adx_range_threshold = get_adx_thresholds(atr_volatility)
 

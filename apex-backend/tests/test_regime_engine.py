@@ -91,3 +91,29 @@ def test_regime_uses_dynamic_thresholds_quiet_market() -> None:
     )
     result = engine.classify(bars, indicators, "BTCUSDT")
     assert result.regime == RegimeType.TRENDING_UP
+
+
+def test_smoothed_atr_volatility_less_noisy_than_spot() -> None:
+    engine = RegimeEngine()
+    close = 5000.0
+    bars = []
+    for i in range(40):
+        swing = 50.0 if i == 39 else 1.0
+        bars.append(
+            OHLCVBar(
+                timestamp=datetime(2026, 1, 1, tzinfo=timezone.utc),
+                open=close - 1,
+                high=close + swing,
+                low=close - swing,
+                close=close,
+            )
+        )
+    indicators = IndicatorSnapshotSchema(
+        symbol="BTCUSDT",
+        timestamp=datetime.now(timezone.utc),
+        atr=100.0,
+        adx=20.0,
+    )
+    smoothed = engine._calc_smoothed_atr_volatility(bars, indicators)
+    spot = indicators.atr / close
+    assert smoothed < spot
