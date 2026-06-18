@@ -3,7 +3,7 @@
 from datetime import datetime, timezone
 
 from app.engines.indicator_engine import OHLCVBar
-from app.engines.regime_engine import RegimeEngine
+from app.engines.regime_engine import RegimeEngine, get_adx_thresholds
 from app.schemas import IndicatorSnapshotSchema, RegimeType
 
 
@@ -52,3 +52,42 @@ def test_regime_ranging_low_adx() -> None:
     )
     result = engine.classify(bars, indicators, "BTCUSDT")
     assert result.regime == RegimeType.RANGING
+
+
+def test_get_adx_thresholds_quiet() -> None:
+    assert get_adx_thresholds(0.004) == (15.0, 10.0)
+
+
+def test_get_adx_thresholds_normal() -> None:
+    assert get_adx_thresholds(0.01) == (25.0, 20.0)
+
+
+def test_get_adx_thresholds_violent() -> None:
+    assert get_adx_thresholds(0.02) == (25.0, 20.0)
+
+
+def test_regime_uses_dynamic_thresholds_quiet_market() -> None:
+    engine = RegimeEngine()
+    close = 5000.0
+    bars = [
+        OHLCVBar(
+            timestamp=datetime(2026, 1, 1, tzinfo=timezone.utc),
+            open=close - 1,
+            high=close + 1,
+            low=close - 1,
+            close=close,
+        )
+        for _ in range(30)
+    ]
+    # atr/price = 5/5000 = 0.001 -> quiet thresholds (15, 10); ADX 22 >= 15 -> trend
+    indicators = IndicatorSnapshotSchema(
+        symbol="BTCUSDT",
+        timestamp=datetime.now(timezone.utc),
+        adx=22.0,
+        atr=5.0,
+        ema_9=51000,
+        ema_21=50500,
+        ema_50=50000,
+    )
+    result = engine.classify(bars, indicators, "BTCUSDT")
+    assert result.regime == RegimeType.TRENDING_UP

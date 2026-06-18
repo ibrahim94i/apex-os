@@ -6,6 +6,16 @@ from app.engines.indicator_engine import OHLCVBar
 from app.schemas import IndicatorSnapshotSchema, RegimeSnapshotSchema, RegimeType
 
 
+def get_adx_thresholds(volatility: float) -> tuple[float, float]:
+    """Return (trend_threshold, range_threshold) from ATR/price volatility."""
+    base = 20
+    if volatility < 0.005:
+        return base - 5, base - 10  # quiet market — more sensitive
+    if volatility > 0.015:
+        return base + 5, base  # violent market — less sensitive
+    return 25, 20  # normal
+
+
 @dataclass
 class RegimeConfig:
     adx_trend_threshold: float = 25.0
@@ -53,10 +63,18 @@ class RegimeEngine:
         trend_strength = self._calc_trend_strength(indicators)
         adx_value = indicators.adx or 0.0
 
+        current_price = bars[-1].close if bars else 0.0
+        if indicators.atr is not None and current_price > 0:
+            atr_volatility = indicators.atr / current_price
+        else:
+            atr_volatility = 0.01
+
+        adx_trend_threshold, adx_range_threshold = get_adx_thresholds(atr_volatility)
+
         if volatility_pct >= self.config.volatility_high_pct:
             regime = RegimeType.VOLATILE
             confidence = min(volatility_pct / (self.config.volatility_high_pct * 2), 1.0)
-        elif adx_value >= self.config.adx_trend_threshold:
+        elif adx_value >= adx_trend_threshold:
             if trend_strength > 0:
                 regime = RegimeType.TRENDING_UP
             elif trend_strength < 0:
@@ -64,9 +82,9 @@ class RegimeEngine:
             else:
                 regime = RegimeType.RANGING
             confidence = min(adx_value / 50.0, 1.0)
-        elif adx_value <= self.config.adx_range_threshold:
+        elif adx_value <= adx_range_threshold:
             regime = RegimeType.RANGING
-            confidence = 1.0 - (adx_value / self.config.adx_range_threshold)
+            confidence = 1.0 - (adx_value / adx_range_threshold)
         else:
             regime = RegimeType.UNKNOWN
             confidence = 0.3
