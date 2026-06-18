@@ -15,7 +15,7 @@ def get_adx_thresholds(volatility: float) -> tuple[float, float]:
     """Return (trend_threshold, range_threshold) from ATR/price volatility."""
     base = 20
     if volatility < 0.005:
-        return base - 5, base - 10  # quiet market — more sensitive
+        return 12, 8  # quiet market — more sensitive
     if volatility > 0.015:
         return base + 5, base  # violent market — less sensitive
     return 25, 20  # normal

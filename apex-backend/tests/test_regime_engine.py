@@ -55,7 +55,7 @@ def test_regime_ranging_low_adx() -> None:
 
 
 def test_get_adx_thresholds_quiet() -> None:
-    assert get_adx_thresholds(0.004) == (15.0, 10.0)
+    assert get_adx_thresholds(0.004) == (12.0, 8.0)
 
 
 def test_get_adx_thresholds_normal() -> None:
@@ -79,7 +79,7 @@ def test_regime_uses_dynamic_thresholds_quiet_market() -> None:
         )
         for _ in range(30)
     ]
-    # atr/price = 5/5000 = 0.001 -> quiet thresholds (15, 10); ADX 22 >= 15 -> trend
+    # atr/price EMA quiet -> thresholds (12, 8); ADX 22 >= 12 -> trend
     indicators = IndicatorSnapshotSchema(
         symbol="BTCUSDT",
         timestamp=datetime.now(timezone.utc),
