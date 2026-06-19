@@ -13,7 +13,11 @@ from app.config import settings
 from app.logging_config import logger
 from app.schemas import RegimeType, SignalDirection, TradingSignalSchema
 from app.schemas.agent import AgentConsensus, TeamDiscussionLLMOutput
+from app.schemas.snr import SNRSnapshotSchema
 from app.utils.price_zones import entry_zone_from_price
+
+INSIDE_ZONE_MAX_DISPLAY_CONFIDENCE = 0.60
+INSIDE_ZONE_WARNING_AR = "⚠️ السعر داخل منطقة دعم/مقاومة — تداول بحذر"
 
 BAGHDAD = ZoneInfo("Asia/Baghdad")
 
@@ -102,6 +106,42 @@ class TelegramNotifier:
         )
         return await self._send(text)
 
+    @staticmethod
+    def _normalize_snr_state(snr_state: str | None) -> str:
+        return (snr_state or "").lower().strip()
+
+    @staticmethod
+    def _display_confidence(collective_confidence: float, snr_state: str | None) -> float:
+        """Cap displayed confidence at 60% when price is inside an SNR zone."""
+        if TelegramNotifier._normalize_snr_state(snr_state) == "inside_zone":
+            return min(collective_confidence, INSIDE_ZONE_MAX_DISPLAY_CONFIDENCE)
+        return collective_confidence
+
+    @staticmethod
+    def _format_snr_levels(
+        snr: SNRSnapshotSchema | None,
+        entry_price: float,
+        decimals: int,
+    ) -> str:
+        if snr is None:
+            return ""
+        lines = ["\n📊 مستويات SNR:"]
+        if snr.resistance_1 is not None:
+            pts = abs(snr.resistance_1 - entry_price)
+            lines.append(
+                f"🔴 مقاومة: <code>{snr.resistance_1:.{decimals}f}</code> "
+                f"({pts:.{decimals}f} نقطة فوق الدخول)"
+            )
+        if snr.support_1 is not None:
+            pts = abs(entry_price - snr.support_1)
+            lines.append(
+                f"🟢 دعم: <code>{snr.support_1:.{decimals}f}</code> "
+                f"({pts:.{decimals}f} نقطة تحت الدخول)"
+            )
+        if len(lines) == 1:
+            return ""
+        return "\n".join(lines)
+
     def _format_team_discussion(self, discussion: TeamDiscussionLLMOutput) -> str:
         lines = ["\n<b>📋 ملخص نقاش الفريق</b>"]
         if discussion.discussion_summary:
@@ -124,6 +164,7 @@ class TelegramNotifier:
         signal: TradingSignalSchema,
         market_status_ar: str | None = None,
         consensus: AgentConsensus | None = None,
+        snr: SNRSnapshotSchema | None = None,
     ) -> bool:
         collective_confidence = (
             consensus.final_confidence if consensus is not None else signal.confidence
@@ -137,6 +178,8 @@ class TelegramNotifier:
         regime = REGIME_AR.get(signal.regime, signal.regime.value)
         ts = signal.timestamp.astimezone(BAGHDAD).strftime("%Y-%m-%d %H:%M")
         decimals = asset_cfg.price_decimals if asset_cfg else 2
+        snr_state = self._normalize_snr_state(signal.snr_state)
+        display_confidence = self._display_confidence(collective_confidence, signal.snr_state)
 
         if signal.entry_zone_low is not None and signal.entry_zone_high is not None:
             zone_low = signal.entry_zone_low
@@ -151,13 +194,16 @@ class TelegramNotifier:
         if signal.snr_explain_ar:
             text += f"🎯 سبب الإشارة: <b>{signal.snr_explain_ar}</b>\n"
         text += (
-            f"📈 الثقة الجماعية: <b>{collective_confidence * 100:.1f}%</b>\n"
+            f"📈 الثقة الجماعية: <b>{display_confidence * 100:.1f}%</b>\n"
             f"📍 منطقة الدخول: <code>{zone_low}</code> – <code>{zone_high}</code>\n"
             f"🛑 وقف الخسارة: <code>{signal.stop_loss}</code>\n"
             f"✅ هدف الربح: <code>{signal.take_profit}</code>\n"
             f"📈 حالة السوق: {regime}\n"
             f"⚠️ <b>ادخل لما يكون سعر MetaTrader داخل المنطقة</b>\n"
         )
+        text += self._format_snr_levels(snr, signal.entry_price, decimals)
+        if snr_state == "inside_zone":
+            text += f"\n{INSIDE_ZONE_WARNING_AR}\n"
         if market_status_ar:
             text += f"🕐 الجلسة: {market_status_ar}\n"
         if consensus and consensus.team_discussion:
@@ -177,6 +223,8 @@ class TelegramNotifier:
                 symbol=signal.symbol,
                 direction=signal.direction.value,
                 confidence=collective_confidence,
+                display_confidence=display_confidence,
+                snr_state=snr_state or None,
                 signal_confidence=signal.confidence,
             )
         return sent

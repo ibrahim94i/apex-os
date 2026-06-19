@@ -669,6 +669,7 @@ async def process_bar(raw_bar: dict[str, Any], *, skip_agents: bool = False) -> 
                     signal,
                     market_status_ar=market_status.schedule_ar if market_status.is_open else "مغلق",
                     consensus=agent_consensus,
+                    snr=snr_snapshot,
                 )
                 if tg_sent:
                     await trading_journal_service.record_telegram_signal(
