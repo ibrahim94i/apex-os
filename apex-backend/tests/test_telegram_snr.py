@@ -9,6 +9,7 @@ from app.schemas.agent import AgentConsensus
 from app.schemas.snr import SNRSnapshotSchema
 from app.services.telegram_notifier import (
     INSIDE_ZONE_WARNING_AR,
+    MACD_DIVERGENCE_WARNING_AR,
     TelegramNotifier,
 )
 
@@ -210,3 +211,195 @@ async def test_telegram_breakout_confirmed_keeps_original_confidence(
     assert sent
     assert "82.0%" in sent[0]
     assert INSIDE_ZONE_WARNING_AR not in sent[0]
+
+
+@pytest.mark.asyncio
+async def test_telegram_macd_divergence_shows_warning(monkeypatch: pytest.MonkeyPatch) -> None:
+    sent: list[str] = []
+
+    async def fake_send(text: str) -> bool:
+        sent.append(text)
+        return True
+
+    notifier = TelegramNotifier()
+    monkeypatch.setattr(notifier, "_send", fake_send)
+    monkeypatch.setattr("app.services.telegram_notifier.settings.telegram_bot_token", "test-token")
+    monkeypatch.setattr("app.services.telegram_notifier.settings.telegram_chat_id", "12345")
+
+    signal = TradingSignalSchema(
+        symbol="XAUUSD",
+        timestamp=datetime.now(timezone.utc),
+        direction=SignalDirection.SHORT,
+        confidence=0.70,
+        entry_price=4313.87,
+        entry_zone_low=4305.0,
+        entry_zone_high=4325.0,
+        stop_loss=4290.0,
+        take_profit=4350.0,
+        regime=RegimeType.TRENDING_DOWN,
+        degraded=True,
+        degradation_reason="MACD divergence",
+    )
+    await notifier.send_signal_alert(signal, consensus=_consensus(0.76), snr=_snr())
+
+    assert sent
+    assert MACD_DIVERGENCE_WARNING_AR in sent[0]
+
+
+@pytest.mark.asyncio
+async def test_telegram_no_macd_warning_without_degradation(monkeypatch: pytest.MonkeyPatch) -> None:
+    sent: list[str] = []
+
+    async def fake_send(text: str) -> bool:
+        sent.append(text)
+        return True
+
+    notifier = TelegramNotifier()
+    monkeypatch.setattr(notifier, "_send", fake_send)
+    monkeypatch.setattr("app.services.telegram_notifier.settings.telegram_bot_token", "test-token")
+    monkeypatch.setattr("app.services.telegram_notifier.settings.telegram_chat_id", "12345")
+
+    signal = TradingSignalSchema(
+        symbol="XAUUSD",
+        timestamp=datetime.now(timezone.utc),
+        direction=SignalDirection.SHORT,
+        confidence=0.82,
+        entry_price=4313.87,
+        entry_zone_low=4305.0,
+        entry_zone_high=4325.0,
+        stop_loss=4290.0,
+        take_profit=4350.0,
+        regime=RegimeType.TRENDING_DOWN,
+    )
+    await notifier.send_signal_alert(signal, consensus=_consensus(0.82), snr=_snr())
+
+    assert sent
+    assert MACD_DIVERGENCE_WARNING_AR not in sent[0]
+
+
+@pytest.mark.asyncio
+async def test_telegram_macd_divergence_shows_warning(monkeypatch: pytest.MonkeyPatch) -> None:
+    sent: list[str] = []
+
+    async def fake_send(text: str) -> bool:
+        sent.append(text)
+        return True
+
+    notifier = TelegramNotifier()
+    monkeypatch.setattr(notifier, "_send", fake_send)
+    monkeypatch.setattr("app.services.telegram_notifier.settings.telegram_bot_token", "test-token")
+    monkeypatch.setattr("app.services.telegram_notifier.settings.telegram_chat_id", "12345")
+
+    signal = TradingSignalSchema(
+        symbol="XAUUSD",
+        timestamp=datetime.now(timezone.utc),
+        direction=SignalDirection.SHORT,
+        confidence=0.70,
+        entry_price=4313.87,
+        entry_zone_low=4305.0,
+        entry_zone_high=4325.0,
+        stop_loss=4290.0,
+        take_profit=4350.0,
+        regime=RegimeType.TRENDING_DOWN,
+        degraded=True,
+        degradation_reason="MACD divergence",
+    )
+    await notifier.send_signal_alert(signal, consensus=_consensus(0.76), snr=_snr())
+
+    assert sent
+    assert MACD_DIVERGENCE_WARNING_AR in sent[0]
+
+
+@pytest.mark.asyncio
+async def test_telegram_no_macd_warning_without_degradation(monkeypatch: pytest.MonkeyPatch) -> None:
+    sent: list[str] = []
+
+    async def fake_send(text: str) -> bool:
+        sent.append(text)
+        return True
+
+    notifier = TelegramNotifier()
+    monkeypatch.setattr(notifier, "_send", fake_send)
+    monkeypatch.setattr("app.services.telegram_notifier.settings.telegram_bot_token", "test-token")
+    monkeypatch.setattr("app.services.telegram_notifier.settings.telegram_chat_id", "12345")
+
+    signal = TradingSignalSchema(
+        symbol="XAUUSD",
+        timestamp=datetime.now(timezone.utc),
+        direction=SignalDirection.SHORT,
+        confidence=0.82,
+        entry_price=4313.87,
+        entry_zone_low=4305.0,
+        entry_zone_high=4325.0,
+        stop_loss=4290.0,
+        take_profit=4350.0,
+        regime=RegimeType.TRENDING_DOWN,
+    )
+    await notifier.send_signal_alert(signal, consensus=_consensus(0.82), snr=_snr())
+
+    assert sent
+    assert MACD_DIVERGENCE_WARNING_AR not in sent[0]
+
+
+@pytest.mark.asyncio
+async def test_telegram_macd_divergence_shows_warning(monkeypatch: pytest.MonkeyPatch) -> None:
+    sent: list[str] = []
+
+    async def fake_send(text: str) -> bool:
+        sent.append(text)
+        return True
+
+    notifier = TelegramNotifier()
+    monkeypatch.setattr(notifier, "_send", fake_send)
+    monkeypatch.setattr("app.services.telegram_notifier.settings.telegram_bot_token", "test-token")
+    monkeypatch.setattr("app.services.telegram_notifier.settings.telegram_chat_id", "12345")
+
+    signal = TradingSignalSchema(
+        symbol="XAUUSD",
+        timestamp=datetime.now(timezone.utc),
+        direction=SignalDirection.SHORT,
+        confidence=0.70,
+        entry_price=4313.87,
+        entry_zone_low=4305.0,
+        entry_zone_high=4325.0,
+        stop_loss=4290.0,
+        take_profit=4350.0,
+        regime=RegimeType.TRENDING_DOWN,
+        degraded=True,
+        degradation_reason="MACD divergence",
+    )
+    await notifier.send_signal_alert(signal, consensus=_consensus(0.76), snr=_snr())
+
+    assert sent
+    assert MACD_DIVERGENCE_WARNING_AR in sent[0]
+
+
+@pytest.mark.asyncio
+async def test_telegram_no_macd_warning_without_degradation(monkeypatch: pytest.MonkeyPatch) -> None:
+    sent: list[str] = []
+
+    async def fake_send(text: str) -> bool:
+        sent.append(text)
+        return True
+
+    notifier = TelegramNotifier()
+    monkeypatch.setattr(notifier, "_send", fake_send)
+    monkeypatch.setattr("app.services.telegram_notifier.settings.telegram_bot_token", "test-token")
+    monkeypatch.setattr("app.services.telegram_notifier.settings.telegram_chat_id", "12345")
+
+    signal = TradingSignalSchema(
+        symbol="XAUUSD",
+        timestamp=datetime.now(timezone.utc),
+        direction=SignalDirection.SHORT,
+        confidence=0.82,
+        entry_price=4313.87,
+        entry_zone_low=4305.0,
+        entry_zone_high=4325.0,
+        stop_loss=4290.0,
+        take_profit=4350.0,
+        regime=RegimeType.TRENDING_DOWN,
+    )
+    await notifier.send_signal_alert(signal, consensus=_consensus(0.82), snr=_snr())
+
+    assert sent
+    assert MACD_DIVERGENCE_WARNING_AR not in sent[0]

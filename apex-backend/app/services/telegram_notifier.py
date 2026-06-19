@@ -18,6 +18,7 @@ from app.utils.price_zones import entry_zone_from_price
 
 INSIDE_ZONE_MAX_DISPLAY_CONFIDENCE = 0.60
 INSIDE_ZONE_WARNING_AR = "⚠️ السعر داخل منطقة دعم/مقاومة — تداول بحذر"
+MACD_DIVERGENCE_WARNING_AR = "⚠️ تحذير — MACD يعارض الاتجاه (زخم ضعيف)"
 
 BAGHDAD = ZoneInfo("Asia/Baghdad")
 
@@ -118,6 +119,10 @@ class TelegramNotifier:
         return collective_confidence
 
     @staticmethod
+    def _has_macd_divergence(degradation_reason: str | None) -> bool:
+        return bool(degradation_reason and "MACD divergence" in degradation_reason)
+
+    @staticmethod
     def _format_snr_levels(
         snr: SNRSnapshotSchema | None,
         entry_price: float,
@@ -204,6 +209,8 @@ class TelegramNotifier:
         text += self._format_snr_levels(snr, signal.entry_price, decimals)
         if snr_state == "inside_zone":
             text += f"\n{INSIDE_ZONE_WARNING_AR}\n"
+        if self._has_macd_divergence(signal.degradation_reason):
+            text += f"{MACD_DIVERGENCE_WARNING_AR}\n"
         if market_status_ar:
             text += f"🕐 الجلسة: {market_status_ar}\n"
         if consensus and consensus.team_discussion:
